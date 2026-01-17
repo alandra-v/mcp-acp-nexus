@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* oklch color palette from vibe-mockup.html */
+    --base-50: oklch(0.9867 0.0017 219.35);
+    --base-100: oklch(0.9701 0.0035 220.38);
+    --base-200: oklch(0.9292 0.0071 220.94);
+    --base-300: oklch(0.8695 0.0105 222.21);
+    --base-400: oklch(0.6386 0.0159 224.62);
+    --base-500: oklch(0.5541 0.0212 225.44);
+    --base-600: oklch(0.4463 0.0202 225.58);
+    --base-700: oklch(0.373 0.0183 225.41);
+    --base-800: oklch(0.2779 0.0162 226.51);
+    --base-900: oklch(0.21 0.0139 227.92);
+    --base-950: oklch(0.1324 0.0125 228.42);
+    --base-1000: oklch(0.0822 0.0116 228.77);
+
+    --radius: 0.625rem;
+
+    /* Status colors (oklch) */
+    --success: oklch(0.62 0.22 145);
+    --success-muted: oklch(0.68 0.18 145);
+    --success-bg: oklch(0.62 0.22 145 / 0.2);
+    --success-bg-hover: oklch(0.62 0.22 145 / 0.3);
+    --success-border: oklch(0.62 0.22 145 / 0.3);
+    --warning: oklch(0.75 0.15 85);
+    --error: oklch(0.50 0.18 25);
+    --error-muted: oklch(0.55 0.15 25);
+    --error-indicator: oklch(0.50 0.20 22);
+    --info: oklch(0.7 0.15 230);
+
+    /* Dark theme using oklch - only dark theme */
+    --background: var(--base-1000);
+    --foreground: var(--base-200);
+    --card: var(--base-950);
+    --card-foreground: var(--base-200);
+    --popover: var(--base-900);
+    --popover-foreground: var(--base-200);
+    --primary: var(--base-50);
+    --primary-foreground: var(--base-900);
+    --secondary: var(--base-800);
+    --secondary-foreground: var(--base-200);
+    --muted: var(--base-900);
+    --muted-foreground: var(--base-400);
+    --accent: var(--base-800);
+    --accent-foreground: var(--base-200);
+    --destructive: var(--error);
+    --destructive-foreground: var(--base-50);
+    --border: var(--base-800);
+    --border-subtle: oklch(0.2 0.01 228 / 0.5);
+    --input: var(--base-800);
+    --ring: var(--base-400);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    font-family: 'Nunito', system-ui, sans-serif;
+    @apply bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--base-700);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--base-600);
+  }
+}
+
+@layer utilities {
+  /* Font families */
+  .font-display {
+    font-family: 'Figtree', sans-serif;
+  }
+
+  .font-text {
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .font-brand {
+    font-family: 'Orbitron', sans-serif;
+  }
+
+  /* Smooth transitions */
+  .transition-smooth {
+    @apply transition-all duration-200 ease-out;
+  }
+}
+
+@layer components {
+  /* Shared card gradient backgrounds */
+  .card-gradient {
+    @apply bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)];
+  }
+
+  .card-gradient-dark {
+    @apply bg-gradient-to-br from-[oklch(0.16_0.012_228)] to-[oklch(0.13_0.01_228)];
+  }
+}

@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Linting
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (development/testing)
+*.log
+mcp_acp_extended_logs/
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Environment variables
+.env
+.env.local
+
+# User config directory (lives in OS-appropriate config directory , not in repo)
+
+# Backup files
+*.backup
+backups/
+
+# Python version managers
+.python-version
+
+# Additional caches
+.pytype/
+pip-wheel-metadata/
+
+# Security (certificates/keys)
+*.pem
+*.key
+*.crt
+
+# Additional test frameworks
+.hypothesis/
+.nox/
