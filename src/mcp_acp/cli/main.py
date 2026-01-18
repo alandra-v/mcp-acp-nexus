@@ -4,6 +4,7 @@ Defines the CLI group and registers all subcommands.
 
 Commands:
     approvals - Approval cache management (cache, clear)
+    audit     - Audit log integrity verification (verify, status)
     auth      - Authentication commands (login, logout, status)
     config    - Configuration management (show, path, edit, validate)
     init      - Initialize proxy configuration
@@ -28,6 +29,7 @@ import click
 from mcp_acp import __version__
 
 from .commands.approvals import approvals
+from .commands.audit import audit
 from .commands.auth import auth
 from .commands.config import config
 from .commands.init import init
@@ -102,6 +104,7 @@ def cli(ctx: click.Context, version: bool) -> None:
 
 # Register commands
 cli.add_command(approvals)
+cli.add_command(audit)
 cli.add_command(auth)
 cli.add_command(config)
 cli.add_command(init)
