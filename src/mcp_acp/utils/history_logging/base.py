@@ -27,6 +27,7 @@ from __future__ import annotations
 
 __all__ = [
     "HistoryLoggerConfig",
+    "configure_history_logging_hash_chain",
     "get_last_version_info_for_entity",
     "log_history_event",
     "log_entity_created",
@@ -37,7 +38,7 @@ __all__ = [
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from pydantic import BaseModel
 
@@ -51,6 +52,37 @@ from mcp_acp.utils.file_helpers import (
     get_next_version,
 )
 from mcp_acp.utils.logging.logging_helpers import serialize_audit_event
+
+if TYPE_CHECKING:
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
+
+
+# Module-level state for hash chain support
+# These are set by configure_history_logging_hash_chain() when the proxy starts.
+# CLI commands don't set these, so history logging works without hash chains.
+_history_state_manager: "IntegrityStateManager | None" = None
+_history_log_dir: Path | None = None
+
+
+def configure_history_logging_hash_chain(
+    state_manager: "IntegrityStateManager",
+    log_dir: Path,
+) -> None:
+    """Configure hash chain support for history logging.
+
+    Should be called by the proxy after creating the IntegrityStateManager.
+    This enables tamper-evident logging for config_history.jsonl and policy_history.jsonl.
+
+    CLI commands don't call this, so history logging continues to work without
+    hash chains (backwards compatibility).
+
+    Args:
+        state_manager: IntegrityStateManager for hash chain state.
+        log_dir: Base log directory for computing relative file keys.
+    """
+    global _history_state_manager, _history_log_dir
+    _history_state_manager = state_manager
+    _history_log_dir = log_dir
 
 
 @dataclass(frozen=True)
@@ -116,6 +148,10 @@ def log_history_event(
     - Fallback: system.jsonl
     - Last resort: emergency_audit.jsonl
 
+    When configure_history_logging_hash_chain() has been called (proxy context),
+    the logger will use HashChainFormatter for tamper-evident logging.
+    Otherwise (CLI context), the logger uses ISO8601Formatter.
+
     Args:
         history_path: Path to the history JSONL file.
         event: Pydantic event model instance.
@@ -124,7 +160,12 @@ def log_history_event(
     Returns:
         True if logged to primary, False if fallback was used.
     """
-    logger = get_history_logger(history_path, config.logger_name)
+    logger = get_history_logger(
+        history_path,
+        config.logger_name,
+        state_manager=_history_state_manager,
+        log_dir=_history_log_dir,
+    )
     log_data = serialize_audit_event(event)
 
     success, _ = log_with_fallback(

@@ -15,13 +15,16 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import NamedTuple, TypeVar
+from typing import TYPE_CHECKING, NamedTuple, TypeVar
 
 import click
 from pydantic import BaseModel, ValidationError
 
 from mcp_acp.constants import INITIAL_VERSION
 from mcp_acp.utils.logging.logger_setup import setup_jsonl_logger
+
+if TYPE_CHECKING:
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
 # Type variable for Pydantic models
 T = TypeVar("T", bound=BaseModel)
@@ -276,22 +279,56 @@ def get_last_version_info(
         return VersionInfo(None, None)
 
 
-def get_history_logger(history_path: Path, logger_name: str) -> logging.Logger:
+def get_history_logger(
+    history_path: Path,
+    logger_name: str,
+    state_manager: "IntegrityStateManager | None" = None,
+    log_dir: Path | None = None,
+) -> logging.Logger:
     """Get or create a logger for the given history path.
 
     Uses a cache to avoid creating duplicate loggers for the same path.
+    When state_manager is provided, uses HashChainFormatter for tamper-evident
+    logging. Otherwise uses ISO8601Formatter.
 
     Args:
         history_path: Path to history JSONL file.
         logger_name: Name for the logger (e.g., "mcp-acp.config.history").
+        state_manager: Optional IntegrityStateManager for hash chain support.
+        log_dir: Base log directory for computing relative file key.
+                 Required when state_manager is provided.
 
     Returns:
         logging.Logger: Configured logger instance for history logging.
     """
     if history_path not in _logger_cache:
-        _logger_cache[history_path] = setup_jsonl_logger(
+        logger = setup_jsonl_logger(
             logger_name,
             history_path,
             logging.INFO,
         )
+
+        # If state_manager provided, swap formatter to HashChainFormatter
+        if state_manager is not None and log_dir is not None:
+            from mcp_acp.security.integrity.hash_chain import HashChainFormatter
+
+            # Find the file handler
+            for handler in logger.handlers:
+                if isinstance(handler, logging.FileHandler):
+                    # Compute relative file key
+                    try:
+                        file_key = str(history_path.relative_to(log_dir))
+                    except ValueError:
+                        file_key = history_path.name
+
+                    formatter = HashChainFormatter(
+                        state_manager=state_manager,
+                        log_file_key=file_key,
+                        log_path=history_path,
+                    )
+                    handler.setFormatter(formatter)
+                    break
+
+        _logger_cache[history_path] = logger
+
     return _logger_cache[history_path]

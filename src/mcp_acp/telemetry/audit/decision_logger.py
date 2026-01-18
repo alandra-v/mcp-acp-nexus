@@ -26,6 +26,7 @@ from mcp_acp.security.integrity.emergency_audit import log_with_fallback
 
 if TYPE_CHECKING:
     from mcp_acp.pep.hitl import HITLOutcome
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
 from mcp_acp.telemetry.models.decision import DecisionEvent, MatchedRuleLog
 from mcp_acp.utils.logging.logger_setup import setup_failclosed_audit_logger
@@ -35,12 +36,16 @@ from mcp_acp.utils.logging.logging_helpers import serialize_audit_event
 def create_decision_logger(
     log_path: Path,
     shutdown_callback: Callable[[str], None],
+    state_manager: "IntegrityStateManager | None" = None,
+    log_dir: Path | None = None,
 ) -> logging.Logger:
     """Create logger for decision events with fail-closed integrity checking.
 
     Args:
         log_path: Path to decisions.jsonl file.
         shutdown_callback: Called if audit log integrity check fails.
+        state_manager: Optional IntegrityStateManager for hash chain support.
+        log_dir: Base log directory for computing relative file keys.
 
     Returns:
         Configured logger instance with fail-closed handler.
@@ -50,6 +55,8 @@ def create_decision_logger(
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,
+        state_manager=state_manager,
+        log_dir=log_dir,
     )
 
 

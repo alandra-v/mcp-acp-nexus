@@ -17,7 +17,10 @@ __all__ = [
 ]
 import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
 from fastmcp.server.middleware import Middleware
 from fastmcp.server.middleware.middleware import MiddlewareContext
@@ -306,6 +309,8 @@ def create_audit_logging_middleware(
     identity_provider: IdentityProvider,
     transport: str | None = None,
     config_version: str | None = None,
+    state_manager: "IntegrityStateManager | None" = None,
+    log_dir: Path | None = None,
 ) -> AuditLoggingMiddleware:
     """Create middleware for audit logging of MCP operations.
 
@@ -321,6 +326,8 @@ def create_audit_logging_middleware(
         identity_provider: Provider for user identity (local or OIDC).
         transport: Backend transport type ("stdio" or "streamablehttp").
         config_version: Current config version (from log_config_loaded).
+        state_manager: Optional IntegrityStateManager for hash chain support.
+        log_dir: Base log directory for computing relative file keys.
 
     Returns:
         AuditLoggingMiddleware: Configured middleware for the proxy.
@@ -330,6 +337,8 @@ def create_audit_logging_middleware(
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,
+        state_manager=state_manager,
+        log_dir=log_dir,
     )
 
     return AuditLoggingMiddleware(

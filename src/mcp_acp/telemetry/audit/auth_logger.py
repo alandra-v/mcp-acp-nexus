@@ -23,7 +23,10 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import Callable, Literal
+from typing import TYPE_CHECKING, Callable, Literal
+
+if TYPE_CHECKING:
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
 from mcp_acp.security.integrity.emergency_audit import log_with_fallback
 from mcp_acp.telemetry.models.audit import (
@@ -314,6 +317,8 @@ class AuthLogger:
 def create_auth_logger(
     log_path: Path,
     shutdown_callback: Callable[[str], None],
+    state_manager: "IntegrityStateManager | None" = None,
+    log_dir: Path | None = None,
 ) -> AuthLogger:
     """Create an auth logger with fail-closed behavior.
 
@@ -321,6 +326,8 @@ def create_auth_logger(
         log_path: Path to auth.jsonl (from get_auth_log_path()).
         shutdown_callback: Called if audit log integrity check fails.
                            This callback must handle the sync-to-async transition.
+        state_manager: Optional IntegrityStateManager for hash chain support.
+        log_dir: Base log directory for computing relative file keys.
 
     Returns:
         AuthLogger: Configured logger for authentication events.
@@ -330,5 +337,7 @@ def create_auth_logger(
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,
+        state_manager=state_manager,
+        log_dir=log_dir,
     )
     return AuthLogger(logger)

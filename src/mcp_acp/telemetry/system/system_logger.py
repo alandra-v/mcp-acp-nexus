@@ -17,10 +17,16 @@ from __future__ import annotations
 __all__ = [
     "ConsoleFormatter",
     "configure_system_logger_file",
+    "configure_system_logger_hash_chain",
     "get_system_logger",
     "is_transport_error",
     "log_backend_disconnect",
 ]
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
 import logging
 import sys
@@ -159,6 +165,63 @@ def configure_system_logger_file(log_path: Path) -> None:
     logger.addHandler(file_handler)
 
     _file_handler_configured = True
+
+
+def configure_system_logger_hash_chain(
+    state_manager: "IntegrityStateManager",
+    log_dir: Path,
+) -> None:
+    """Configure hash chain formatter on the system logger's file handler.
+
+    This function swaps the file handler's formatter from ISO8601Formatter to
+    HashChainFormatter for tamper-evident logging. Should be called after
+    configure_system_logger_file() and after the IntegrityStateManager is created.
+
+    Args:
+        state_manager: IntegrityStateManager for hash chain state.
+        log_dir: Base log directory for computing relative file key.
+
+    Raises:
+        RuntimeError: If file handler has not been configured yet.
+    """
+    if not _file_handler_configured:
+        raise RuntimeError(
+            "configure_system_logger_hash_chain() called before configure_system_logger_file()"
+        )
+
+    logger = get_system_logger()
+
+    # Find the file handler
+    file_handler: logging.FileHandler | None = None
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            file_handler = handler
+            break
+
+    if file_handler is None:
+        # This shouldn't happen if _file_handler_configured is True
+        raise RuntimeError("System logger file handler not found")
+
+    # Import here to avoid circular import at module load time
+    from mcp_acp.security.integrity.hash_chain import HashChainFormatter
+
+    # Get log path from handler
+    log_path = Path(file_handler.baseFilename)
+
+    # Compute relative file key
+    try:
+        file_key = str(log_path.relative_to(log_dir))
+    except ValueError:
+        # Path is not under log_dir - use filename
+        file_key = log_path.name
+
+    # Create and set hash chain formatter
+    formatter = HashChainFormatter(
+        state_manager=state_manager,
+        log_file_key=file_key,
+        log_path=log_path,
+    )
+    file_handler.setFormatter(formatter)
 
 
 # ============================================================================
