@@ -1,0 +1,411 @@
+{
+  "$defs": {
+    "DeviceHealthChecks": {
+      "description": "Results of individual device health checks.\n\nBoth checks are hard gates - failure blocks proxy startup.\n- disk_encryption: FileVault (macOS) - reduces impact of device theft/loss\n- device_integrity: SIP enabled (macOS) - ensures system not compromised\n\nResult meanings:\n- pass: Check succeeded, device is compliant\n- fail: Check succeeded, device is NOT compliant\n- unknown: Could not determine status (treated as unhealthy for Zero Trust)",
+      "properties": {
+        "disk_encryption": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ],
+          "title": "Disk Encryption",
+          "type": "string"
+        },
+        "device_integrity": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ],
+          "title": "Device Integrity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disk_encryption",
+        "device_integrity"
+      ],
+      "title": "DeviceHealthChecks",
+      "type": "object"
+    },
+    "OIDCInfo": {
+      "description": "Details about the OIDC/OAuth token and provider, for authentication logs.",
+      "properties": {
+        "issuer": {
+          "title": "Issuer",
+          "type": "string"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Id"
+        },
+        "audience": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Audience"
+        },
+        "scopes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scopes"
+        },
+        "token_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Type"
+        },
+        "token_exp": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Exp"
+        },
+        "token_iat": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Iat"
+        },
+        "token_expired": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token Expired"
+        }
+      },
+      "required": [
+        "issuer"
+      ],
+      "title": "OIDCInfo",
+      "type": "object"
+    },
+    "SubjectIdentity": {
+      "description": "Identity of the human user, derived from the OIDC token.",
+      "properties": {
+        "subject_id": {
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "subject_claims": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Claims"
+        }
+      },
+      "required": [
+        "subject_id"
+      ],
+      "title": "SubjectIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One authentication/authorization log entry (logs/audit/auth.jsonl).\n\nInspired by:\n  - OCSF Authentication (3002): token validation outcome, identity, IdP context\n  - OCSF Authorize Session (3003): session lifecycle (start/stop) tied to identity\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
+  "properties": {
+    "time": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 timestamp, added by formatter during serialization",
+      "title": "Time"
+    },
+    "sequence": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Monotonically increasing entry number, added by HashChainFormatter",
+      "title": "Sequence"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of previous entry, or 'GENESIS' for first entry",
+      "title": "Prev Hash"
+    },
+    "entry_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of this entry for chain verification",
+      "title": "Entry Hash"
+    },
+    "bound_session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bound Session Id"
+    },
+    "mcp_session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mcp Session Id"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
+    "event_type": {
+      "enum": [
+        "token_invalid",
+        "token_refreshed",
+        "token_refresh_failed",
+        "session_started",
+        "session_ended",
+        "device_health_failed"
+      ],
+      "title": "Event Type",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "Success",
+        "Failure"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "method": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Method"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubjectIdentity"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "oidc": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OIDCInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "device_checks": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeviceHealthChecks"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "end_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "normal",
+            "timeout",
+            "error",
+            "auth_expired",
+            "session_binding_violation"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "End Reason"
+    },
+    "error_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Type"
+    },
+    "error_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Message"
+    },
+    "details": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Details"
+    }
+  },
+  "required": [
+    "event_type",
+    "status"
+  ],
+  "title": "AuthEvent",
+  "type": "object"
+}

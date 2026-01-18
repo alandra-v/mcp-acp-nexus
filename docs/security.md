@@ -284,21 +284,33 @@ After any fallback, the proxy must shut down because the primary audit trail is 
 | Protected by policy | MCP tools cannot access log directory regardless of policy rules |
 | Correlation IDs | request_id and session_id link related events |
 
-**Not implemented** (potential future hardening):
-- Hash chain linking entries for tamper detection
-- CLI verification command to check log integrity (`mcp-acp logs verify`)
+**Hash Chain Integrity**: Audit logs use SHA-256 hash chains linking each entry to the previous. Detects deleted, inserted, reordered, or modified entries. Verify with `mcp-acp audit verify`. Verified automatically at startup (fails with exit code 10 if tampered).
+
+**Crash Recovery**: If the proxy crashes after saving state but before writing a log entry, startup verification fails with "hash mismatch". Run `mcp-acp audit repair` to reset state to match the actual log. This requires manual intervention to prevent attackers from silently deleting the last entry.
+
+**Limitation**: Hash chains are self-attesting. An attacker with write access to both logs AND `.integrity_state` can truncate logs undetected. Mitigate with remote syslog forwarding, append-only filesystem attributes, or external backups.
 
 ### OS-Level Append-Only Protection
 
-For maximum protection, enable OS-level append-only attributes on audit logs:
+Prevents modification even with root access—files can only be appended to.
 
-| OS | Command | Notes |
-|----|---------|-------|
-| Linux | `sudo chattr +a <path>/audit/*.jsonl` | Requires root |
-| macOS | `chflags uappnd <path>/audit/*.jsonl` | User-level; use `sappnd` for root-only |
-| Windows | Use ACLs or forward to SIEM | No direct equivalent |
+**Linux:**
+```bash
+sudo chattr +a ~/.mcp-acp-nexus/logs/mcp_acp_logs/audit/*.jsonl
+# Verify: lsattr shows 'a' flag
+# Remove: sudo chattr -a <path>
+```
 
-**Trade-off**: Append-only prevents log rotation. Remove attribute before rotating, re-apply after. Not enabled by default.
+**macOS:**
+```bash
+chflags uappend ~/.mcp-acp-nexus/logs/mcp_acp_logs/audit/*.jsonl
+# System-level (requires root to remove): sudo chflags sappend <path>
+# Remove: chflags nouappend <path>
+```
+
+**Windows:** No equivalent. Forward logs to SIEM instead.
+
+**Trade-offs:** Breaks log rotation (remove attribute first). Not supported on NFS/Docker volumes. New files need attribute re-applied. Not enabled by default.
 
 **Path Normalization Strategies**: Three different strategies are used for different security purposes:
 
@@ -431,7 +443,7 @@ On critical security failure, shutdown events are logged to multiple destination
 
 | Code | Meaning | Triggered By |
 |------|---------|--------------|
-| 10 | Audit log integrity failure | File deletion, replacement, or write failure |
+| 10 | Audit log integrity failure | File deletion, replacement, write failure, or hash chain tampering at startup |
 | 11 | Policy enforcement failure | Reserved for future use |
 | 12 | Identity verification failure | JWKS endpoint unreachable and cache expired |
 | 13 | Authentication error | No token in keychain, expired token that cannot be refreshed, invalid signature, OIDC issuer/audience validation failure |

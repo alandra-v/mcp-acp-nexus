@@ -1,0 +1,340 @@
+{
+  "$defs": {
+    "ArgumentsSummary": {
+      "description": "Summary of MCP request arguments (without logging full sensitive payloads).",
+      "properties": {
+        "redacted": {
+          "default": true,
+          "title": "Redacted",
+          "type": "boolean"
+        },
+        "body_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body Hash"
+        },
+        "payload_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payload Length"
+        }
+      },
+      "title": "ArgumentsSummary",
+      "type": "object"
+    },
+    "DurationInfo": {
+      "description": "Duration measurement for this MCP operation.\n\nMeasures total operation time from the proxy's perspective:\nfrom when the audit middleware receives the request until the\nresponse (or error) is ready to return to the client.\n\nThis includes:\n- Middleware processing overhead\n- Backend round-trip time (proxy \u2192 backend \u2192 proxy)\n- Response processing\n\nNote: We cannot measure client\u2192proxy network time (no client-side timing)\nor backend internal processing time (no backend instrumentation).",
+      "properties": {
+        "duration_ms": {
+          "description": "Total operation duration in milliseconds",
+          "title": "Duration Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "duration_ms"
+      ],
+      "title": "DurationInfo",
+      "type": "object"
+    },
+    "ResponseSummary": {
+      "description": "Summary of MCP response metadata (without logging full payloads).\n\nCaptures response size and hash for forensic analysis without\nstoring potentially sensitive response content.",
+      "properties": {
+        "size_bytes": {
+          "description": "Response payload size in bytes",
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "body_hash": {
+          "description": "SHA256 hash of response payload",
+          "title": "Body Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "size_bytes",
+        "body_hash"
+      ],
+      "title": "ResponseSummary",
+      "type": "object"
+    },
+    "SubjectIdentity": {
+      "description": "Identity of the human user, derived from the OIDC token.",
+      "properties": {
+        "subject_id": {
+          "title": "Subject Id",
+          "type": "string"
+        },
+        "subject_claims": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject Claims"
+        }
+      },
+      "required": [
+        "subject_id"
+      ],
+      "title": "SubjectIdentity",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One MCP operation log entry (audit/operations.jsonl).\n\nCaptures security-relevant information about each MCP operation\n(who did what, when, with what outcome).\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
+  "properties": {
+    "time": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 timestamp, added by formatter during serialization",
+      "title": "Time"
+    },
+    "sequence": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Monotonically increasing entry number, added by HashChainFormatter",
+      "title": "Sequence"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of previous entry, or 'GENESIS' for first entry",
+      "title": "Prev Hash"
+    },
+    "entry_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of this entry for chain verification",
+      "title": "Entry Hash"
+    },
+    "session_id": {
+      "title": "Session Id",
+      "type": "string"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "method": {
+      "title": "Method",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Code"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "subject": {
+      "$ref": "#/$defs/SubjectIdentity"
+    },
+    "client_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Client Id"
+    },
+    "backend_id": {
+      "title": "Backend Id",
+      "type": "string"
+    },
+    "transport": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transport"
+    },
+    "tool_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tool Name"
+    },
+    "file_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "File Path"
+    },
+    "file_extension": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "File Extension"
+    },
+    "source_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Path"
+    },
+    "dest_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dest Path"
+    },
+    "arguments_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArgumentsSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "config_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Config Version"
+    },
+    "duration": {
+      "$ref": "#/$defs/DurationInfo"
+    },
+    "response_summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResponseSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "session_id",
+    "request_id",
+    "method",
+    "status",
+    "subject",
+    "backend_id",
+    "duration"
+  ],
+  "title": "OperationEvent",
+  "type": "object"
+}

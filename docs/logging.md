@@ -145,6 +145,10 @@ Simple text breadcrumb for crash popup display (overwritten each shutdown).
 
 - **JSONL**: One JSON object per line
 - **ISO 8601 timestamps**: Milliseconds precision, UTC (e.g., `2025-12-03T10:30:45.123Z`)
+- **Hash chain fields** (audit and system logs):
+  - `sequence`: Monotonically increasing entry number
+  - `prev_hash`: SHA-256 of previous entry (or `"GENESIS"` for first)
+  - `entry_hash`: SHA-256 of this entry
 
 ---
 
@@ -194,7 +198,7 @@ Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https:/
 
 **Blocking I/O**: All audit logging is synchronous with `fsync`. This guarantees the log is on disk before continuing (~1-5ms latency).
 
-**Audit log integrity**: Log files are protected by per-write checks (device ID + inode verification) and background monitoring (every 30 seconds). On integrity failure, the proxy shuts down.
+**Audit log integrity**: Protected by hash chains (tamper detection), per-write inode checks (file replacement detection), and background monitoring (every 30 seconds). Verify with `mcp-acp audit verify`. On integrity failure, the proxy shuts down.
 
 **Atomic writes**: Config and policy history use atomic writes to prevent corruption.
 

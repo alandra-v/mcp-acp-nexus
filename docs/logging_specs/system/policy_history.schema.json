@@ -1,0 +1,235 @@
+{
+  "additionalProperties": false,
+  "description": "One policy history log entry (logs/system/policy_history.jsonl).\n\nCaptures the full lifecycle of policy configuration:\n- policy_created: Initial policy creation via CLI init\n- policy_loaded: Policy loaded at proxy startup\n- policy_updated: Policy updated (e.g., rule added/removed)\n- manual_change_detected: File modified outside of proxy (checksum mismatch)\n- policy_validation_failed: Invalid JSON or schema validation error\n\nThe design mirrors ConfigHistoryEvent for consistency.\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
+  "properties": {
+    "time": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 timestamp, added by formatter during serialization",
+      "title": "Time"
+    },
+    "sequence": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Monotonically increasing entry number (proxy context only)",
+      "title": "Sequence"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of previous entry, or 'GENESIS' (proxy context only)",
+      "title": "Prev Hash"
+    },
+    "entry_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of this entry (proxy context only)",
+      "title": "Entry Hash"
+    },
+    "event": {
+      "enum": [
+        "policy_created",
+        "policy_loaded",
+        "policy_updated",
+        "manual_change_detected",
+        "policy_validation_failed"
+      ],
+      "title": "Event",
+      "type": "string"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "previous_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Previous Version"
+    },
+    "change_type": {
+      "enum": [
+        "initial_creation",
+        "startup_load",
+        "rule_update",
+        "manual_edit",
+        "validation_error"
+      ],
+      "title": "Change Type",
+      "type": "string"
+    },
+    "component": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Component"
+    },
+    "policy_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Path"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
+    },
+    "checksum": {
+      "title": "Checksum",
+      "type": "string"
+    },
+    "snapshot_format": {
+      "const": "json",
+      "default": "json",
+      "title": "Snapshot Format",
+      "type": "string"
+    },
+    "snapshot": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Snapshot"
+    },
+    "rule_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Id"
+    },
+    "rule_effect": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Effect"
+    },
+    "rule_conditions": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Conditions"
+    },
+    "error_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Type"
+    },
+    "error_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Message"
+    }
+  },
+  "required": [
+    "event",
+    "policy_version",
+    "change_type",
+    "checksum"
+  ],
+  "title": "PolicyHistoryEvent",
+  "type": "object"
+}

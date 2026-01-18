@@ -1,0 +1,214 @@
+{
+  "additionalProperties": false,
+  "description": "One configuration history log entry (logs/system/config_history.jsonl).\n\nCaptures the full lifecycle of configuration:\n- config_created: Initial configuration creation via CLI init\n- config_updated: Configuration updated via CLI commands\n- config_loaded: Configuration loaded at proxy startup\n- manual_change_detected: File modified outside of CLI (checksum mismatch)\n- config_validation_failed: Invalid JSON or schema validation error\n\nThe design follows general security logging and configuration\nmanagement guidance (e.g., OWASP logging recommendations,\nNIST SP 800-128 for security-focused configuration management,\nand NIST SP 800-92 / CIS Control 8 for audit log management),\nby recording when configuration changes occur, which version\nis active, and a snapshot sufficient to reconstruct the effective\nconfiguration during later analysis.\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
+  "properties": {
+    "time": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 timestamp, added by formatter during serialization",
+      "title": "Time"
+    },
+    "sequence": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Monotonically increasing entry number (proxy context only)",
+      "title": "Sequence"
+    },
+    "prev_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of previous entry, or 'GENESIS' (proxy context only)",
+      "title": "Prev Hash"
+    },
+    "entry_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 hash of this entry (proxy context only)",
+      "title": "Entry Hash"
+    },
+    "event": {
+      "enum": [
+        "config_created",
+        "config_updated",
+        "config_loaded",
+        "manual_change_detected",
+        "config_validation_failed"
+      ],
+      "title": "Event",
+      "type": "string"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "config_version": {
+      "title": "Config Version",
+      "type": "string"
+    },
+    "previous_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Previous Version"
+    },
+    "change_type": {
+      "enum": [
+        "initial_load",
+        "cli_update",
+        "manual_edit",
+        "startup_load",
+        "validation_error"
+      ],
+      "title": "Change Type",
+      "type": "string"
+    },
+    "component": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Component"
+    },
+    "config_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Config Path"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
+    },
+    "checksum": {
+      "title": "Checksum",
+      "type": "string"
+    },
+    "snapshot_format": {
+      "const": "json",
+      "default": "json",
+      "title": "Snapshot Format",
+      "type": "string"
+    },
+    "snapshot": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Snapshot"
+    },
+    "changes": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Changes"
+    },
+    "error_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Type"
+    },
+    "error_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Message"
+    }
+  },
+  "required": [
+    "event",
+    "config_version",
+    "change_type",
+    "checksum"
+  ],
+  "title": "ConfigHistoryEvent",
+  "type": "object"
+}
