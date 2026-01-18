@@ -1,87 +1,106 @@
 # mcp-acp-nexus Implementation Progress
 
-## Stage 3: Multi-Proxy Architecture
+## Multi-Proxy Architecture
 
 Multi-proxy architecture with manager daemon, credential isolation, and enhanced audit security.
 
 **Scope**: STDIO client mode only. Claude Desktop spawns proxies and owns their lifecycle. Manager observes and coordinates but does not control proxy lifecycle.
 
-**Design Document:** [docs/design/multi.md](docs/design/multi.md)
-
 ---
 
 ## Phase 1: Audit Log Security
 
-**Status: Not Started**
+**Status: Complete**
 
 Hash chain implementation and between-run protection for audit log integrity.
 
-- [ ] **Hash chain implementation**
-  - Add `prev_hash` and `sequence` fields to audit entries
-  - Compute SHA-256 hash of each entry for next entry to reference
-  - Detect deleted/inserted/reordered entries via chain breaks
+- [x] **Hash chain implementation**
+  - Add `prev_hash`, `sequence`, `entry_hash` fields to audit entries
+  - SHA-256 hash with deterministic JSON serialization
+  - Detect deleted/inserted/reordered/modified entries via chain breaks
+  - `HashChainFormatter` replaces `ISO8601Formatter` for protected logs
 
-- [ ] **Between-run protection**
-  - Create `.audit_state` file storing last_hash, last_sequence, last_inode
-  - Save state after each audit write
-  - Verify state on proxy startup (detect file swap between runs)
-  - Critical shutdown if verification fails
+- [x] **Between-run protection**
+  - `.integrity_state` file stores last_hash, last_sequence, last_inode, last_dev per file
+  - Atomic save (temp file + rename) after each audit write
+  - Startup verification detects file swap, hash mismatch, missing files, content tampering
+  - Hard fail (exit code 10) if verification fails - manual repair required
 
-- [ ] **AuditHealthMonitor enhancement**
-  - Add hash chain verification to existing 30s health check loop
-  - Trigger shutdown on chain break detection
+- [x] **AuditHealthMonitor enhancement**
+  - Verify last 10 entries in 30s health check loop
+  - Uses `partial_chain=True` for tail verification
+  - Triggers shutdown on chain break detection
 
-- [ ] **Verification CLI command**
-  - `mcp-acp-nexus audit verify [--proxy <name>]`
-  - Validate hash chain integrity
-  - Check sequence monotonicity
-  - Verify time ordering
-  - Report any breaks or anomalies
+- [x] **CLI commands**
+  - `mcp-acp audit verify [--file <name>] [--verbose]` - verify integrity
+  - `mcp-acp audit status` - show chain protection status
+  - `mcp-acp audit repair [--file <name>] [--yes]` - manual state repair after crash
+  - Exit codes: 0=passed, 1=tampering, 2=unable to verify
 
-- [ ] **Tests**
-  - Unit tests for hash chain logic
-  - Tests for between-run state persistence
-  - Tests for tampering detection
+- [x] **Tests**
+  - 48 tests covering hash chain logic, state persistence, tampering detection, manual repair
+
+- [x] **Documentation**
+  - Security limitations documented (self-attesting, no external attestation)
+  - Mitigations documented (remote syslog, append-only filesystem, backups)
+  - OS-level append-only instructions (Linux `chattr`, macOS `chflags`)
 
 ---
 
 ## Phase 2: Storage Backend Abstraction
 
-**Status: Not Started**
+**Status: Deferred (No Functional Gap)**
 
-Abstract storage for persistence and future multi-host support using py-key-value-aio.
+### Analysis
 
-- [ ] **KeyValueStore interface**
-  - Define async interface matching py-key-value-aio
-  - `get()`, `set()`, `delete()` with TTL support
-  - Key serialization helpers
+The `key_value.aio` library is already installed as a FastMCP dependency and provides:
 
-- [ ] **Refactor ApprovalStore**
-  - Accept `KeyValueStore` in constructor
-  - Replace in-memory dict with store calls
-  - Maintain TTL-based expiration via store TTL
+```python
+from key_value.aio.protocols.key_value import AsyncKeyValue  # Interface
+from key_value.aio.stores.memory import MemoryStore          # In-memory
+from key_value.aio.stores.disk import DiskStore              # File-based
+from key_value.aio.stores.redis import RedisStore            # Distributed
+# Also: dynamodb, mongodb, elasticsearch, memcached, rocksdb, valkey, vault
+```
 
-- [ ] **Refactor SessionManager**
-  - Accept `KeyValueStore` in constructor
-  - Replace in-memory dict with store calls
-  - Session serialization/deserialization
+**Interface**: `get`, `get_many`, `put`, `put_many`, `delete`, `delete_many`, `ttl`, `ttl_many`
 
-- [ ] **MemoryStore implementation**
-  - In-memory backend (current behavior)
-  - Used for development and single-proxy
+### Why This Phase Is Deferred
 
-- [ ] **DiskStore implementation**
-  - File-based persistent storage
-  - Survives proxy restarts
-  - Used for single-host multi-proxy
+**ApprovalStore and SessionManager don't need persistence:**
 
-- [ ] **Backend selection configuration**
-  - Add `storage.backend` to config (memory, disk)
-  - Add `storage.path` for disk backend
-  - Factory function to create appropriate store
+| Component | Reset on Restart? | Reasoning |
+|-----------|-------------------|-----------|
+| ApprovalStore | ✅ Correct | Short TTL (minutes). Re-approval on restart is conservative security. |
+| SessionManager | ✅ Correct | STDIO mode - connection resets anyway. Session state is moot. |
 
-- [ ] **Tests**
-  - Unit tests for each store implementation
+**Multi-proxy doesn't change this:**
+- Approvals are per-proxy (different backends, different tools) - no sharing needed
+- Sessions are per-proxy - no sharing needed
+- Manager tracks registered proxies in-memory (proxies re-register on connect)
+- OIDC tokens stored in OS keychain, not KV store
+
+### When To Revisit
+
+Introduce storage abstraction if:
+1. **HTTP client mode** (out of scope) - Manager would own sessions for external HTTP clients
+2. **Multi-host deployment** (out of scope) - Redis backend for distributed state
+3. **UI session persistence** - Nice-to-have convenience, not security requirement
+
+### If Implemented Later
+
+The infrastructure already exists. Refactoring would be:
+
+```python
+class ApprovalStore:
+    def __init__(self, store: AsyncKeyValue | None = None):
+        self._store = store or MemoryStore()
+
+    async def store(self, key, value):
+        await self._store.put(key, value, ttl=self._ttl_seconds)
+```
+
+No new dependencies needed - just wire up existing library.
 
 ---
 
@@ -90,6 +109,26 @@ Abstract storage for persistence and future multi-host support using py-key-valu
 **Status: Not Started**
 
 Manager daemon that serves UI and observes STDIO proxies (does not own lifecycle).
+
+### Architecture Overview
+
+```
+Browser ←─HTTP─→ Manager (serves UI, routes requests)
+                    ↓ UDS
+              ┌─────┴─────┐
+           Proxy A     Proxy B
+              ↓           ↓
+          Backend A   Backend B
+```
+
+**Manager role**: Thin routing/aggregation layer. NOT a controller.
+
+| Component | Responsibility |
+|-----------|----------------|
+| Manager | Serves UI, routes API requests, aggregates SSE events |
+| Proxy | Policy enforcement, HITL handling, audit logging, backend connection (unchanged) |
+
+### Tasks
 
 - [ ] **Manager daemon architecture**
   - Separate daemon process
@@ -105,14 +144,43 @@ Manager daemon that serves UI and observes STDIO proxies (does not own lifecycle
 
 - [ ] **Manager configuration**
   - `manager.json` for manager-level settings
-  - UI port, auth (shared OIDC), storage backend
+  - UI port, auth (shared OIDC)
   - Separate from per-proxy config
 
-- [ ] **Proxy registration**
-  - Proxy connects to manager via UDS on startup
+- [ ] **Proxy registration + SSE events**
+  - Proxy connects to Manager via UDS on startup
   - Sends: proxy_id, proxy_name, instance_id, config summary
-  - Manager tracks registered proxies
-  - Proxy deregisters on shutdown (or manager detects disconnect)
+  - **Same UDS connection stays open for SSE events**
+  - Proxy writes events to UDS → Manager forwards to browser
+  - Manager detects disconnect when UDS closes
+
+- [ ] **API structure**
+  Manager-level endpoints (no routing):
+  ```
+  GET  /api/proxies              → list all proxies + status
+  GET  /api/events               → aggregated SSE stream (all proxies)
+  GET  /api/manager/status       → manager health
+  ```
+
+  Proxy-routed endpoints (Manager forwards via UDS):
+  ```
+  GET  /api/proxy/{name}/approvals
+  POST /api/proxy/{name}/approvals/{id}/approve
+  GET  /api/proxy/{name}/policy
+  POST /api/proxy/{name}/policy/reload
+  GET  /api/proxy/{name}/config
+  GET  /api/proxy/{name}/incidents
+  ```
+
+- [ ] **SSE event format**
+  ```json
+  {
+    "proxy_id": "filesystem",
+    "event": "approval_requested",
+    "data": { ... }
+  }
+  ```
+  Single aggregated stream. UI filters by `proxy_id` client-side.
 
 - [ ] **UI ownership transfer**
   - Manager serves web UI (not proxy)
@@ -121,9 +189,9 @@ Manager daemon that serves UI and observes STDIO proxies (does not own lifecycle
   - Config changes show "Restart client to apply" message
 
 - [ ] **Manager CLI commands**
-  - `mcp-acp-nexus manager start` - Start manager daemon
-  - `mcp-acp-nexus manager stop` - Stop manager daemon
-  - `mcp-acp-nexus manager status` - Show manager + all proxies status
+  - `mcp-acp manager start` - Start manager daemon
+  - `mcp-acp manager stop` - Stop manager daemon
+  - `mcp-acp manager status` - Show manager + all proxies status
 
 - [ ] **Port conflict handling**
   - Clear error if UI port in use
@@ -134,6 +202,8 @@ Manager daemon that serves UI and observes STDIO proxies (does not own lifecycle
   - Manager lifecycle tests
   - Proxy registration/deregistration tests
   - Auto-start tests
+  - API routing tests
+  - SSE aggregation tests
 
 ---
 
@@ -145,7 +215,7 @@ Multiple STDIO proxies registering with manager, with credential isolation.
 
 - [ ] **Per-proxy directory structure**
   ```
-  ~/.mcp-acp-nexus/
+  ~/.mcp-acp/
   ├── manager.json
   ├── proxies/
   │   ├── filesystem/
@@ -181,16 +251,16 @@ Multiple STDIO proxies registering with manager, with credential isolation.
   - Manager broadcasts token updates to connected proxies
 
 - [ ] **Proxy CLI commands**
-  - `mcp-acp-nexus proxy list` - List all configured proxies
-  - `mcp-acp-nexus proxy add [--name, --backend]` - Add new proxy config
-  - `mcp-acp-nexus proxy remove <name>` - Remove proxy config
-  - `mcp-acp-nexus proxy show <name>` - Show proxy config
+  - `mcp-acp proxy list` - List all configured proxies
+  - `mcp-acp proxy add [--name, --backend]` - Add new proxy config
+  - `mcp-acp proxy remove <name>` - Remove proxy config
+  - `mcp-acp proxy show <name>` - Show proxy config
   - Note: No start/stop/restart commands (client owns lifecycle)
 
 - [ ] **Per-proxy policy/config commands**
-  - `mcp-acp-nexus proxy config <name> show`
-  - `mcp-acp-nexus proxy policy <name> show`
-  - `mcp-acp-nexus proxy policy <name> reload`
+  - `mcp-acp proxy config <name> show`
+  - `mcp-acp proxy policy <name> show`
+  - `mcp-acp proxy policy <name> reload`
 
 - [ ] **Login/logout flow updates**
   - Login: Manager handles OIDC, distributes tokens to proxies
@@ -214,6 +284,7 @@ UI enhancements for multi-proxy observation (no lifecycle control).
   - List all registered proxies
   - Show status indicator (connected/disconnected)
   - Show backend info
+  - Show stats per proxy (requests count, median response time)
   - No start/stop buttons (client owns lifecycle)
   - "Add New" button (creates config, user must configure client)
 
@@ -273,12 +344,12 @@ Proxy deletion with audit trail preservation and recovery support.
   - Write README.txt with deletion metadata and recovery instructions
 
 - [ ] **Purge command**
-  - `mcp-acp-nexus proxy purge <archive_name>` - Permanently delete archived data
+  - `mcp-acp proxy purge <archive_name>` - Permanently delete archived data
   - Confirmation prompt before deletion
-  - `mcp-acp-nexus proxy delete <name> --purge` - Direct hard delete
+  - `mcp-acp proxy delete <name> --purge` - Direct hard delete
 
 - [ ] **List deleted proxies**
-  - `mcp-acp-nexus proxy list --deleted`
+  - `mcp-acp proxy list --deleted`
 
 - [ ] **Delete safety checks**
   - Warn if proxy currently connected
@@ -365,10 +436,12 @@ Basic latency measurement for evaluation (extended testing out of scope).
     }
     ```
 
-- [ ] **UI display (StatsSection)**
-  - Show requests count and median response time
+- [ ] **UI display**
+  - Show stats on each proxy card in list view
+  - Requests count and median response time per proxy
   - `~` prefix indicates median (typical experience)
-  - Example: "Requests: 1,234  Response: ~45ms"
+  - Example: "1,234 requests  ~45ms"
+  - Disconnected proxies show stats from last session
 
 - [ ] **Benchmark script for thesis**
   - Compare direct backend vs proxied latency
@@ -384,8 +457,7 @@ Basic latency measurement for evaluation (extended testing out of scope).
 
 ## Stage 3 Completion Criteria
 
-- [ ] Audit logs protected by hash chain with between-run verification
-- [ ] Storage backends abstracted (memory, disk)
+- [x] Audit logs protected by hash chain with between-run verification
 - [ ] Manager daemon serves UI and observes proxies
 - [ ] Multiple STDIO proxies can register with manager
 - [ ] Credential isolation per proxy
@@ -423,3 +495,5 @@ See [docs/design/multi.md](docs/design/multi.md) "Storage Backends" section for:
 - RedisStore for multi-host deployment
 - DynamoDB / MongoDB backends
 - Distributed approval coordination
+
+Note: `key_value.aio` library (FastMCP dependency) already provides Redis, DynamoDB, MongoDB backends. No new dependencies needed - just configuration.
