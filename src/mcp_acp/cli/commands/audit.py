@@ -51,8 +51,7 @@ def _load_config() -> AppConfig:
 
     if not config_path.exists():
         raise click.ClickException(
-            f"Configuration not found at {config_path}\n"
-            "Run 'mcp-acp init' to create configuration."
+            f"Configuration not found at {config_path}\n" "Run 'mcp-acp init' to create configuration."
         )
 
     try:

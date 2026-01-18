@@ -125,8 +125,7 @@ class IntegrityStateManager:
             version = data.get("version", 0)
             if version != self.STATE_VERSION:
                 raise ValueError(
-                    f"Unsupported state file version: {version} "
-                    f"(expected {self.STATE_VERSION})"
+                    f"Unsupported state file version: {version} " f"(expected {self.STATE_VERSION})"
                 )
 
             # Load file states
@@ -157,9 +156,7 @@ class IntegrityStateManager:
         with self._lock:
             data = {
                 "version": self.STATE_VERSION,
-                "updated_at": datetime.now(timezone.utc)
-                .isoformat()
-                .replace("+00:00", "Z"),
+                "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 "files": {key: asdict(state) for key, state in self._states.items()},
             }
 

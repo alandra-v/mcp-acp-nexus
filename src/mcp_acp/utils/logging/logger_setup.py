@@ -159,6 +159,7 @@ def setup_failclosed_audit_logger(
     file_handler.setLevel(log_level)
 
     # Use HashChainFormatter when state_manager is provided
+    formatter: logging.Formatter
     if state_manager is not None and log_dir is not None:
         from mcp_acp.security.integrity.hash_chain import HashChainFormatter
 

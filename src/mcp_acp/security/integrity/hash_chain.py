@@ -140,9 +140,7 @@ class HashChainFormatter(logging.Formatter):
             )
 
             # Get chain state
-            prev_hash, sequence = self._state_manager.get_chain_state(
-                self._log_file_key
-            )
+            prev_hash, sequence = self._state_manager.get_chain_state(self._log_file_key)
 
             # Handle dict messages (structured logging)
             if isinstance(record.msg, dict):
@@ -270,8 +268,7 @@ def verify_chain_integrity(
                 # Verify sequence is monotonic
                 if prev_sequence is not None and sequence != prev_sequence + 1:
                     errors.append(
-                        f"Line {line_num}: Sequence gap. "
-                        f"Expected {prev_sequence + 1}, found {sequence}"
+                        f"Line {line_num}: Sequence gap. " f"Expected {prev_sequence + 1}, found {sequence}"
                     )
 
                 # Verify computed hash matches stored hash
@@ -288,8 +285,7 @@ def verify_chain_integrity(
                 # Check time ordering (warning only)
                 if prev_time is not None and timestamp is not None and timestamp < prev_time:
                     warnings.append(
-                        f"Line {line_num}: Time regression. "
-                        f"Current={timestamp}, previous={prev_time}"
+                        f"Line {line_num}: Time regression. " f"Current={timestamp}, previous={prev_time}"
                     )
 
                 # Update state for next iteration
@@ -381,15 +377,13 @@ def verify_chain_from_lines(
             # First entry in full chain should have GENESIS
             # Skip for partial chains (tail verification)
             errors.append(
-                f"Line {line_num}: First entry should have prev_hash='GENESIS', "
-                f"found '{prev_hash}'"
+                f"Line {line_num}: First entry should have prev_hash='GENESIS', " f"found '{prev_hash}'"
             )
 
         # Verify sequence is monotonic
         if prev_sequence is not None and sequence != prev_sequence + 1:
             errors.append(
-                f"Line {line_num}: Sequence gap. "
-                f"Expected {prev_sequence + 1}, found {sequence}"
+                f"Line {line_num}: Sequence gap. " f"Expected {prev_sequence + 1}, found {sequence}"
             )
 
         # Verify computed hash matches stored hash
@@ -406,8 +400,7 @@ def verify_chain_from_lines(
         # Check time ordering (warning only)
         if prev_time is not None and timestamp is not None and timestamp < prev_time:
             warnings.append(
-                f"Line {line_num}: Time regression. "
-                f"Current={timestamp}, previous={prev_time}"
+                f"Line {line_num}: Time regression. " f"Current={timestamp}, previous={prev_time}"
             )
 
         # Update state for next iteration

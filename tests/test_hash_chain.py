@@ -109,9 +109,7 @@ class TestHashChainFormatter:
         return path
 
     @pytest.fixture
-    def formatter(
-        self, state_manager: IntegrityStateManager, log_path: Path
-    ) -> HashChainFormatter:
+    def formatter(self, state_manager: IntegrityStateManager, log_path: Path) -> HashChainFormatter:
         """Create a formatter."""
         return HashChainFormatter(
             state_manager=state_manager,
@@ -119,9 +117,7 @@ class TestHashChainFormatter:
             log_path=log_path,
         )
 
-    def test_first_entry_has_genesis_prev_hash(
-        self, formatter: HashChainFormatter
-    ) -> None:
+    def test_first_entry_has_genesis_prev_hash(self, formatter: HashChainFormatter) -> None:
         """First entry should have prev_hash='GENESIS'."""
         record = logging.LogRecord(
             name="test",
@@ -139,9 +135,7 @@ class TestHashChainFormatter:
         assert entry["prev_hash"] == "GENESIS"
         assert entry["sequence"] == 1
 
-    def test_subsequent_entry_references_previous_hash(
-        self, formatter: HashChainFormatter
-    ) -> None:
+    def test_subsequent_entry_references_previous_hash(self, formatter: HashChainFormatter) -> None:
         """Second entry should reference first entry's hash."""
         # First entry
         record1 = logging.LogRecord(
@@ -172,9 +166,7 @@ class TestHashChainFormatter:
         assert entry2["prev_hash"] == entry1["entry_hash"]
         assert entry2["sequence"] == 2
 
-    def test_sequence_increments_monotonically(
-        self, formatter: HashChainFormatter
-    ) -> None:
+    def test_sequence_increments_monotonically(self, formatter: HashChainFormatter) -> None:
         """Sequence numbers should be 1, 2, 3, ..."""
         sequences = []
 
@@ -284,9 +276,7 @@ class TestHashChainFormatter:
         assert entry["time"].endswith("Z")
         assert "T" in entry["time"]
 
-    def test_thread_safety(
-        self, state_manager: IntegrityStateManager, temp_log_dir: Path
-    ) -> None:
+    def test_thread_safety(self, state_manager: IntegrityStateManager, temp_log_dir: Path) -> None:
         """Concurrent formatting maintains chain integrity."""
         log_path = temp_log_dir / "audit" / "concurrent.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)

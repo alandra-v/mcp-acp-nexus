@@ -81,9 +81,7 @@ class TestIntegrityStateManager:
         expected = temp_log_dir / ".integrity_state"
         assert state_manager.state_file_path == expected
 
-    def test_get_chain_state_returns_genesis_when_empty(
-        self, state_manager: IntegrityStateManager
-    ) -> None:
+    def test_get_chain_state_returns_genesis_when_empty(self, state_manager: IntegrityStateManager) -> None:
         """First call to get_chain_state returns GENESIS."""
         prev_hash, sequence = state_manager.get_chain_state("audit/test.jsonl")
 
@@ -113,9 +111,7 @@ class TestIntegrityStateManager:
         assert prev_hash == "hash123"
         assert sequence == 2  # Next sequence
 
-    def test_save_and_load_state(
-        self, state_manager: IntegrityStateManager, temp_log_dir: Path
-    ) -> None:
+    def test_save_and_load_state(self, state_manager: IntegrityStateManager, temp_log_dir: Path) -> None:
         """State persists across save/load cycle."""
         # Create a log file
         log_path = temp_log_dir / "audit" / "test.jsonl"
@@ -139,9 +135,7 @@ class TestIntegrityStateManager:
         assert prev_hash == "hash456"
         assert sequence == 6
 
-    def test_load_state_handles_missing_file(
-        self, state_manager: IntegrityStateManager
-    ) -> None:
+    def test_load_state_handles_missing_file(self, state_manager: IntegrityStateManager) -> None:
         """load_state works when state file doesn't exist."""
         # Should not raise
         state_manager.load_state()
@@ -170,9 +164,7 @@ class TestIntegrityStateManager:
         with pytest.raises(ValueError, match="Unsupported state file version"):
             state_manager.load_state()
 
-    def test_save_state_atomic_write(
-        self, state_manager: IntegrityStateManager, temp_log_dir: Path
-    ) -> None:
+    def test_save_state_atomic_write(self, state_manager: IntegrityStateManager, temp_log_dir: Path) -> None:
         """save_state writes atomically (no partial writes)."""
         # Create a log file
         log_path = temp_log_dir / "audit" / "test.jsonl"
@@ -195,9 +187,7 @@ class TestIntegrityStateManager:
         assert data["version"] == 1
         assert "audit/test.jsonl" in data["files"]
 
-    def test_has_state_for_file(
-        self, state_manager: IntegrityStateManager, temp_log_dir: Path
-    ) -> None:
+    def test_has_state_for_file(self, state_manager: IntegrityStateManager, temp_log_dir: Path) -> None:
         """has_state_for_file returns True after update."""
         log_path = temp_log_dir / "audit" / "test.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,9 +204,7 @@ class TestIntegrityStateManager:
 
         assert state_manager.has_state_for_file("audit/test.jsonl") is True
 
-    def test_get_all_file_keys(
-        self, state_manager: IntegrityStateManager, temp_log_dir: Path
-    ) -> None:
+    def test_get_all_file_keys(self, state_manager: IntegrityStateManager, temp_log_dir: Path) -> None:
         """get_all_file_keys returns all tracked files."""
         # Create log files
         for name in ["audit/a.jsonl", "audit/b.jsonl", "system/c.jsonl"]:

@@ -66,8 +66,7 @@ def _load_config() -> AppConfig:
 
     if not config_path.exists():
         raise click.ClickException(
-            f"Configuration not found at {config_path}\n"
-            "Run 'mcp-acp init' to create configuration."
+            f"Configuration not found at {config_path}\n" "Run 'mcp-acp init' to create configuration."
         )
 
     try:
@@ -196,9 +195,7 @@ def login(no_browser: bool) -> None:
     except DeviceFlowExpiredError:
         click.echo()
         click.echo()
-        raise click.ClickException(
-            "Authentication timed out. Please run 'mcp-acp auth login' again."
-        )
+        raise click.ClickException("Authentication timed out. Please run 'mcp-acp auth login' again.")
 
     except DeviceFlowDeniedError:
         click.echo()
