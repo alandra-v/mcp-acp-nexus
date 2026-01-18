@@ -61,6 +61,7 @@ from mcp_acp.pep import create_context_middleware, create_enforcement_middleware
 from mcp_acp.pips.auth import SessionManager
 from mcp_acp.security import create_identity_provider, SessionRateTracker
 from mcp_acp.security.posture import DeviceHealthMonitor, check_device_health
+from mcp_acp.security.integrity import IntegrityStateManager
 from mcp_acp.security.integrity.audit_handler import verify_audit_writable
 from mcp_acp.security.integrity.audit_monitor import AuditHealthMonitor
 from mcp_acp.security.shutdown import ShutdownCoordinator, sync_emergency_shutdown
@@ -75,8 +76,10 @@ from mcp_acp.telemetry.debug.logging_proxy_client import (
 from mcp_acp.utils.logging.logging_context import get_session_id
 from mcp_acp.telemetry.system.system_logger import (
     configure_system_logger_file,
+    configure_system_logger_hash_chain,
     get_system_logger,
 )
+from mcp_acp.utils.history_logging.base import configure_history_logging_hash_chain
 from mcp_acp.utils.config import (
     get_audit_log_path,
     get_auth_log_path,
@@ -181,6 +184,35 @@ def create_proxy(
     verify_audit_writable(config_history_path)
     verify_audit_writable(policy_history_path)
 
+    # Create integrity state manager for tamper-evident hash chains
+    # This must happen after verify_audit_writable (files exist) but before loggers are created
+    log_dir = get_log_dir(config)
+    integrity_manager = IntegrityStateManager(log_dir)
+    integrity_manager.load_state()
+
+    # Configure hash chain on system logger (already has file handler from configure_system_logger_file)
+    configure_system_logger_hash_chain(integrity_manager, log_dir)
+
+    # Configure hash chain for history loggers (config_history.jsonl, policy_history.jsonl)
+    configure_history_logging_hash_chain(integrity_manager, log_dir)
+
+    # Verify hash chain integrity on startup (Zero Trust - hard fail if compromised)
+    # This detects log tampering that occurred while proxy was stopped
+    verification = integrity_manager.verify_on_startup(
+        [
+            audit_path,
+            decisions_path,
+            auth_log_path,
+            system_log_path,
+            config_history_path,
+            policy_history_path,
+        ]
+    )
+    if not verification.success:
+        # Aggregate all errors into a single message
+        error_details = "; ".join(verification.errors)
+        raise AuditFailure(f"Audit log integrity verification failed: {error_details}")
+
     # Run device health check (hard gate - proxy won't start if unhealthy)
     # Zero Trust: device posture must be verified before accepting any requests
     device_health = check_device_health()
@@ -194,7 +226,7 @@ def create_proxy(
     # =========================================================================
 
     # Create shutdown coordinator for fail-closed behavior
-    log_dir = get_log_dir(config)
+    # Note: log_dir was already set above during integrity verification
     system_logger = get_system_logger()
     shutdown_coordinator = ShutdownCoordinator(log_dir, system_logger)
 
@@ -244,10 +276,18 @@ def create_proxy(
         ],
         shutdown_coordinator=shutdown_coordinator,
         check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
+        integrity_state_manager=integrity_manager,
+        log_dir=log_dir,
     )
 
     # Create auth logger for authentication event audit trail
-    auth_logger = create_auth_logger(auth_log_path, on_critical_failure)
+    # Pass integrity_manager for hash chain support on auth.jsonl
+    auth_logger = create_auth_logger(
+        auth_log_path,
+        on_critical_failure,
+        state_manager=integrity_manager,
+        log_dir=log_dir,
+    )
 
     # Wire auth logger to shutdown coordinator for session_ended logging on fatal errors
     # This ensures session end is logged even when os._exit() bypasses finally blocks
@@ -799,6 +839,8 @@ def create_proxy(
         identity_provider=identity_provider,
         transport=transport_type,
         config_version=config_version,
+        state_manager=integrity_manager,
+        log_dir=log_dir,
     )
     proxy.add_middleware(audit_middleware)
 
@@ -841,6 +883,8 @@ def create_proxy(
         shutdown_callback=on_critical_failure,
         policy_version=policy_version,
         rate_tracker=rate_tracker,
+        state_manager=integrity_manager,
+        log_dir=log_dir,
     )
     proxy.add_middleware(enforcement_middleware)
 

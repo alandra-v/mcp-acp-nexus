@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from mcp_acp.config import HITLConfig
     from mcp_acp.manager.state import ProxyState, SSEEventType
     from mcp_acp.pdp.policy import PolicyConfig
+    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
 _system_logger = get_system_logger()
 
@@ -866,6 +867,8 @@ def create_enforcement_middleware(
     policy_version: str | None = None,
     rate_tracker: SessionRateTracker | None = None,
     engine: PolicyEngineProtocol | None = None,
+    state_manager: "IntegrityStateManager | None" = None,
+    log_dir: Path | None = None,
 ) -> PolicyEnforcementMiddleware:
     """Create policy enforcement middleware.
 
@@ -885,11 +888,18 @@ def create_enforcement_middleware(
         rate_tracker: Optional rate tracker for detecting runaway loops.
         engine: Optional custom policy engine. If None, uses built-in PolicyEngine.
             External engines (Casbin, OPA) can be injected here.
+        state_manager: Optional IntegrityStateManager for hash chain support.
+        log_dir: Base log directory for computing relative file keys.
 
     Returns:
         Configured PolicyEnforcementMiddleware.
     """
-    logger = create_decision_logger(log_path, shutdown_callback)
+    logger = create_decision_logger(
+        log_path,
+        shutdown_callback,
+        state_manager=state_manager,
+        log_dir=log_dir,
+    )
 
     return PolicyEnforcementMiddleware(
         policy=policy,
