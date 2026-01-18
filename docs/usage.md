@@ -7,7 +7,7 @@ MCP Client (Claude Desktop / MCP Inspector)
     │
     │ starts
     ▼
-mcp-acp-nexus proxy
+mcp-acp proxy
     │
     │ spawns (STDIO) or connects to (HTTP)
     ▼
@@ -20,7 +20,7 @@ The MCP client starts the proxy, and the proxy spawns/connects to the backend se
 
 ## CLI Commands
 
-Use `mcp-acp-nexus <command> --help` for detailed options.
+Use `mcp-acp <command> --help` for detailed options.
 
 | Command | Description |
 |---------|-------------|
@@ -78,8 +78,8 @@ nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```json
 {
   "mcpServers": {
-    "mcp-acp-nexus": {
-      "command": "/full/path/to/mcp-acp-nexus",
+    "mcp-acp": {
+      "command": "/full/path/to/mcp-acp",
       "args": ["start"]
     }
   }
@@ -91,8 +91,8 @@ To disable the web UI (uses system dialogs for HITL instead):
 ```json
 {
   "mcpServers": {
-    "mcp-acp-nexus": {
-      "command": "/full/path/to/mcp-acp-nexus",
+    "mcp-acp": {
+      "command": "/full/path/to/mcp-acp",
       "args": ["start", "--no-ui"]
     }
   }
@@ -102,8 +102,8 @@ To disable the web UI (uses system dialogs for HITL instead):
 **Find the full path:**
 
 ```bash
-which mcp-acp-nexus
-# Or if in a venv: /path/to/venv/bin/mcp-acp-nexus
+which mcp-acp
+# Or if in a venv: /path/to/venv/bin/mcp-acp
 ```
 
 ### Step 3: Restart Claude Desktop
@@ -121,20 +121,20 @@ killall Claude
 
 ```bash
 # 1. Initialize (interactive wizard)
-mcp-acp-nexus init
+mcp-acp init
 
 # 2. Authenticate
-mcp-acp-nexus auth login
+mcp-acp auth login
 
 # 3. Test manually (optional)
-mcp-acp-nexus start
+mcp-acp start
 ```
 
 ### Non-interactive setup
 
 ```bash
-mcp-acp-nexus init --non-interactive \
-  --log-dir ~/.mcp-acp-nexus \
+mcp-acp init --non-interactive \
+  --log-dir ~/.mcp-acp \
   --server-name filesystem \
   --connection-type http \
   --url http://localhost:3000/mcp \

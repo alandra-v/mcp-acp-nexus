@@ -38,7 +38,7 @@ Logging supports the Zero Trust security model with three primary goals:
 
 ## Configuration
 
-Log directory is specified via `--log-dir` during `mcp-acp-nexus init` (recommended: `~/.mcp-acp-nexus`).
+Log directory is specified via `--log-dir` during `mcp-acp init` (recommended: `~/.mcp-acp`).
 
 **Log level options:**
 - `info` (default): Audit and system logs only

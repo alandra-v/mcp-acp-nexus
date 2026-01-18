@@ -286,7 +286,7 @@ After any fallback, the proxy must shut down because the primary audit trail is 
 
 **Not implemented** (potential future hardening):
 - Hash chain linking entries for tamper detection
-- CLI verification command to check log integrity (`mcp-acp-nexus logs verify`)
+- CLI verification command to check log integrity (`mcp-acp logs verify`)
 
 ### OS-Level Append-Only Protection
 

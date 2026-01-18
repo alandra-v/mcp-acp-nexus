@@ -19,8 +19,8 @@ Authentication is **mandatory** - the proxy refuses to start without valid crede
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ FIRST TIME SETUP (one-time)                                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 1. User runs: mcp-acp-nexus init  (configures OIDC)                      │
-│ 2. User runs: mcp-acp-nexus auth login                                   │
+│ 1. User runs: mcp-acp init  (configures OIDC)                            │
+│ 2. User runs: mcp-acp auth login                                         │
 │    └── Browser opens → login page                                           │
 │    └── User authenticates (username/password, SSO, MFA)                     │
 │    └── Token stored in OS Keychain                                          │
@@ -48,12 +48,12 @@ Authentication is **mandatory** - the proxy refuses to start without valid crede
 ## CLI Commands
 
 ```bash
-mcp-acp-nexus auth login              # Authenticate via browser
-mcp-acp-nexus auth login --no-browser # Display code only, don't open browser
-mcp-acp-nexus auth status             # Check authentication state
-mcp-acp-nexus auth status --json      # Output as JSON
-mcp-acp-nexus auth logout             # Clear stored credentials
-mcp-acp-nexus auth logout --federated # Also log out of IdP in browser
+mcp-acp auth login              # Authenticate via browser
+mcp-acp auth login --no-browser # Display code only, don't open browser
+mcp-acp auth status             # Check authentication state
+mcp-acp auth status --json      # Output as JSON
+mcp-acp auth logout             # Clear stored credentials
+mcp-acp auth logout --federated # Also log out of IdP in browser
 ```
 
 ### auth login
@@ -248,7 +248,7 @@ The proxy emits an SSE event (`auth_session_expiring`) 15 minutes before token e
 
 1. Proxy emits SSE event: `token_refresh_failed`
 2. Popup notification: "Authentication expired"
-3. User runs: `mcp-acp-nexus auth login`
+3. User runs: `mcp-acp auth login`
 4. User restarts Claude Desktop
 
 ---

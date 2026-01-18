@@ -4,14 +4,26 @@
 
 The proxy is **CLI-first** — it runs fully standalone without any web interface, and all functionality is available through command-line tools. See [Usage](usage.md) for CLI commands.
 
-The web UI is an **optional add-on** for users who prefer a graphical interface for monitoring and approvals. However, it introduces additional attack surface (an HTTP server on port 8765). For security-sensitive environments, disable it entirely.
+The web UI is an **optional add-on** for users who prefer a graphical interface for monitoring and approvals. It runs on localhost with multiple hardening layers: Host header validation, Origin checks, CSRF protection, token authentication, and Private Network Access headers. For minimal attack surface, you can disable the UI entirely.
+
+---
+
+## Accessing the UI
+
+The UI is enabled by default and starts automatically with the proxy:
+
+```
+http://localhost:8765
+```
+
+The UI is accessible without login for viewing. However, **approving HITL requests requires OIDC authentication** (see Features → HITL Approval Requirements).
 
 ---
 
 ## Disabling the UI
 
 ```bash
-mcp-acp-nexus start --no-ui
+mcp-acp start --no-ui
 ```
 
 Or in Claude Desktop config:
@@ -19,8 +31,8 @@ Or in Claude Desktop config:
 ```json
 {
   "mcpServers": {
-    "mcp-acp-nexus": {
-      "command": "/path/to/mcp-acp-nexus",
+    "mcp-acp": {
+      "command": "/path/to/mcp-acp",
       "args": ["start", "--no-ui"]
     }
   }
@@ -31,18 +43,6 @@ When disabled:
 - No HTTP server runs (port 8765 not opened)
 - HITL approvals use native system dialogs (osascript on macOS)
 - All functionality remains available via CLI
-
----
-
-## Accessing the UI
-
-When enabled (the default), the UI starts automatically with the proxy:
-
-```
-http://localhost:8765
-```
-
-The UI is accessible without login for viewing. However, **approving HITL requests requires OIDC authentication** (see Features → HITL Approval Requirements).
 
 ---
 

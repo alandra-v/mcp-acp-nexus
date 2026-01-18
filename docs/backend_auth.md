@@ -26,7 +26,7 @@ mTLS (two-way):
 
 ### Configuration
 
-mTLS is configured during `mcp-acp-nexus init` when an HTTPS backend is detected:
+mTLS is configured during `mcp-acp init` when an HTTPS backend is detected:
 
 ```json
 {
@@ -81,7 +81,7 @@ If validation fails, proxy refuses to start.
 | Critical | < 7 days remaining | Critical warning |
 | Expired | Past expiry date | Proxy refuses to start |
 
-Check status: `mcp-acp-nexus auth status`
+Check status: `mcp-acp auth status`
 
 ### Converting Certificate Formats
 

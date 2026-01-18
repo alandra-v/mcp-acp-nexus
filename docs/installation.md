@@ -73,8 +73,8 @@ uv tool upgrade mcp-acp-nexus
 # Make sure venv is activated
 source venv/bin/activate
 
-mcp-acp-nexus --version
-# mcp-acp-nexus 0.1.0
+mcp-acp --version
+# mcp-acp 0.1.0
 ```
 
 ## MCP Backend Servers

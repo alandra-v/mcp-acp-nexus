@@ -4,18 +4,18 @@
 
 ## How to Configure
 
-Configuration is created via the `mcp-acp-nexus init` command:
+Configuration is created via the `mcp-acp init` command:
 
 ```bash
 # Interactive setup (recommended)
-mcp-acp-nexus init
+mcp-acp init
 
 # Non-interactive setup
-mcp-acp-nexus init --non-interactive \
+mcp-acp init --non-interactive \
   --oidc-issuer https://your-tenant.auth0.com \
   --oidc-client-id your-client-id \
   --oidc-audience your-api-audience \
-  --log-dir ~/.mcp-acp-nexus \
+  --log-dir ~/.mcp-acp \
   --server-name filesystem \
   --connection-type stdio \
   --command npx \
@@ -35,20 +35,20 @@ To manage existing configuration:
 
 ```bash
 # View current config
-mcp-acp-nexus config show
-mcp-acp-nexus config show --json    # Machine-readable format
+mcp-acp config show
+mcp-acp config show --json    # Machine-readable format
 
 # Show file location
-mcp-acp-nexus config path
+mcp-acp config path
 
 # Edit via CLI (validates after save)
-mcp-acp-nexus config edit
+mcp-acp config edit
 
 # Or edit manually
 
 # Validate config file
-mcp-acp-nexus config validate
-mcp-acp-nexus config validate --path /path/to/config.json  # Validate alternate file
+mcp-acp config validate
+mcp-acp config validate --path /path/to/config.json  # Validate alternate file
 ```
 
 **No hot reload**: Changes require proxy restart.
@@ -57,9 +57,9 @@ mcp-acp-nexus config validate --path /path/to/config.json  # Validate alternate 
 
 | Event | Description |
 |-------|-------------|
-| `config_created` | Initial creation via `mcp-acp-nexus init` |
+| `config_created` | Initial creation via `mcp-acp init` |
 | `config_loaded` | Loaded at proxy startup |
-| `config_updated` | Updated via `mcp-acp-nexus config edit` |
+| `config_updated` | Updated via `mcp-acp config edit` |
 | `manual_change_detected` | File modified outside of CLI (detected on next load) |
 | `config_validation_failed` | Invalid JSON or schema validation error |
 
