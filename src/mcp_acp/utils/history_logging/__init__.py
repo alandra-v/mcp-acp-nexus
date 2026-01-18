@@ -31,6 +31,7 @@ from mcp_acp.utils.history_logging.config_logger import (
     log_config_loaded,
     log_config_updated,
     log_config_validation_failed,
+    log_startup_error,
 )
 
 # Note: Policy functions not imported here to avoid circular imports with pdp
@@ -48,4 +49,5 @@ __all__ = [
     "log_config_loaded",
     "log_config_updated",
     "log_config_validation_failed",
+    "log_startup_error",
 ]

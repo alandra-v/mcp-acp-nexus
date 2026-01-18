@@ -11,6 +11,7 @@ Logs configuration lifecycle events to config_history.jsonl:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ __all__ = [
     "log_config_loaded",
     "log_config_updated",
     "log_config_validation_failed",
+    "log_startup_error",
 ]
 
 
@@ -50,7 +52,7 @@ _CONFIG_LOGGER_CONFIG = HistoryLoggerConfig(
     path_field="config_path",
     entity_name="Configuration",
     entity_name_lower="config",
-    logger_name="mcp-acp-nexus.config.history",
+    logger_name="mcp-acp.config.history",
     event_class=ConfigHistoryEvent,
     compute_checksum=compute_config_checksum,
     created_change_type="initial_load",
@@ -260,3 +262,53 @@ def log_config_validation_failed(
         component,
         source,
     )
+
+
+def log_startup_error(
+    bootstrap_log_path: Path,
+    event: str,
+    error_message: str,
+    error_type: str | None = None,
+    exit_code: int | None = None,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Log a startup error to bootstrap.jsonl.
+
+    Used for startup failures that prevent the proxy from starting:
+    - Config/cert not found
+    - Backend connection failures
+    - Authentication errors
+    - Device health failures
+    - Audit failures
+    - General startup errors
+
+    Args:
+        bootstrap_log_path: Path to bootstrap.jsonl.
+        event: Event type (e.g., "config_not_found", "auth_expired").
+        error_message: Human-readable error message.
+        error_type: Exception type name (e.g., "FileNotFoundError").
+        exit_code: Process exit code if applicable.
+        context: Additional context data.
+    """
+    entry: dict[str, Any] = {
+        "time": datetime.now(timezone.utc).isoformat(),
+        "event": event,
+        "error_message": error_message,
+        "component": "cli",
+        "source": "cli_start",
+    }
+
+    if error_type:
+        entry["error_type"] = error_type
+    if exit_code is not None:
+        entry["exit_code"] = exit_code
+    if context:
+        entry["context"] = context
+
+    try:
+        bootstrap_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with bootstrap_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        # Best-effort logging - don't fail startup due to logging errors
+        pass

@@ -1,4 +1,4 @@
-"""Start command for mcp-acp-nexus CLI.
+"""Start command for mcp-acp CLI.
 
 Starts the proxy server for manual testing.
 """
@@ -30,6 +30,7 @@ from mcp_acp.utils.config import (
 from mcp_acp.utils.history_logging import (
     log_config_loaded,
     log_config_validation_failed as log_config_validation_failed_fn,
+    log_startup_error,
 )
 
 # Bootstrap log filename (used when config is invalid and log_dir unavailable)
@@ -48,6 +49,7 @@ def start(no_ui: bool) -> None:
     This command is useful for manual testing.
     """
     config_path = get_config_path()
+    bootstrap_log_path = config_path.parent / BOOTSTRAP_LOG_FILENAME
 
     try:
         # Load configuration
@@ -79,7 +81,7 @@ def start(no_ui: bool) -> None:
         )
 
         # Show startup info (transport shown after detection)
-        click.echo(f"mcp-acp-nexus v{__version__}", err=True)
+        click.echo(f"mcp-acp v{__version__}", err=True)
         click.echo(f"Config version: {config_version}", err=True)
         click.echo(f"Policy version: {policy_version}", err=True)
         if config_manual_changed:
@@ -137,6 +139,13 @@ def start(no_ui: bool) -> None:
         error_msg = str(e).lower()
         # Distinguish between config not found vs mTLS cert not found
         if "mtls" in error_msg or "certificate" in error_msg or "cert" in error_msg:
+            log_startup_error(
+                bootstrap_log_path,
+                event="mtls_cert_not_found",
+                error_message=str(e),
+                error_type="FileNotFoundError",
+                exit_code=1,
+            )
             show_startup_error_popup(
                 title="MCP ACP",
                 message="mTLS certificate not found.",
@@ -145,14 +154,21 @@ def start(no_ui: bool) -> None:
             )
             click.echo("\n" + style_error(f"Error: mTLS certificate not found: {e}"), err=True)
         else:
+            log_startup_error(
+                bootstrap_log_path,
+                event="config_not_found",
+                error_message=str(e),
+                error_type="FileNotFoundError",
+                exit_code=1,
+            )
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Configuration not found.",
-                detail="Run in terminal:\n  mcp-acp-nexus init\n\nThen restart your MCP client.",
+                detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
                 backoff=True,
             )
             click.echo("\n" + style_error("Error: Configuration not found."), err=True)
-            click.echo("Run 'mcp-acp-nexus init' to create a configuration.", err=True)
+            click.echo("Run 'mcp-acp init' to create a configuration.", err=True)
         sys.exit(1)
 
     except ValueError as e:
@@ -163,7 +179,6 @@ def start(no_ui: bool) -> None:
 
         # Log validation failure to bootstrap log (before user's log_dir is available)
         try:
-            bootstrap_log_path = config_path.parent / BOOTSTRAP_LOG_FILENAME
             if is_policy_error:
                 log_policy_validation_failed(
                     bootstrap_log_path,
@@ -216,6 +231,13 @@ def start(no_ui: bool) -> None:
         sys.exit(1)
 
     except TimeoutError as e:
+        log_startup_error(
+            bootstrap_log_path,
+            event="backend_timeout",
+            error_message=str(e),
+            error_type="TimeoutError",
+            exit_code=1,
+        )
         show_startup_error_popup(
             title="MCP ACP",
             message="Backend connection timed out.",
@@ -229,6 +251,13 @@ def start(no_ui: bool) -> None:
         # Check for SSL-specific errors
         error_msg = str(e).lower()
         if "ssl" in error_msg or "certificate" in error_msg:
+            log_startup_error(
+                bootstrap_log_path,
+                event="ssl_error",
+                error_message=str(e),
+                error_type="ConnectionError",
+                exit_code=1,
+            )
             show_startup_error_popup(
                 title="MCP ACP",
                 message="SSL/TLS error.",
@@ -237,6 +266,13 @@ def start(no_ui: bool) -> None:
             )
             click.echo(style_error(f"Error: SSL/TLS error: {e}"), err=True)
         else:
+            log_startup_error(
+                bootstrap_log_path,
+                event="backend_connection_failed",
+                error_message=str(e),
+                error_type="ConnectionError",
+                exit_code=1,
+            )
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Backend connection failed.",
@@ -247,6 +283,13 @@ def start(no_ui: bool) -> None:
         sys.exit(1)
 
     except AuditFailure as e:
+        log_startup_error(
+            bootstrap_log_path,
+            event="audit_failure",
+            error_message=str(e),
+            error_type="AuditFailure",
+            exit_code=AuditFailure.exit_code,
+        )
         show_startup_error_popup(
             title="MCP ACP",
             message="Audit log failure.",
@@ -261,50 +304,85 @@ def start(no_ui: bool) -> None:
         error_msg = str(e).lower()
         if "not configured" in error_msg:
             # Auth section missing from config - need to run init
+            log_startup_error(
+                bootstrap_log_path,
+                event="auth_not_configured",
+                error_message=str(e),
+                error_type="AuthenticationError",
+                exit_code=AuthenticationError.exit_code,
+            )
             # Terminal output FIRST (so user sees it immediately)
             click.echo("\n" + style_error("Error: Authentication not configured."), err=True)
-            click.echo("Run 'mcp-acp-nexus init' to configure authentication.", err=True)
+            click.echo("Run 'mcp-acp init' to configure authentication.", err=True)
             # Popup AFTER (for MCP client users who can't see terminal)
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Authentication not configured.",
-                detail="Run in terminal:\n  mcp-acp-nexus init\n\nThen restart your MCP client.",
+                detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
                 backoff=True,
             )
         elif "not authenticated" in error_msg or "no token" in error_msg or "token not found" in error_msg:
             # Token not found in keychain - need to login
+            log_startup_error(
+                bootstrap_log_path,
+                event="not_authenticated",
+                error_message=str(e),
+                error_type="AuthenticationError",
+                exit_code=AuthenticationError.exit_code,
+            )
             click.echo("\n" + style_error("Error: Not authenticated."), err=True)
-            click.echo("Run 'mcp-acp-nexus auth login' to authenticate.", err=True)
+            click.echo("Run 'mcp-acp auth login' to authenticate.", err=True)
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Not authenticated.",
-                detail="Run in terminal:\n  mcp-acp-nexus auth login\n\nThen restart your MCP client.",
+                detail="Run in terminal:\n  mcp-acp auth login\n\nThen restart your MCP client.",
                 backoff=True,
             )
         elif "expired" in error_msg:
             # Token expired and refresh failed - need to re-login
+            log_startup_error(
+                bootstrap_log_path,
+                event="auth_expired",
+                error_message=str(e),
+                error_type="AuthenticationError",
+                exit_code=AuthenticationError.exit_code,
+            )
             click.echo("\n" + style_error("Error: Auth session expired."), err=True)
-            click.echo("Run 'mcp-acp-nexus auth login' to re-authenticate.", err=True)
+            click.echo("Run 'mcp-acp auth login' to re-authenticate.", err=True)
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Auth session expired.",
-                detail="Run in terminal:\n  mcp-acp-nexus auth login\n\nThen restart your MCP client.",
+                detail="Run in terminal:\n  mcp-acp auth login\n\nThen restart your MCP client.",
                 backoff=True,
             )
         else:
             # Generic auth error
+            log_startup_error(
+                bootstrap_log_path,
+                event="auth_failed",
+                error_message=str(e),
+                error_type="AuthenticationError",
+                exit_code=AuthenticationError.exit_code,
+            )
             click.echo("\n" + style_error("Error: Authentication failed."), err=True)
             click.echo(str(e), err=True)
-            click.echo("\nRun 'mcp-acp-nexus auth login' to re-authenticate.", err=True)
+            click.echo("\nRun 'mcp-acp auth login' to re-authenticate.", err=True)
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Authentication error.",
-                detail=f"{e}\n\nRun 'mcp-acp-nexus auth login' to re-authenticate.",
+                detail=f"{e}\n\nRun 'mcp-acp auth login' to re-authenticate.",
                 backoff=True,
             )
         sys.exit(AuthenticationError.exit_code)
 
     except DeviceHealthError as e:
+        log_startup_error(
+            bootstrap_log_path,
+            event="device_health_failed",
+            error_message=str(e),
+            error_type="DeviceHealthError",
+            exit_code=DeviceHealthError.exit_code,
+        )
         show_startup_error_popup(
             title="MCP ACP",
             message="Device health check failed.",
@@ -316,6 +394,13 @@ def start(no_ui: bool) -> None:
         sys.exit(DeviceHealthError.exit_code)
 
     except (PermissionError, RuntimeError, OSError) as e:
+        log_startup_error(
+            bootstrap_log_path,
+            event="startup_failed",
+            error_message=str(e),
+            error_type=type(e).__name__,
+            exit_code=1,
+        )
         show_startup_error_popup(
             title="MCP ACP",
             message="Proxy startup failed.",

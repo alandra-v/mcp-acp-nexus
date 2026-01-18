@@ -180,6 +180,19 @@ function formatEventType(event: string): string {
     config_validation_failed: 'Configuration Validation Failed',
     policy_validation_failed: 'Policy Validation Failed',
     emergency_audit: 'Emergency Audit Entry',
+    // Startup errors
+    config_not_found: 'Configuration Not Found',
+    mtls_cert_not_found: 'mTLS Certificate Not Found',
+    backend_timeout: 'Backend Connection Timeout',
+    backend_connection_failed: 'Backend Connection Failed',
+    ssl_error: 'SSL/TLS Error',
+    audit_failure: 'Audit Log Failure',
+    auth_not_configured: 'Authentication Not Configured',
+    not_authenticated: 'Not Authenticated',
+    auth_expired: 'Authentication Expired',
+    auth_failed: 'Authentication Failed',
+    device_health_failed: 'Device Health Check Failed',
+    startup_failed: 'Startup Failed',
   }
   return mapping[event] || event.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
