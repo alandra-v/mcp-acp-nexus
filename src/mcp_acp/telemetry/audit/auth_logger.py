@@ -326,7 +326,7 @@ def create_auth_logger(
         AuthLogger: Configured logger for authentication events.
     """
     logger = setup_failclosed_audit_logger(
-        "mcp-acp-nexus.audit.auth",
+        "mcp-acp.audit.auth",
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,

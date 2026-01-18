@@ -1,4 +1,4 @@
-"""Init command for mcp-acp-nexus CLI.
+"""Init command for mcp-acp CLI.
 
 Handles interactive and non-interactive configuration initialization.
 """
@@ -46,7 +46,7 @@ from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_confi
 from ..styling import style_dim, style_error, style_header, style_success, style_warning
 
 # Recommended log directory shown in init prompts (user can customize)
-RECOMMENDED_LOG_DIR = "~/.mcp-acp-nexus"
+RECOMMENDED_LOG_DIR = "~/.mcp-acp"
 
 
 def _check_oidc_change_warning(
@@ -95,7 +95,7 @@ def _check_oidc_change_warning(
             click.echo()
             click.echo(style_warning("OIDC settings changed"))
             click.echo("  Your stored authentication token was created with different settings.")
-            click.echo("  You will need to run 'mcp-acp-nexus auth login' to re-authenticate.")
+            click.echo("  You will need to run 'mcp-acp auth login' to re-authenticate.")
             click.echo()
     except Exception:
         # Can't check token storage - don't warn, not critical
@@ -204,7 +204,7 @@ def _create_and_save_config(
         click.echo("Transport: auto-detect (prefers HTTP when reachable)")
     else:
         click.echo(f"Transport: {transport}")
-    click.echo("\nRun 'mcp-acp-nexus start' to test the proxy manually.")
+    click.echo("\nRun 'mcp-acp start' to test the proxy manually.")
 
 
 def _run_interactive_init(
@@ -226,7 +226,7 @@ def _run_interactive_init(
     Raises:
         click.Abort: If user aborts during HTTP configuration.
     """
-    click.echo("\nWelcome to mcp-acp-nexus!\n")
+    click.echo("\nWelcome to mcp-acp!\n")
     click.echo(f"Config will be saved to: {get_config_path()}\n")
 
     # Logging settings
@@ -546,9 +546,9 @@ def init(
     """Initialize proxy configuration.
 
     Creates configuration at the OS-appropriate location:
-    - macOS: ~/Library/Application Support/mcp-acp-nexus/
-    - Linux: ~/.config/mcp-acp-nexus/
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp-nexus/
+    - macOS: ~/Library/Application Support/mcp-acp/
+    - Linux: ~/.config/mcp-acp/
+    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp/
 
     \b
     Connection types:

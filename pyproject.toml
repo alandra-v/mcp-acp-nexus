@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mcp-acp-nexus"
+name = "mcp-acp"
 version = "0.1.0"
 description = "Zero Trust Access Control Proxy for Model Context Protocol"
 readme = "README.md"

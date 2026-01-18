@@ -1,4 +1,4 @@
-"""Status command for mcp-acp-nexus CLI.
+"""Status command for mcp-acp CLI.
 
 Shows proxy runtime status. Requires running proxy (uses API).
 """

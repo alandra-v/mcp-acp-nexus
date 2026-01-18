@@ -1,4 +1,4 @@
-"""Application-wide constants for mcp-acp-nexus.
+"""Application-wide constants for mcp-acp.
 
 Constants that define application behavior.
 For user-configurable settings per deployment, see config.py.
@@ -76,12 +76,12 @@ from platformdirs import user_config_dir, user_runtime_dir
 # Prevents MCP tools from modifying policy, config, or audit logs.
 #
 # Platform-specific paths:
-# - macOS: ~/Library/Application Support/mcp-acp-nexus/
-# - Linux: ~/.config/mcp-acp-nexus/
-# - Windows: %APPDATA%\mcp-acp-nexus\
+# - macOS: ~/Library/Application Support/mcp-acp/
+# - Linux: ~/.config/mcp-acp/
+# - Windows: %APPDATA%\mcp-acp\
 #
 # Note: Resolved with os.path.realpath() to prevent symlink bypass.
-PROTECTED_CONFIG_DIR: str = os.path.realpath(user_config_dir("mcp-acp-nexus"))
+PROTECTED_CONFIG_DIR: str = os.path.realpath(user_config_dir("mcp-acp"))
 
 # ============================================================================
 # Transport Configuration
@@ -358,11 +358,11 @@ CLI_POLICY_RELOAD_TIMEOUT_SECONDS: float = 10.0
 
 # Runtime directory for ephemeral files (sockets)
 # Platform-specific:
-#   - macOS: ~/Library/Caches/TemporaryItems/mcp-acp-nexus/
-#   - Linux: $XDG_RUNTIME_DIR/mcp-acp-nexus/ (auto-cleaned on logout)
+#   - macOS: ~/Library/Caches/TemporaryItems/mcp-acp/
+#   - Linux: $XDG_RUNTIME_DIR/mcp-acp/ (auto-cleaned on logout)
 #
 # Note: This implementation is macOS-only. Linux support can be added later.
-RUNTIME_DIR: Path = Path(user_runtime_dir("mcp-acp-nexus"))
+RUNTIME_DIR: Path = Path(user_runtime_dir("mcp-acp"))
 
 # Unix Domain Socket for CLI communication
 # OS file permissions provide authentication (no token needed)

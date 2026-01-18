@@ -1,3 +1,3 @@
-"""Utility modules for mcp-acp-nexus."""
+"""Utility modules for mcp-acp."""
 
 __all__: list[str] = []

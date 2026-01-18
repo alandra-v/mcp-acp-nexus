@@ -1,4 +1,4 @@
-"""Config command group for mcp-acp-nexus CLI.
+"""Config command group for mcp-acp CLI.
 
 Provides configuration management subcommands.
 """
@@ -110,7 +110,7 @@ def config_show(as_json: bool) -> None:
             return
 
         # Display formatted configuration
-        click.echo("\nmcp-acp-nexus configuration:\n")
+        click.echo("\nmcp-acp configuration:\n")
 
         click.echo(style_header("Logging"))
         click.echo(f"  log_dir: {loaded_config.logging.log_dir}")
@@ -213,15 +213,15 @@ def config_path_cmd() -> None:
     """Show config file path.
 
     Displays the OS-appropriate config file location:
-    - macOS: ~/Library/Application Support/mcp-acp-nexus/
-    - Linux: ~/.config/mcp-acp-nexus/
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp-nexus/
+    - macOS: ~/Library/Application Support/mcp-acp/
+    - Linux: ~/.config/mcp-acp/
+    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp/
     """
     path = get_config_path()
     click.echo(str(path))
 
     if not path.exists():
-        click.echo("(file does not exist - run 'mcp-acp-nexus init' to create)", err=True)
+        click.echo("(file does not exist - run 'mcp-acp init' to create)", err=True)
 
 
 @config.command("edit")
@@ -246,7 +246,7 @@ def config_edit() -> None:
     # Check config exists
     if not config_path.exists():
         click.echo(style_error(f"Error: Config file not found at {config_path}"), err=True)
-        click.echo("Run 'mcp-acp-nexus init' to create configuration.", err=True)
+        click.echo("Run 'mcp-acp init' to create configuration.", err=True)
         sys.exit(1)
 
     # Load and store original config for change detection

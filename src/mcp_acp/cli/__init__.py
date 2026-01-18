@@ -1,4 +1,4 @@
-"""Command-line interface for mcp-acp-nexus.
+"""Command-line interface for mcp-acp.
 
 Provides commands for initializing configuration, starting the proxy server,
 and managing configuration.

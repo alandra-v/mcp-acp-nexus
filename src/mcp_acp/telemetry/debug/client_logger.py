@@ -73,7 +73,7 @@ class BidirectionalClientLoggingMiddleware(BaseLoggingMiddleware):
             transport: Transport type ("stdio" or "http").
         """
         # Debug logger for wire-level logs
-        self.logger = logger or logging.getLogger("mcp-acp-nexus.debug.client")
+        self.logger = logger or logging.getLogger("mcp-acp.debug.client")
         self.log_level = log_level
 
         # System logger for operational warnings/errors
@@ -214,7 +214,7 @@ def setup_client_wire_logger(log_path: Path) -> logging.Logger:
         logging.Logger: Configured logger instance for client wire logs.
     """
     return setup_jsonl_logger(
-        "mcp-acp-nexus.debug.client",
+        "mcp-acp.debug.client",
         log_path,
         logging.INFO,
     )
@@ -247,7 +247,7 @@ def create_client_logging_middleware(
         logger = setup_client_wire_logger(log_path)
     else:
         # Create a logger that discards all messages
-        logger = logging.getLogger("mcp-acp-nexus.debug.client.null")
+        logger = logging.getLogger("mcp-acp.debug.client.null")
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False

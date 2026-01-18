@@ -1,4 +1,4 @@
-"""Policy command group for mcp-acp-nexus CLI.
+"""Policy command group for mcp-acp CLI.
 
 Provides policy management subcommands.
 """
@@ -74,7 +74,7 @@ def policy_path_cmd() -> None:
     click.echo(str(path))
 
     if not path.exists():
-        click.echo("(file does not exist - run 'mcp-acp-nexus init' to create)", err=True)
+        click.echo("(file does not exist - run 'mcp-acp init' to create)", err=True)
 
 
 @policy.command("reload")
@@ -82,7 +82,7 @@ def policy_reload() -> None:
     """Reload policy in running proxy.
 
     Validates and applies the current policy.json without restarting the proxy.
-    Requires the proxy to be running (start with 'mcp-acp-nexus start' or via MCP client).
+    Requires the proxy to be running (start with 'mcp-acp start' or via MCP client).
 
     This command communicates with the proxy's management API via UDS.
 
@@ -117,7 +117,7 @@ def policy_reload() -> None:
 
     except ProxyNotRunningError:
         click.echo(style_error("Error: Proxy not running"), err=True)
-        click.echo("  Start the proxy with: mcp-acp-nexus start", err=True)
+        click.echo("  Start the proxy with: mcp-acp start", err=True)
         click.echo("  Or restart your MCP client (e.g., Claude Desktop)", err=True)
         sys.exit(1)
     except APIError as e:
@@ -196,14 +196,14 @@ def policy_edit() -> None:
     If validation fails, offers to re-edit until valid or aborted.
 
     Note: If the proxy is running, you'll need to reload the policy
-    with 'mcp-acp-nexus policy reload' or restart the proxy.
+    with 'mcp-acp policy reload' or restart the proxy.
     """
     policy_path = get_policy_path()
 
     # Check policy exists
     if not policy_path.exists():
         click.echo(style_error(f"Error: Policy file not found at {policy_path}"), err=True)
-        click.echo("Run 'mcp-acp-nexus init' to create policy.", err=True)
+        click.echo("Run 'mcp-acp init' to create policy.", err=True)
         sys.exit(1)
 
     # Load original for validation
@@ -286,7 +286,7 @@ def policy_edit() -> None:
     click.echo(f"  File: {policy_path}")
     click.echo()
     click.echo(click.style("Note:", fg="yellow", bold=True) + " If proxy is running, reload with:")
-    click.echo("  mcp-acp-nexus policy reload")
+    click.echo("  mcp-acp policy reload")
 
 
 RULE_SCHEMA = """\
@@ -343,7 +343,7 @@ def policy_add() -> None:
     Edit the JSON, save and close to add the rule.
 
     Note: If the proxy is running, you'll need to reload the policy
-    with 'mcp-acp-nexus policy reload' or restart the proxy.
+    with 'mcp-acp policy reload' or restart the proxy.
     """
     from mcp_acp.pdp.policy import PolicyRule
 
@@ -354,7 +354,7 @@ def policy_add() -> None:
         policy_config = load_policy(policy_path)
     except FileNotFoundError:
         click.echo(style_error(f"Error: Policy file not found at {policy_path}"), err=True)
-        click.echo("Run 'mcp-acp-nexus init' to create policy.", err=True)
+        click.echo("Run 'mcp-acp init' to create policy.", err=True)
         sys.exit(1)
     except ValueError as e:
         click.echo(style_error(f"Error loading policy: {e}"), err=True)
@@ -422,4 +422,4 @@ def policy_add() -> None:
     click.echo(f"  File: {policy_path}")
     click.echo()
     click.echo(click.style("Note:", fg="yellow", bold=True) + " If proxy is running, reload with:")
-    click.echo("  mcp-acp-nexus policy reload")
+    click.echo("  mcp-acp policy reload")

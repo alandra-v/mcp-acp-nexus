@@ -1,7 +1,7 @@
 """OAuth Device Authorization Flow (RFC 8628) for CLI authentication.
 
 Implements the device authorization grant for command-line authentication.
-User runs `mcp-acp-nexus auth login`, sees a code, opens browser to
+User runs `mcp-acp auth login`, sees a code, opens browser to
 authenticate, and tokens are stored locally.
 
 This is the same pattern as `gh auth login`, `aws sso login`, `gcloud auth login`.

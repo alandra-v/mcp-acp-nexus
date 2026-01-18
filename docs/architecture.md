@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**mcp-acp-nexus** is a Zero Trust Access Control Proxy for the Model Context Protocol (MCP). It sits between MCP clients (like Claude Desktop) and MCP servers (like filesystem servers), providing comprehensive security, logging, and human oversight.
+**mcp-acp** is a Zero Trust Access Control Proxy for the Model Context Protocol (MCP). It sits between MCP clients (like Claude Desktop) and MCP servers (like filesystem servers), providing comprehensive security, logging, and human oversight.
 
 ```
                                           ┌───────────┐

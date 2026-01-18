@@ -1,4 +1,4 @@
-"""Custom exceptions for mcp-acp-nexus.
+"""Custom exceptions for mcp-acp.
 
 This module contains all custom exceptions used throughout the package.
 Exceptions are organized into two categories:

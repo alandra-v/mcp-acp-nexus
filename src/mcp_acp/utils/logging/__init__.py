@@ -1,6 +1,6 @@
 """Logging utilities and helpers.
 
-This package provides logging infrastructure for mcp-acp-nexus:
+This package provides logging infrastructure for mcp-acp:
 - extractors: Metadata extraction from MCP messages
 - iso_formatter: ISO 8601 timestamp formatting for JSONL logs
 - logger_setup: Factory functions for creating configured loggers

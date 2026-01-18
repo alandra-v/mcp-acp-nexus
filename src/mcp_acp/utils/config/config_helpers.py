@@ -39,9 +39,9 @@ def get_config_dir() -> Path:
     """Get the OS-appropriate config directory.
 
     Uses click.get_app_dir() which returns:
-    - macOS: ~/Library/Application Support/mcp-acp-nexus
-    - Linux: ~/.config/mcp-acp-nexus (XDG compliant)
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp-nexus
+    - macOS: ~/Library/Application Support/mcp-acp
+    - Linux: ~/.config/mcp-acp (XDG compliant)
+    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp
 
     Returns:
         Path to the config directory.

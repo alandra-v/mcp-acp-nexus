@@ -59,7 +59,7 @@ def setup_jsonl_logger(
     Creates log directory if it doesn't exist with secure permissions (owner-only: 700).
 
     Args:
-        logger_name: Name for the logger (e.g., "mcp-acp-nexus.audit.client")
+        logger_name: Name for the logger (e.g., "mcp-acp.audit.client")
         log_file: Path to the log file
         log_level: Logging level (default: INFO)
 
@@ -107,7 +107,7 @@ def setup_failclosed_audit_logger(
     is invoked to initiate shutdown.
 
     Args:
-        logger_name: Name for the logger (e.g., "mcp-acp-nexus.audit.operations")
+        logger_name: Name for the logger (e.g., "mcp-acp.audit.operations")
         log_file: Path to the log file
         shutdown_callback: Called with reason string if integrity check fails.
                            This callback must handle the sync-to-async transition.

@@ -34,7 +34,7 @@ class ProxyNotRunningError(click.ClickException):
     """Raised when proxy is not running (no UDS socket)."""
 
     def __init__(self) -> None:
-        super().__init__("Proxy not running.\n" "Start it with: mcp-acp-nexus start")
+        super().__init__("Proxy not running.\n" "Start it with: mcp-acp start")
 
 
 class APIError(click.ClickException):
@@ -87,7 +87,7 @@ def api_request(
     provide authentication. Only the user who started the proxy can connect.
 
     Includes retry logic with exponential backoff for startup race conditions
-    (when CLI runs immediately after 'mcp-acp-nexus start').
+    (when CLI runs immediately after 'mcp-acp start').
 
     Args:
         method: HTTP method (GET, POST, DELETE, etc.)

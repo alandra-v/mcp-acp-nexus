@@ -272,7 +272,7 @@ Automatically trigger HITL based on risk scoring rather than explicit policy rul
 Reduce policy duplication with inheritance model:
 
 ```
-~/.mcp-acp-nexus/
+~/.mcp-acp/
 ├── policy.yaml              # Global defaults (shared rules)
 └── proxies/
     ├── filesystem/

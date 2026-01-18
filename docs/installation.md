@@ -50,20 +50,20 @@ When released as a package:
 
 ```bash
 # Using pip
-pip install mcp-acp-nexus
+pip install mcp-acp
 
 # Using uv (as a CLI tool)
-uv tool install mcp-acp-nexus
+uv tool install mcp-acp
 ```
 
 ## Upgrade
 
 ```bash
 # Using pip
-pip install --upgrade mcp-acp-nexus
+pip install --upgrade mcp-acp
 
 # Using uv
-uv tool upgrade mcp-acp-nexus
+uv tool upgrade mcp-acp
 ```
 -->
 

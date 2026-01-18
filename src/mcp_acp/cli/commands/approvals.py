@@ -1,4 +1,4 @@
-"""Approvals command group for mcp-acp-nexus CLI.
+"""Approvals command group for mcp-acp CLI.
 
 Manage cached Human-in-the-Loop (HITL) approvals.
 HITL rules require manual user approval before requests proceed.

@@ -71,9 +71,9 @@ Configuration is stored in an OS-specific application directory:
 
 | OS | Location |
 |----|----------|
-| macOS | `~/Library/Application Support/mcp-acp-nexus/` |
-| Linux | `~/.config/mcp-acp-nexus/` |
-| Windows | `C:\Users\<user>\AppData\Roaming\mcp-acp-nexus\` |
+| macOS | `~/Library/Application Support/mcp-acp/` |
+| Linux | `~/.config/mcp-acp/` |
+| Windows | `C:\Users\<user>\AppData\Roaming\mcp-acp\` |
 
 **Files**:
 - `mcp_acp_config.json` - operational settings (auth, logging, backend, proxy, HITL)
@@ -123,7 +123,7 @@ Configuration is stored in an OS-specific application directory:
     }
   },
   "logging": {
-    "log_dir": "~/.mcp-acp-nexus",
+    "log_dir": "~/.mcp-acp",
     "log_level": "INFO",
     "include_payloads": true
   },
@@ -145,7 +145,7 @@ Configuration is stored in an OS-specific application directory:
     }
   },
   "proxy": {
-    "name": "mcp-acp-nexus"
+    "name": "mcp-acp"
   },
   "hitl": {
     "timeout_seconds": 60,

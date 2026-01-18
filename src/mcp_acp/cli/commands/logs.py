@@ -1,4 +1,4 @@
-"""Logs command group for mcp-acp-nexus CLI.
+"""Logs command group for mcp-acp CLI.
 
 Provides log viewing commands that read directly from log files.
 No API required - works offline.
@@ -46,7 +46,7 @@ def _load_config() -> AppConfig:
     if not config_path.exists():
         raise click.ClickException(
             f"Configuration not found at {config_path}\n"
-            "Run 'mcp-acp-nexus init' to create configuration."
+            "Run 'mcp-acp init' to create configuration."
         )
 
     try:

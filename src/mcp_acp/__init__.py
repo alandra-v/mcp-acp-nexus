@@ -1,4 +1,4 @@
-"""mcp-acp-nexus: Zero Trust Access Control Proxy for Model Context Protocol."""
+"""mcp-acp: Zero Trust Access Control Proxy for Model Context Protocol."""
 
 __all__ = ["__version__"]
 

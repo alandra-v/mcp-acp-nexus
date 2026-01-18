@@ -58,7 +58,7 @@ class TestVersion:
 
         # Assert
         assert result.exit_code == 0
-        assert "mcp-acp-nexus" in result.output
+        assert "mcp-acp" in result.output
 
     def test_short_version_flag(self, runner: CliRunner):
         """Given -v flag, returns version string."""
@@ -67,7 +67,7 @@ class TestVersion:
 
         # Assert
         assert result.exit_code == 0
-        assert "mcp-acp-nexus" in result.output
+        assert "mcp-acp" in result.output
 
 
 class TestHelp:
@@ -106,7 +106,7 @@ class TestConfigPath:
 
         # Assert
         assert result.exit_code == 0
-        assert "mcp-acp-nexus" in result.output
+        assert "mcp-acp" in result.output
 
 
 class TestConfigEdit:

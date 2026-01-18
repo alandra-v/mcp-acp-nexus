@@ -46,7 +46,7 @@ def create_decision_logger(
         Configured logger instance with fail-closed handler.
     """
     return setup_failclosed_audit_logger(
-        "mcp-acp-nexus.audit.decisions",
+        "mcp-acp.audit.decisions",
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,

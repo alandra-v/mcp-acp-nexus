@@ -40,7 +40,7 @@ See [Installation](docs/installation.md) and [Usage](docs/usage.md) for details.
 A Zero Trust proxy that sits between AI agents and the tools they use. Nothing is trusted by default—every request is authenticated, evaluated against policy, and logged. Sensitive operations require explicit human approval before execution.
 
 ```
-MCP Client ──▶ mcp-acp-nexus ──▶ MCP Server
+MCP Client ──▶ mcp-acp ──▶ MCP Server
    (Claude)     (Policy + Audit)     (Backend)
 ```
 

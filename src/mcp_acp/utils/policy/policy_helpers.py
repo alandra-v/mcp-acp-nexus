@@ -43,9 +43,9 @@ def get_policy_dir() -> Path:
     """Get the OS-appropriate config directory for policy files.
 
     Uses the same directory as mcp_acp_config.json:
-    - macOS: ~/Library/Application Support/mcp-acp-nexus
-    - Linux: ~/.config/mcp-acp-nexus (XDG compliant)
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp-nexus
+    - macOS: ~/Library/Application Support/mcp-acp
+    - Linux: ~/.config/mcp-acp (XDG compliant)
+    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp
 
     Returns:
         Path to the config directory.
@@ -148,7 +148,7 @@ def load_policy(path: Path | None = None, *, normalize: bool = True) -> PolicyCo
         raise ValueError(
             f"Invalid policy configuration in {policy_path}:\n"
             + "\n".join(errors)
-            + "\n\nEdit the policy file or run 'mcp-acp-nexus init' to recreate."
+            + "\n\nEdit the policy file or run 'mcp-acp init' to recreate."
         ) from e
 
     # Auto-normalize: save back if IDs were generated

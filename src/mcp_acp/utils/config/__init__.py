@@ -1,4 +1,4 @@
-"""Configuration utilities for mcp-acp-nexus.
+"""Configuration utilities for mcp-acp.
 
 Provides helper functions for configuration management and history logging.
 """

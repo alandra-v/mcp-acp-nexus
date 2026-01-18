@@ -47,7 +47,7 @@ Use `mcp-acp <command> --help` for detailed options.
 | `logs tail` | Tail log file in real-time |
 | `sessions list` | List active sessions |
 
-**Config location** (macOS): `~/Library/Application Support/mcp-acp-nexus/`
+**Config location** (macOS): `~/Library/Application Support/mcp-acp/`
 
 ---
 

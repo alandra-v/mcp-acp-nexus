@@ -533,8 +533,8 @@ class TestUserAgentHeader:
 
     def test_user_agent_format(self):
         """User-Agent follows expected format."""
-        # Assert - format is "mcp-acp-nexus/{version}"
-        assert USER_AGENT.startswith("mcp-acp-nexus/")
+        # Assert - format is "mcp-acp/{version}"
+        assert USER_AGENT.startswith("mcp-acp/")
         # Version should be present (e.g., "0.1.0")
         version_part = USER_AGENT.split("/")[1]
         assert len(version_part) > 0

@@ -286,7 +286,7 @@ class TestAppConfig:
         )
 
         # Assert
-        assert config.proxy.name == "mcp-acp-nexus"
+        assert config.proxy.name == "mcp-acp"
 
 
 # ============================================================================

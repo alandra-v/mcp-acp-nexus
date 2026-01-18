@@ -1,4 +1,4 @@
-"""Shared file utilities for mcp-acp-nexus.
+"""Shared file utilities for mcp-acp.
 
 Provides common utilities used by config, policy, and history logging:
 - get_app_dir: OS-appropriate application directory
@@ -53,14 +53,14 @@ def get_app_dir() -> Path:
     """Get the OS-appropriate application directory.
 
     Uses click.get_app_dir() which returns:
-    - macOS: ~/Library/Application Support/mcp-acp-nexus
-    - Linux: ~/.config/mcp-acp-nexus (XDG compliant)
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp-nexus
+    - macOS: ~/Library/Application Support/mcp-acp
+    - Linux: ~/.config/mcp-acp (XDG compliant)
+    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp
 
     Returns:
         Path to the application directory.
     """
-    return Path(click.get_app_dir("mcp-acp-nexus"))
+    return Path(click.get_app_dir("mcp-acp"))
 
 
 def compute_file_checksum(file_path: Path) -> str:
@@ -118,7 +118,7 @@ def require_file_exists(
     Args:
         file_path: Path to check.
         file_type: Description for error message (e.g., "configuration", "policy").
-        init_hint: If True, suggest running 'mcp-acp-nexus init'.
+        init_hint: If True, suggest running 'mcp-acp init'.
 
     Raises:
         FileNotFoundError: If file doesn't exist.
@@ -126,7 +126,7 @@ def require_file_exists(
     if file_path.exists():
         return
 
-    hint = f"\nRun 'mcp-acp-nexus init' to create a {file_type} file." if init_hint else ""
+    hint = f"\nRun 'mcp-acp init' to create a {file_type} file." if init_hint else ""
     raise FileNotFoundError(f"{file_type.capitalize()} file not found at {file_path}.{hint}")
 
 
@@ -283,7 +283,7 @@ def get_history_logger(history_path: Path, logger_name: str) -> logging.Logger:
 
     Args:
         history_path: Path to history JSONL file.
-        logger_name: Name for the logger (e.g., "mcp-acp-nexus.config.history").
+        logger_name: Name for the logger (e.g., "mcp-acp.config.history").
 
     Returns:
         logging.Logger: Configured logger instance for history logging.

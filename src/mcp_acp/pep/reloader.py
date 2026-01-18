@@ -6,7 +6,7 @@ Handles validation, atomic swap, logging, and version tracking.
 Triggers:
 - SIGHUP signal (Unix)
 - API endpoint POST /api/control/reload-policy
-- CLI command: mcp-acp-nexus policy reload
+- CLI command: mcp-acp policy reload
 """
 
 from __future__ import annotations

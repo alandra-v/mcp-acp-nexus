@@ -103,7 +103,7 @@ def get_system_logger() -> logging.Logger:
         return _system_logger
 
     # Create base logger at INFO level (accepts INFO and above)
-    _system_logger = logging.getLogger("mcp-acp-nexus.system")
+    _system_logger = logging.getLogger("mcp-acp.system")
     _system_logger.setLevel(logging.INFO)
     _system_logger.propagate = False  # Don't propagate to root logger
 

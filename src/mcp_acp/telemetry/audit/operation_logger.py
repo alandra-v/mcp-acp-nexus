@@ -326,7 +326,7 @@ def create_audit_logging_middleware(
         AuditLoggingMiddleware: Configured middleware for the proxy.
     """
     logger = setup_failclosed_audit_logger(
-        "mcp-acp-nexus.audit.operations",
+        "mcp-acp.audit.operations",
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,

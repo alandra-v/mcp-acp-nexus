@@ -53,7 +53,7 @@ def setup_backend_wire_logger(log_path: Path) -> logging.Logger:
         logging.Logger: Configured logger instance for backend wire logs.
     """
     return setup_jsonl_logger(
-        "mcp-acp-nexus.debug.backend",
+        "mcp-acp.debug.backend",
         log_path,
         logging.INFO,
     )

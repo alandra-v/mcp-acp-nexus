@@ -1,4 +1,4 @@
-"""Authentication commands for mcp-acp-nexus CLI.
+"""Authentication commands for mcp-acp CLI.
 
 Commands:
     auth login  - Authenticate via browser (Device Flow)
@@ -67,7 +67,7 @@ def _load_config() -> AppConfig:
     if not config_path.exists():
         raise click.ClickException(
             f"Configuration not found at {config_path}\n"
-            "Run 'mcp-acp-nexus init' to create configuration."
+            "Run 'mcp-acp init' to create configuration."
         )
 
     try:
@@ -191,13 +191,13 @@ def login(no_browser: bool) -> None:
             click.echo("  Running proxy updated with new credentials.")
         else:
             click.echo()
-            click.echo("You can now start the proxy with 'mcp-acp-nexus start'")
+            click.echo("You can now start the proxy with 'mcp-acp start'")
 
     except DeviceFlowExpiredError:
         click.echo()
         click.echo()
         raise click.ClickException(
-            "Authentication timed out. Please run 'mcp-acp-nexus auth login' again."
+            "Authentication timed out. Please run 'mcp-acp auth login' again."
         )
 
     except DeviceFlowDeniedError:
@@ -258,7 +258,7 @@ def logout(federated: bool) -> None:
             click.echo("Tip: Use --federated to also log out of Auth0 in your browser.")
 
         click.echo()
-        click.echo("Run 'mcp-acp-nexus auth login' to authenticate again.")
+        click.echo("Run 'mcp-acp auth login' to authenticate again.")
     except AuthenticationError as e:
         raise click.ClickException(f"Failed to clear credentials: {e}")
 
@@ -350,7 +350,7 @@ def status(as_json: bool) -> None:
             click.echo(click.style("Status: Token corrupted", fg="red"))
             click.echo(f"  Error: {e}")
             click.echo()
-            click.echo("Run 'mcp-acp-nexus auth logout' then 'auth login' to fix.")
+            click.echo("Run 'mcp-acp auth logout' then 'auth login' to fix.")
         return
 
     if token is None:
@@ -437,7 +437,7 @@ def _print_status_formatted(
     if status_val == "not_authenticated":
         click.echo(click.style("Status: Not authenticated", fg="yellow"))
         click.echo()
-        click.echo("Run 'mcp-acp-nexus auth login' to authenticate.")
+        click.echo("Run 'mcp-acp auth login' to authenticate.")
         return
 
     if status_val == "token_expired":
@@ -445,9 +445,9 @@ def _print_status_formatted(
         click.echo()
         if result.get("token", {}).get("has_refresh_token"):
             click.echo("Token will be refreshed automatically on next proxy start.")
-            click.echo("Or run 'mcp-acp-nexus auth login' to re-authenticate now.")
+            click.echo("Or run 'mcp-acp auth login' to re-authenticate now.")
         else:
-            click.echo("Run 'mcp-acp-nexus auth login' to re-authenticate.")
+            click.echo("Run 'mcp-acp auth login' to re-authenticate.")
         return
 
     # Token is valid

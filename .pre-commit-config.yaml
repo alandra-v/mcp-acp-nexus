@@ -1,4 +1,4 @@
-# Pre-commit hooks configuration for mcp-acp-nexus
+# Pre-commit hooks configuration for mcp-acp
 # Run: pre-commit install to set up the git hooks
 # Run: pre-commit run --all-files to check all files manually
 

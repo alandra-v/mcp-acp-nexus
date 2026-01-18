@@ -76,7 +76,7 @@ def get_log_base_path(config: "AppConfig") -> Path:
         config: Application configuration containing logging settings.
 
     Returns:
-        Path to the log directory (e.g., ~/.mcp-acp-nexus/mcp_acp_logs).
+        Path to the log directory (e.g., ~/.mcp-acp/mcp_acp_logs).
     """
     return Path(config.logging.log_dir).expanduser() / "mcp_acp_logs"
 

@@ -1,4 +1,4 @@
-"""Validation utilities for mcp-acp-nexus.
+"""Validation utilities for mcp-acp.
 
 Provides reusable validation functions for configuration values.
 """

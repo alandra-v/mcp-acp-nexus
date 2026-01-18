@@ -1,4 +1,4 @@
-"""Main CLI entry point for mcp-acp-nexus.
+"""Main CLI entry point for mcp-acp.
 
 Defines the CLI group and registers all subcommands.
 
@@ -14,7 +14,7 @@ Commands:
     status    - Show proxy runtime status
 
 Subcommand help:
-    mcp-acp-nexus COMMAND -h         Show help for a specific command
+    mcp-acp COMMAND -h         Show help for a specific command
 """
 
 from __future__ import annotations
@@ -46,18 +46,18 @@ class ReorderedGroup(click.Group):
         formatter.write(
             """
 Quick Start:
-  mcp-acp-nexus init                     Interactive setup wizard
-  mcp-acp-nexus start                    Test the proxy manually
+  mcp-acp init                     Interactive setup wizard
+  mcp-acp start                    Test the proxy manually
 
 Non-Interactive Setup (stdio):
-  mcp-acp-nexus init --non-interactive \\
+  mcp-acp init --non-interactive \\
     --server-name my-server \\
     --connection-type stdio \\
     --command npx \\
     --args "-y,@modelcontextprotocol/server-filesystem,/tmp"
 
 Non-Interactive Setup (both transports):
-  mcp-acp-nexus init --non-interactive \\
+  mcp-acp init --non-interactive \\
     --server-name my-server \\
     --connection-type both \\
     --command npx \\
@@ -65,7 +65,7 @@ Non-Interactive Setup (both transports):
     --url http://localhost:3010/mcp
 
 Non-Interactive Setup (HTTPS with mTLS):
-  mcp-acp-nexus init --non-interactive \\
+  mcp-acp init --non-interactive \\
     --server-name my-server \\
     --connection-type http \\
     --url https://backend.example.com/mcp \\
@@ -92,9 +92,9 @@ Connection Types (--connection-type):
 @click.option("--version", "-v", is_flag=True, help="Show version")
 @click.pass_context
 def cli(ctx: click.Context, version: bool) -> None:
-    """mcp-acp-nexus: Zero Trust Access Control Proxy for MCP."""
+    """mcp-acp: Zero Trust Access Control Proxy for MCP."""
     if version:
-        click.echo(f"mcp-acp-nexus {__version__}")
+        click.echo(f"mcp-acp {__version__}")
         sys.exit(0)
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())

@@ -192,7 +192,7 @@ class OIDCIdentityProvider:
         token = self._storage.load()
 
         if token is None:
-            raise AuthenticationError("Not authenticated. Run 'mcp-acp-nexus auth login' to authenticate.")
+            raise AuthenticationError("Not authenticated. Run 'mcp-acp auth login' to authenticate.")
 
         self._current_token = token
         return token
@@ -332,7 +332,7 @@ class OIDCIdentityProvider:
         if not token.refresh_token:
             error_msg = (
                 "Token expired and no refresh token available. "
-                "Run 'mcp-acp-nexus auth login' to re-authenticate."
+                "Run 'mcp-acp auth login' to re-authenticate."
             )
             # Log to auth.jsonl and system (error - user action required)
             if self._auth_logger:
@@ -385,7 +385,7 @@ class OIDCIdentityProvider:
 
         except TokenRefreshExpiredError as e:
             # Refresh token has expired - user must re-authenticate
-            error_msg = "Auth session expired. Run 'mcp-acp-nexus auth login' to re-authenticate."
+            error_msg = "Auth session expired. Run 'mcp-acp auth login' to re-authenticate."
             # Log to auth.jsonl and system (error - user action required)
             if self._auth_logger:
                 self._auth_logger.log_token_refresh_failed(
@@ -460,7 +460,7 @@ class OIDCIdentityProvider:
         """Clear stored tokens, identity cache, and HITL approval cache.
 
         Call this to log out the user. They will need to run
-        'mcp-acp-nexus auth login' to re-authenticate.
+        'mcp-acp auth login' to re-authenticate.
 
         Also clears the HITL approval cache to prevent stale approvals
         from being visible to subsequent users.

@@ -40,7 +40,7 @@ from mcp_acp.security.mtls import (
 )
 
 # User-Agent header for HTTP backend connections (informational, not security)
-USER_AGENT = f"mcp-acp-nexus/{__version__}"
+USER_AGENT = f"mcp-acp/{__version__}"
 
 if TYPE_CHECKING:
     from mcp.shared._httpx_utils import McpHttpClientFactory
@@ -81,7 +81,7 @@ def create_httpx_client_factory(
 ) -> "McpHttpClientFactory":
     """Create an httpx client factory with User-Agent header.
 
-    Always includes the mcp-acp-nexus User-Agent header for observability.
+    Always includes the mcp-acp User-Agent header for observability.
     Optionally configures mTLS if certificates are provided and URL is HTTPS.
 
     Args:
@@ -233,7 +233,7 @@ def check_http_health_with_retry(
                     raise ConnectionError(
                         f"SSL/TLS connection failed: {url}. "
                         "The server may require mTLS (client certificate authentication). "
-                        "Configure mTLS in your config or run 'mcp-acp-nexus init'."
+                        "Configure mTLS in your config or run 'mcp-acp init'."
                     ) from e
                 raise TimeoutError(f"Backend not reachable after {max_attempts} attempts: {url}") from e
 
@@ -286,7 +286,7 @@ def create_backend_transport(
         if http_config is None:
             raise ValueError(
                 "Streamable HTTP transport selected but http configuration is missing. "
-                "Run 'mcp-acp-nexus init' to configure the backend URL."
+                "Run 'mcp-acp init' to configure the backend URL."
             )
         # Use retry loop - wait for backend to become available
         check_http_health_with_retry(
@@ -298,7 +298,7 @@ def create_backend_transport(
         if stdio_config is None:
             raise ValueError(
                 "STDIO transport selected but stdio configuration is missing. "
-                "Run 'mcp-acp-nexus init' to configure the backend command."
+                "Run 'mcp-acp init' to configure the backend command."
             )
         transport_type = "stdio"
     else:
@@ -403,7 +403,7 @@ def _auto_detect(
     if has_stdio:
         return "stdio"
 
-    raise ValueError("No transport configured. Run 'mcp-acp-nexus init' to configure a backend server.")
+    raise ValueError("No transport configured. Run 'mcp-acp init' to configure a backend server.")
 
 
 async def _check_async(
@@ -483,7 +483,7 @@ async def _check_async(
                 raise ConnectionError(
                     f"Backend connection failed: {url}. "
                     "The server may require mTLS (client certificate). "
-                    "Configure mTLS in your config or run 'mcp-acp-nexus init'."
+                    "Configure mTLS in your config or run 'mcp-acp init'."
                 ) from e
             else:
                 # mTLS configured but connection failed with empty error = cert rejected

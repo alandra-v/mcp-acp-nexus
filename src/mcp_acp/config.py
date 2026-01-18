@@ -1,7 +1,7 @@
-"""Application configuration for mcp-acp-nexus.
+"""Application configuration for mcp-acp.
 
 Defines configuration models for logging, backend connections, and proxy behavior.
-User creates config via `mcp-acp-nexus init`. Config is stored at the OS-appropriate
+User creates config via `mcp-acp init`. Config is stored at the OS-appropriate
 location (via click.get_app_dir), log_dir is user-specified.
 
 Example usage:
@@ -231,7 +231,7 @@ class ProxyConfig(BaseModel):
         name: Proxy server name for identification.
     """
 
-    name: str = Field(default="mcp-acp-nexus", min_length=1)
+    name: str = Field(default="mcp-acp", min_length=1)
 
 
 class HITLConfig(BaseModel):
@@ -269,7 +269,7 @@ class HITLConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    """Main application configuration for mcp-acp-nexus.
+    """Main application configuration for mcp-acp.
 
     Contains all configuration sections including authentication, logging,
     backend server, proxy settings, and HITL (Human-in-the-Loop) configuration.
@@ -327,6 +327,6 @@ class AppConfig(BaseModel):
             config_path,
             cls,
             file_type="config",
-            recovery_hint="Run 'mcp-acp-nexus init' to reconfigure.",
+            recovery_hint="Run 'mcp-acp init' to reconfigure.",
             encoding="utf-8",
         )

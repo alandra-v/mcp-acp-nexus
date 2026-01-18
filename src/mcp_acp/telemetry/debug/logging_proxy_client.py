@@ -507,7 +507,7 @@ def create_logging_proxy_client(
         logger = setup_backend_wire_logger(log_path)
     else:
         # Create a logger that discards all messages
-        logger = logging.getLogger("mcp-acp-nexus.debug.backend.null")
+        logger = logging.getLogger("mcp-acp.debug.backend.null")
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False

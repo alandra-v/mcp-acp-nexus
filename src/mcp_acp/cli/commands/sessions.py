@@ -1,4 +1,4 @@
-"""Sessions command group for mcp-acp-nexus CLI.
+"""Sessions command group for mcp-acp CLI.
 
 Shows active sessions. Requires running proxy (uses API).
 """

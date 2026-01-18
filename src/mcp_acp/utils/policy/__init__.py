@@ -1,4 +1,4 @@
-"""Policy utilities for mcp-acp-nexus.
+"""Policy utilities for mcp-acp.
 
 Provides helper functions for policy file management.
 """
