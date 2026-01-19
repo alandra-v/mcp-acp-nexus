@@ -20,7 +20,6 @@ from __future__ import annotations
 __all__ = ["router"]
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Query
@@ -30,6 +29,7 @@ from mcp_acp.api.schemas import IncidentsSummary, LogsResponse
 from mcp_acp.api.utils.jsonl import (
     get_cutoff_time,
     get_log_base_path,
+    parse_timestamp,
     read_jsonl_filtered,
 )
 from mcp_acp.security.integrity.emergency_audit import get_emergency_audit_path
@@ -74,18 +74,6 @@ BeforeQuery = Query(
 # =============================================================================
 
 
-def _parse_before_cursor(before: str | None) -> datetime | None:
-    """Parse ISO timestamp cursor for pagination."""
-    if not before:
-        return None
-    try:
-        if before.endswith("Z"):
-            before = before[:-1] + "+00:00"
-        return datetime.fromisoformat(before)
-    except (ValueError, TypeError):
-        return None
-
-
 def _fetch_incident_logs(
     log_path: Path,
     time_range: str,
@@ -107,7 +95,7 @@ def _fetch_incident_logs(
         )
 
     cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
+    before_dt = parse_timestamp(before)
 
     entries, has_more, scanned = read_jsonl_filtered(
         log_path,

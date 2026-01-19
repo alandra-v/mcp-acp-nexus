@@ -9,6 +9,7 @@ __all__ = [
     "get_cutoff_time",
     "get_log_base_path",
     "parse_comma_separated",
+    "parse_timestamp",
     "read_jsonl_filtered",
 ]
 
@@ -86,7 +87,7 @@ def get_log_base_path(config: "AppConfig") -> Path:
 # =============================================================================
 
 
-def _parse_timestamp(ts: str | None) -> datetime | None:
+def parse_timestamp(ts: str | None) -> datetime | None:
     """Parse ISO 8601 timestamp to timezone-aware datetime.
 
     Args:
@@ -151,7 +152,7 @@ def _matches_filter(
     Note: Entries without valid timestamps are included (fail-open) to avoid
     hiding potentially important log entries due to malformed data.
     """
-    entry_time = _parse_timestamp(entry.get("time"))
+    entry_time = parse_timestamp(entry.get("time"))
 
     # Time range filter (cutoff_time): exclude entries older than cutoff
     # Entries without timestamps are included (fail-open for visibility)

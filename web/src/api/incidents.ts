@@ -27,6 +27,17 @@ export interface IncidentsSummary {
 export type IncidentType = 'shutdown' | 'bootstrap' | 'emergency'
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+/** Build URLSearchParams for incident log queries. */
+function buildParams(timeRange: string, limit: number, before?: string): URLSearchParams {
+  const params = new URLSearchParams({ time_range: timeRange, limit: String(limit) })
+  if (before) params.set('before', before)
+  return params
+}
+
+// =============================================================================
 // API Functions
 // =============================================================================
 
@@ -40,9 +51,7 @@ export async function getShutdowns(
   limit: number = 100,
   before?: string
 ): Promise<LogsResponse> {
-  const params = new URLSearchParams({ time_range: timeRange, limit: String(limit) })
-  if (before) params.set('before', before)
-  return apiGet<LogsResponse>(`/incidents/shutdowns?${params}`)
+  return apiGet<LogsResponse>(`/incidents/shutdowns?${buildParams(timeRange, limit, before)}`)
 }
 
 /**
@@ -54,9 +63,7 @@ export async function getBootstrapLogs(
   limit: number = 100,
   before?: string
 ): Promise<LogsResponse> {
-  const params = new URLSearchParams({ time_range: timeRange, limit: String(limit) })
-  if (before) params.set('before', before)
-  return apiGet<LogsResponse>(`/incidents/bootstrap?${params}`)
+  return apiGet<LogsResponse>(`/incidents/bootstrap?${buildParams(timeRange, limit, before)}`)
 }
 
 /**
@@ -68,9 +75,7 @@ export async function getEmergencyLogs(
   limit: number = 100,
   before?: string
 ): Promise<LogsResponse> {
-  const params = new URLSearchParams({ time_range: timeRange, limit: String(limit) })
-  if (before) params.set('before', before)
-  return apiGet<LogsResponse>(`/incidents/emergency?${params}`)
+  return apiGet<LogsResponse>(`/incidents/emergency?${buildParams(timeRange, limit, before)}`)
 }
 
 /**
