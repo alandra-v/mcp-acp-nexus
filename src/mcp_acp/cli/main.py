@@ -8,6 +8,7 @@ Commands:
     auth      - Authentication commands (login, logout, status)
     config    - Configuration management (show, path, edit, validate)
     init      - Initialize proxy configuration
+    install   - Installation helpers (mcp-json)
     logs      - Log viewing (show, tail)
     policy    - Policy management (show, edit, add, validate, reload)
     sessions  - Session management (list)
@@ -33,6 +34,7 @@ from .commands.audit import audit
 from .commands.auth import auth
 from .commands.config import config
 from .commands.init import init
+from .commands.install import install
 from .commands.logs import logs
 from .commands.policy import policy
 from .commands.sessions import sessions
@@ -108,6 +110,7 @@ cli.add_command(audit)
 cli.add_command(auth)
 cli.add_command(config)
 cli.add_command(init)
+cli.add_command(install)
 cli.add_command(logs)
 cli.add_command(policy)
 cli.add_command(sessions)
