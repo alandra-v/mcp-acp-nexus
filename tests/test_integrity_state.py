@@ -373,18 +373,23 @@ class TestIntegrityStateManagerVerification:
         assert result.success is False
         assert any("mismatch" in e.lower() for e in result.errors)
 
-    def test_verify_skips_pre_upgrade_entries(
+    def test_verify_fails_when_hash_chain_entries_deleted(
         self, state_manager: IntegrityStateManager, temp_log_dir: Path
     ) -> None:
-        """Verification passes for entries without hash chain fields."""
+        """Verification fails when state exists but last entry lacks hash chain fields.
+
+        This tests the scenario where an attacker deletes all hash-chained entries,
+        leaving only pre-upgrade entries. Since state exists (indicating hash-chained
+        entries were previously written), verification should fail.
+        """
         log_path = temp_log_dir / "audit" / "test.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Write entry WITHOUT hash chain fields (pre-upgrade)
+        # Write entry WITHOUT hash chain fields (simulating pre-upgrade entry)
         entry = {"time": "2025-01-18T10:00:00.000Z", "event": "test"}
         log_path.write_text(json.dumps(entry) + "\n")
 
-        # Store state
+        # Store state (indicating hash-chained entries were previously written)
         stat = log_path.stat()
         state_manager._states["audit/test.jsonl"] = FileIntegrityState(
             last_hash="some_hash",
@@ -400,8 +405,9 @@ class TestIntegrityStateManagerVerification:
 
         result = new_manager.verify_on_startup([log_path])
 
-        # Should pass because entry has no entry_hash field
-        assert result.success is True
+        # Should FAIL because state exists but last entry has no hash chain
+        assert result.success is False
+        assert any("hash chain protection were deleted" in e.lower() for e in result.errors)
 
     def test_verify_fails_on_state_ahead_of_log(
         self, state_manager: IntegrityStateManager, temp_log_dir: Path
@@ -533,3 +539,74 @@ class TestIntegrityStateManagerVerification:
         # Should fail - this is genuine tampering, not recoverable
         assert result.success is False
         assert any("mismatch" in e.lower() for e in result.errors)
+
+    def test_repair_clears_state_for_empty_file(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Repair clears state when file is empty (allows fresh start)."""
+        log_path = temp_log_dir / "audit" / "test.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("")  # Empty file
+
+        # Store state (simulating previous hash-chained entries)
+        stat = log_path.stat()
+        state_manager._states["audit/test.jsonl"] = FileIntegrityState(
+            last_hash="some_hash",
+            last_sequence=5,
+            last_inode=stat.st_ino,
+            last_dev=stat.st_dev,
+        )
+
+        # Repair should succeed and clear state
+        success, message = state_manager.repair_state_for_file(log_path)
+        assert success is True
+        assert "cleared" in message.lower()
+        assert "audit/test.jsonl" not in state_manager._states
+
+    def test_repair_clears_state_for_file_without_hash_chain(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Repair clears state when file has no hash chain entries."""
+        log_path = temp_log_dir / "audit" / "test.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write entry without hash chain fields
+        entry = {"time": "2025-01-18T10:00:00.000Z", "event": "test"}
+        log_path.write_text(json.dumps(entry) + "\n")
+
+        # Store state
+        stat = log_path.stat()
+        state_manager._states["audit/test.jsonl"] = FileIntegrityState(
+            last_hash="some_hash",
+            last_sequence=5,
+            last_inode=stat.st_ino,
+            last_dev=stat.st_dev,
+        )
+
+        # Repair should succeed and clear state
+        success, message = state_manager.repair_state_for_file(log_path)
+        assert success is True
+        assert "cleared" in message.lower()
+        assert "audit/test.jsonl" not in state_manager._states
+
+    def test_repair_clears_state_for_missing_file(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Repair clears state when file is missing."""
+        log_path = temp_log_dir / "audit" / "missing.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Don't create the file
+
+        # Store state
+        state_manager._states["audit/missing.jsonl"] = FileIntegrityState(
+            last_hash="some_hash",
+            last_sequence=5,
+            last_inode=999,
+            last_dev=999,
+        )
+
+        # Repair should succeed and clear state
+        success, message = state_manager.repair_state_for_file(log_path)
+        assert success is True
+        assert "cleared" in message.lower()
+        assert "audit/missing.jsonl" not in state_manager._states

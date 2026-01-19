@@ -186,12 +186,13 @@ class IntegrityStateManager:
             raise
 
     def verify_on_startup(self, log_paths: list[Path]) -> VerificationResult:
-        """Verify all log files match stored state.
+        """Verify all log files match stored state and have valid hash chains.
 
         Checks for each file with stored state:
         1. File exists
         2. File's inode/dev matches stored values (not swapped)
         3. Last entry in file matches stored last_hash
+        4. Full hash chain integrity (all entries link correctly)
 
         Files without stored state are skipped (first run or new file).
 
@@ -201,6 +202,8 @@ class IntegrityStateManager:
         Returns:
             VerificationResult with pass/fail status and details.
         """
+        from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
+
         errors: list[str] = []
         warnings: list[str] = []
 
@@ -214,7 +217,11 @@ class IntegrityStateManager:
 
             # Check file exists
             if not log_path.exists():
-                errors.append(f"{file_key}: File missing but state exists")
+                errors.append(
+                    f"{file_key}: Log file is missing but integrity state exists. "
+                    f"This can happen after a crash or if logs were deleted. "
+                    f"Run 'mcp-acp audit repair' to resync integrity state with current log files."
+                )
                 continue
 
             # Check inode/dev (file swap detection)
@@ -222,9 +229,9 @@ class IntegrityStateManager:
                 stat = log_path.stat()
                 if stat.st_ino != state.last_inode or stat.st_dev != state.last_dev:
                     errors.append(
-                        f"{file_key}: File replaced (inode/dev mismatch). "
-                        f"Expected inode={state.last_inode}, dev={state.last_dev}. "
-                        f"Found inode={stat.st_ino}, dev={stat.st_dev}."
+                        f"{file_key}: Log file was replaced or recreated. "
+                        f"This can happen after a crash or if logs were deleted. "
+                        f"Run 'mcp-acp audit repair' to resync integrity state with current log files."
                     )
                     continue
             except OSError as e:
@@ -235,6 +242,25 @@ class IntegrityStateManager:
             hash_error = self._verify_last_entry_hash(log_path, state, file_key)
             if hash_error:
                 errors.append(hash_error)
+                continue  # Skip full chain check if last entry already failed
+
+            # Full chain verification - detect tampering in middle of file
+            try:
+                with log_path.open(encoding="utf-8") as f:
+                    lines = [line.strip() for line in f if line.strip()]
+
+                if lines:
+                    # Check if file has hash chain entries
+                    first_entry = json.loads(lines[0])
+                    if "sequence" in first_entry and "entry_hash" in first_entry:
+                        # Has hash chain - verify full integrity
+                        chain_result = verify_chain_from_lines(lines)
+                        if not chain_result.success:
+                            # Prepend file_key to each error for clarity
+                            for err in chain_result.errors:
+                                errors.append(f"{file_key}: {err}")
+            except (OSError, json.JSONDecodeError) as e:
+                errors.append(f"{file_key}: Cannot verify chain integrity: {e}")
 
         return VerificationResult(
             success=len(errors) == 0,
@@ -348,7 +374,11 @@ class IntegrityStateManager:
             last_line = self._read_last_line(log_path)
             if last_line is None:
                 # Empty file but we have state - something was deleted
-                return f"{file_key}: File is empty but state exists (entries deleted?)"
+                return (
+                    f"{file_key}: Log file is empty but integrity state exists. "
+                    f"All log entries were deleted. "
+                    f"Run 'mcp-acp audit repair' to resync integrity state."
+                )
 
             # Parse the entry
             try:
@@ -359,9 +389,15 @@ class IntegrityStateManager:
             # Check if entry has hash chain fields
             entry_hash = entry.get("entry_hash")
             if entry_hash is None:
-                # Entry without hash chain - might be pre-upgrade
-                # This is allowed during genesis handling
-                return None
+                # State exists but entry lacks hash chain fields.
+                # This means hash-chained entries were deleted, leaving only
+                # pre-upgrade entries. This is tampering - fail verification.
+                return (
+                    f"{file_key}: Log entries with hash chain protection were deleted. "
+                    f"State expects sequence {state.last_sequence}, but last entry has no hash chain fields. "
+                    f"This indicates tampering or corruption. "
+                    f"If this happened after a crash, run 'mcp-acp audit repair' to recover."
+                )
 
             # Verify hash matches state
             if entry_hash != state.last_hash:
@@ -403,6 +439,11 @@ class IntegrityStateManager:
         Use this after crash recovery or when instructed by verification errors.
         Updates state to match the last valid entry in the log file.
 
+        For empty files or files without hash chain entries, this clears the
+        stored state (treating it as a fresh start). This is safe because:
+        - The user explicitly runs repair, acknowledging the current state
+        - The repair command warns that it trusts current log contents
+
         Args:
             log_path: Path to the log file to repair state for.
 
@@ -414,23 +455,50 @@ class IntegrityStateManager:
         file_key = self._get_file_key(log_path)
 
         if not log_path.exists():
-            return False, f"{file_key}: File does not exist"
+            # File doesn't exist - clear any state for it
+            had_state = False
+            with self._lock:
+                if file_key in self._states:
+                    del self._states[file_key]
+                    had_state = True
+            if had_state:
+                self.save_state()
+                return True, f"{file_key}: File missing, cleared integrity state"
+            return True, f"{file_key}: File missing, no state to clear"
 
         # Read last entry
         last_line = self._read_last_line(log_path)
         if last_line is None:
-            return False, f"{file_key}: File is empty"
+            # Empty file - clear state (fresh start)
+            had_state = False
+            with self._lock:
+                if file_key in self._states:
+                    del self._states[file_key]
+                    had_state = True
+            if had_state:
+                self.save_state()
+                return True, f"{file_key}: File empty, cleared integrity state (will start fresh)"
+            return True, f"{file_key}: File empty, no state to clear"
 
         try:
             entry = json.loads(last_line)
         except json.JSONDecodeError:
-            return False, f"{file_key}: Last entry is not valid JSON"
+            return False, f"{file_key}: Last entry is not valid JSON - manual fix required"
 
         entry_hash = entry.get("entry_hash")
         entry_sequence = entry.get("sequence")
 
         if entry_hash is None or entry_sequence is None:
-            return False, f"{file_key}: Last entry has no hash chain fields"
+            # File has entries but no hash chain - clear state (fresh start)
+            had_state = False
+            with self._lock:
+                if file_key in self._states:
+                    del self._states[file_key]
+                    had_state = True
+            if had_state:
+                self.save_state()
+                return True, f"{file_key}: No hash chain entries, cleared integrity state (will start fresh)"
+            return True, f"{file_key}: No hash chain entries, no state to clear"
 
         # Verify entry is internally consistent
         computed_hash = compute_entry_hash(entry)
@@ -505,3 +573,33 @@ class IntegrityStateManager:
         """
         with self._lock:
             return list(self._states.keys())
+
+    def clear_state_for_file(self, log_path: Path) -> bool:
+        """Clear stored state for a specific log file.
+
+        Use this when a log file is being reset/replaced and needs to start
+        fresh without any prior state.
+
+        Args:
+            log_path: Path to the log file to clear state for.
+
+        Returns:
+            True if state was cleared, False if no state existed.
+        """
+        file_key = self._get_file_key(log_path)
+        had_state = False
+        with self._lock:
+            if file_key in self._states:
+                del self._states[file_key]
+                had_state = True
+        if had_state:
+            self.save_state()
+        return had_state
+
+    def get_log_dir(self) -> Path:
+        """Get the log directory this manager was initialized with.
+
+        Returns:
+            Path to the log directory.
+        """
+        return self._log_dir

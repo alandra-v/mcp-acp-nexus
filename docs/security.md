@@ -284,9 +284,13 @@ After any fallback, the proxy must shut down because the primary audit trail is 
 | Protected by policy | MCP tools cannot access log directory regardless of policy rules |
 | Correlation IDs | request_id and session_id link related events |
 
-**Hash Chain Integrity**: Audit logs use SHA-256 hash chains linking each entry to the previous. Detects deleted, inserted, reordered, or modified entries. Verify with `mcp-acp audit verify`. Verified automatically at startup (fails with exit code 10 if tampered).
+**Hash Chain Integrity**: Audit logs use SHA-256 hash chains linking each entry to the previous. Detects deleted, inserted, reordered, or modified entries. Verify with `mcp-acp audit verify`. Full chain verification runs automatically at startup - detects tampering anywhere in the file, not just the last entry (fails with exit code 10 if tampered).
 
-**Crash Recovery**: If the proxy crashes after saving state but before writing a log entry, startup verification fails with "hash mismatch". Run `mcp-acp audit repair` to reset state to match the actual log. This requires manual intervention to prevent attackers from silently deleting the last entry.
+**Crash Recovery**: If the proxy crashes after saving state but before writing a log entry, startup verification fails with "hash mismatch". Run `mcp-acp audit repair` to fix:
+- If chain is valid but state is out of sync: resets state to match the actual log
+- If chain is internally broken (e.g., entries deleted): offers to backup the broken file and create a fresh one
+
+This requires manual intervention to prevent attackers from silently deleting entries.
 
 **Limitation**: Hash chains are self-attesting. An attacker with write access to both logs AND `.integrity_state` can truncate logs undetected. Mitigate with remote syslog forwarding, append-only filesystem attributes, or external backups.
 

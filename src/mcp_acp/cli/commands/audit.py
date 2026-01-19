@@ -9,6 +9,7 @@ __all__ = ["audit"]
 
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -48,17 +49,15 @@ AUDIT_LOG_FILES = {
 def _verify_single_file(
     log_path: Path,
     log_name: str,
-    verbose: bool,
 ) -> tuple[bool, list[str]]:
     """Verify a single log file's hash chain.
 
     Args:
-        log_path: Path to the log file
-        log_name: Human-readable name for the log
-        verbose: Whether to print verbose output
+        log_path: Path to the log file.
+        log_name: Human-readable name for the log.
 
     Returns:
-        Tuple of (success, error_messages)
+        Tuple of (success, error_messages).
     """
     errors: list[str] = []
 
@@ -74,8 +73,7 @@ def _verify_single_file(
         return False, errors
 
     if not lines:
-        if verbose:
-            click.echo(f"  {log_name}: empty (no entries to verify)")
+        click.echo(f"  {log_name}: empty (no entries to verify)")
         return True, []
 
     # Count entries with and without hash chain fields
@@ -94,27 +92,24 @@ def _verify_single_file(
             entries_without_chain += 1
 
     if entries_with_chain == 0:
-        if verbose:
-            click.echo(f"  {log_name}: {len(lines)} entries (no hash chain fields - legacy format)")
+        click.echo(f"  {log_name}: {len(lines)} entries (legacy format, no hash chain)")
         return True, []  # No chain entries - legacy format, skip verification
 
     # Verify chain integrity
     result = verify_chain_from_lines(lines)
 
     if result.success:
-        if verbose:
-            msg = f"  {log_name}: {entries_with_chain} chain entries"
-            if entries_without_chain > 0:
-                msg += f" + {entries_without_chain} legacy entries"
-            msg += " - " + style_success("PASSED")
-            click.echo(msg)
+        msg = f"  {log_name}: {entries_with_chain} chain entries"
+        if entries_without_chain > 0:
+            msg += f" + {entries_without_chain} legacy entries"
+        msg += " - " + style_success("PASSED")
+        click.echo(msg)
         return True, []
     else:
         errors.extend(result.errors)
-        if verbose:
-            click.echo(f"  {log_name}: " + style_error("FAILED"))
-            for err in result.errors:
-                click.echo(f"    - {err}")
+        click.echo(f"  {log_name}: " + style_error("FAILED"))
+        for err in result.errors:
+            click.echo(f"    - {err}")
         return False, errors
 
 
@@ -136,13 +131,7 @@ def audit() -> None:
     default="all",
     help="Log file to verify (default: all)",
 )
-@click.option(
-    "--verbose",
-    "-v",
-    is_flag=True,
-    help="Show detailed verification output",
-)
-def verify(log_file: str, verbose: bool) -> None:
+def verify(log_file: str) -> None:
     """Verify audit log hash chain integrity.
 
     Checks that log entries haven't been tampered with, deleted,
@@ -170,24 +159,21 @@ def verify(log_file: str, verbose: bool) -> None:
     total_passed = 0
     total_failed = 0
     total_skipped = 0
-    all_errors: list[str] = []
 
     for file_key, (description, path_fn) in files_to_verify:
         log_path = path_fn(config)
 
         if not log_path.exists():
-            if verbose:
-                click.echo(f"  {description}: " + style_warning("not found (skipped)"))
+            click.echo(f"  {description}: " + style_warning("not found (skipped)"))
             total_skipped += 1
             continue
 
-        success, errors = _verify_single_file(log_path, description, verbose)
+        success, _errors = _verify_single_file(log_path, description)
 
         if success:
             total_passed += 1
         else:
             total_failed += 1
-            all_errors.extend(errors)
 
     # Summary
     click.echo()
@@ -204,12 +190,7 @@ def verify(log_file: str, verbose: bool) -> None:
     else:
         click.echo(style_error(f"INTEGRITY CHECK FAILED: {total_failed} file(s) have issues"))
         click.echo()
-        click.echo("Possible causes:")
-        click.echo("  - Log entries were manually edited")
-        click.echo("  - Log entries were deleted")
-        click.echo("  - Log file was replaced")
-        click.echo()
-        click.echo("This may indicate tampering. Review the errors above.")
+        click.echo("Run 'mcp-acp audit repair' to fix.")
         sys.exit(EXIT_FAILED)
 
 
@@ -246,7 +227,7 @@ def status() -> None:
             status_str = style_warning("not created")
             info = ""
         else:
-            # Check if file has hash chain entries
+            # Check if file has hash chain entries and verify integrity
             try:
                 with log_path.open(encoding="utf-8") as f:
                     lines = [line.strip() for line in f if line.strip()]
@@ -258,8 +239,14 @@ def status() -> None:
                     # Check last entry for hash chain fields
                     last_entry = json.loads(lines[-1])
                     if "sequence" in last_entry and "entry_hash" in last_entry:
-                        status_str = style_success("protected")
-                        info = f"{len(lines)} entries, seq #{last_entry.get('sequence', '?')}"
+                        # Has hash chain - verify integrity
+                        result = verify_chain_from_lines(lines)
+                        if result.success:
+                            status_str = style_success("protected")
+                            info = f"{len(lines)} entries, seq #{last_entry.get('sequence', '?')}"
+                        else:
+                            status_str = style_error("BROKEN")
+                            info = f"{len(lines)} entries - chain integrity failed"
                     else:
                         status_str = style_warning("legacy format")
                         info = f"{len(lines)} entries (no hash chain)"
@@ -272,6 +259,89 @@ def status() -> None:
             click.echo(f"                   {info}")
 
     click.echo()
+
+
+def _check_chain_integrity(log_path: Path) -> tuple[bool, list[str]]:
+    """Check if a log file's hash chain is internally consistent.
+
+    Args:
+        log_path: Path to the log file to verify.
+
+    Returns:
+        Tuple of (is_valid, error_messages). Returns (True, []) for empty
+        files or legacy files without hash chain entries.
+    """
+    try:
+        with log_path.open(encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+
+        if not lines:
+            return True, []  # Empty file is valid
+
+        # Check if file has hash chain entries
+        try:
+            last_entry = json.loads(lines[-1])
+            if "sequence" not in last_entry or "entry_hash" not in last_entry:
+                return True, []  # Legacy format, no chain to verify
+        except json.JSONDecodeError:
+            return False, ["Last entry is not valid JSON"]
+
+        # Verify chain integrity
+        result = verify_chain_from_lines(lines)
+        return result.success, result.errors
+
+    except OSError as e:
+        return False, [f"Cannot read file: {e}"]
+
+
+def _backup_and_reset_file(
+    log_path: Path,
+    state_manager: IntegrityStateManager,
+) -> tuple[bool, str]:
+    """Backup a broken log file and create empty replacement.
+
+    Renames the broken file with a .broken.{timestamp}.jsonl suffix,
+    creates a new empty file, and clears the integrity state.
+
+    Uses rollback on failure: if any step fails after the rename,
+    attempts to restore the original file.
+
+    Args:
+        log_path: Path to the broken log file.
+        state_manager: IntegrityStateManager to clear state from.
+
+    Returns:
+        Tuple of (success, message). On success, message includes the
+        backup filename. On failure, message describes the error.
+    """
+    # Generate backup filename with timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    backup_path = log_path.with_suffix(f".broken.{timestamp}.jsonl")
+
+    try:
+        # Rename original to backup
+        log_path.rename(backup_path)
+    except OSError as e:
+        return False, f"Failed to backup file: {e}"
+
+    try:
+        # Create empty file
+        log_path.touch()
+
+        # Clear state for this file using public method
+        state_manager.clear_state_for_file(log_path)
+
+        return True, f"Backed up to {backup_path.name}, created fresh file"
+
+    except OSError as e:
+        # Rollback: restore original file
+        try:
+            if log_path.exists():
+                log_path.unlink()
+            backup_path.rename(log_path)
+        except OSError:
+            pass  # Best effort rollback
+        return False, f"Failed to reset file: {e}"
 
 
 @audit.command("repair")
@@ -298,8 +368,8 @@ def repair(log_file: str, yes: bool) -> None:
     - Verification fails with "hash mismatch" errors
     - You've investigated and confirmed logs are not tampered
 
-    WARNING: This command trusts the current log file contents.
-    Only use after confirming the logs have not been tampered with.
+    If a log file's hash chain is internally broken (e.g., entries deleted),
+    offers to backup the broken file and create a fresh one.
     """
     config = load_config_or_exit()
     log_dir = get_log_dir(config)
@@ -313,48 +383,67 @@ def repair(log_file: str, yes: bool) -> None:
     else:
         files_to_repair = [(log_file, AUDIT_LOG_FILES[log_file])]
 
-    # Show what will be repaired
-    click.echo("Files to repair:")
-    for file_key, (description, path_fn) in files_to_repair:
-        log_path = path_fn(config)
-        if log_path.exists():
-            click.echo(f"  - {description} ({file_key})")
-
-    click.echo()
-    click.echo(style_warning("WARNING: This trusts the current log file contents."))
-    click.echo("Only proceed if you've confirmed the logs have not been tampered with.")
-    click.echo()
-
-    if not yes:
-        if not click.confirm("Proceed with repair?"):
-            click.echo("Aborted.")
-            sys.exit(EXIT_UNABLE)
-
     # Load state manager
     state_manager = IntegrityStateManager(log_dir)
     state_manager.load_state()
 
     repaired = 0
     failed = 0
+    reset = 0
 
     for file_key, (description, path_fn) in files_to_repair:
         log_path = path_fn(config)
 
         if not log_path.exists():
+            # File doesn't exist - clear any stale state
+            success, message = state_manager.repair_state_for_file(log_path)
+            if success and "cleared" in message.lower():
+                click.echo(f"  {style_success('✓')} {message}")
+                repaired += 1
             continue
 
-        success, message = state_manager.repair_state_for_file(log_path)
+        # First check if chain is internally broken
+        chain_valid, chain_errors = _check_chain_integrity(log_path)
 
-        if success:
-            click.echo(f"  {style_success('✓')} {message}")
-            repaired += 1
+        if not chain_valid:
+            # Chain is broken - offer to backup and reset
+            click.echo(f"  {style_error('✗')} {description}: Chain is broken")
+            for err in chain_errors[:2]:
+                click.echo(f"      {err}")
+
+            click.echo()
+            click.echo(f"  The hash chain in {log_path.name} is internally corrupted.")
+            click.echo("  This usually means entries were deleted or modified.")
+            click.echo()
+
+            if yes or click.confirm(f"  Backup {log_path.name} and create fresh file?"):
+                success, message = _backup_and_reset_file(log_path, state_manager)
+                if success:
+                    click.echo(f"  {style_success('✓')} {message}")
+                    reset += 1
+                else:
+                    click.echo(f"  {style_error('✗')} {message}")
+                    failed += 1
+            else:
+                click.echo("  Skipped.")
+                failed += 1
         else:
-            click.echo(f"  {style_error('✗')} {message}")
-            failed += 1
+            # Chain is valid - just sync state
+            success, message = state_manager.repair_state_for_file(log_path)
+            if success:
+                click.echo(f"  {style_success('✓')} {message}")
+                repaired += 1
+            else:
+                click.echo(f"  {style_error('✗')} {message}")
+                failed += 1
 
     click.echo()
-    if failed == 0 and repaired > 0:
-        click.echo(style_success(f"Repaired {repaired} file(s). Proxy should now start."))
+    total_fixed = repaired + reset
+    if failed == 0 and total_fixed > 0:
+        msg = f"Repaired {repaired} file(s)"
+        if reset > 0:
+            msg += f", reset {reset} broken file(s)"
+        click.echo(style_success(f"{msg}. Proxy should now start."))
         sys.exit(EXIT_PASSED)
     elif failed > 0:
         click.echo(style_error(f"Failed to repair {failed} file(s). See errors above."))

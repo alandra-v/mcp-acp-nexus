@@ -198,7 +198,7 @@ Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https:/
 
 **Blocking I/O**: All audit logging is synchronous with `fsync`. This guarantees the log is on disk before continuing (~1-5ms latency).
 
-**Audit log integrity**: Protected by hash chains (tamper detection), per-write inode checks (file replacement detection), and background monitoring (every 30 seconds). Verify with `mcp-acp audit verify`. On integrity failure, the proxy shuts down.
+**Audit log integrity**: Protected by hash chains (tamper detection), per-write inode checks (file replacement detection), and background monitoring (every 30 seconds). Full chain verification runs at startup and can be triggered manually with `mcp-acp audit verify`. On integrity failure, the proxy shuts down. Use `mcp-acp audit status` to check protection status, and `mcp-acp audit repair` to recover from crashes or fix broken chains.
 
 **Atomic writes**: Config and policy history use atomic writes to prevent corruption.
 
