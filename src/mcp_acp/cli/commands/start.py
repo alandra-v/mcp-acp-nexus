@@ -4,6 +4,8 @@ Starts the proxy server for manual testing.
 """
 
 import sys
+from pathlib import Path
+from typing import NoReturn
 
 __all__ = [
     "start",
@@ -35,6 +37,76 @@ from mcp_acp.utils.history_logging import (
 
 # Bootstrap log filename (used when config is invalid and log_dir unavailable)
 BOOTSTRAP_LOG_FILENAME = "bootstrap.jsonl"
+
+
+def _handle_startup_error(
+    bootstrap_log_path: Path,
+    *,
+    event: str,
+    error: Exception,
+    popup_message: str,
+    popup_detail: str,
+    terminal_message: str,
+    exit_code: int = 1,
+    extra_terminal_lines: list[str] | None = None,
+    newline_prefix: bool = True,
+    terminal_first: bool = False,
+    skip_logging: bool = False,
+) -> NoReturn:
+    """Handle a startup error with consistent logging, popup, and terminal output.
+
+    This centralizes the error handling pattern used throughout the start command
+    while preserving all behavioral details.
+
+    Args:
+        bootstrap_log_path: Path to bootstrap.jsonl for logging.
+        event: Event name for the log entry.
+        error: The exception being handled.
+        popup_message: Short message for the macOS popup.
+        popup_detail: Detailed message for the popup.
+        terminal_message: Error message for terminal output.
+        exit_code: Process exit code (default 1).
+        extra_terminal_lines: Additional lines to print after the error.
+        newline_prefix: Whether to prefix terminal message with newline.
+        terminal_first: If True, show terminal output before popup.
+        skip_logging: If True, skip log_startup_error (for special cases).
+
+    Raises:
+        SystemExit: Always raised with the specified exit_code.
+    """
+    # Log to bootstrap.jsonl
+    if not skip_logging:
+        log_startup_error(
+            bootstrap_log_path,
+            event=event,
+            error_message=str(error),
+            error_type=type(error).__name__,
+            exit_code=exit_code,
+        )
+
+    def show_terminal() -> None:
+        prefix = "\n" if newline_prefix else ""
+        click.echo(prefix + style_error(terminal_message), err=True)
+        if extra_terminal_lines:
+            for line in extra_terminal_lines:
+                click.echo(line, err=True)
+
+    def show_popup() -> None:
+        show_startup_error_popup(
+            title="MCP ACP",
+            message=popup_message,
+            detail=popup_detail,
+            backoff=True,
+        )
+
+    if terminal_first:
+        show_terminal()
+        show_popup()
+    else:
+        show_popup()
+        show_terminal()
+
+    sys.exit(exit_code)
 
 
 @click.command()
@@ -139,37 +211,24 @@ def start(no_ui: bool) -> None:
         error_msg = str(e).lower()
         # Distinguish between config not found vs mTLS cert not found
         if "mtls" in error_msg or "certificate" in error_msg or "cert" in error_msg:
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="mtls_cert_not_found",
-                error_message=str(e),
-                error_type="FileNotFoundError",
-                exit_code=1,
+                error=e,
+                popup_message="mTLS certificate not found.",
+                popup_detail=f"{e}\n\nCheck the mTLS section in:\n  {config_path}",
+                terminal_message=f"Error: mTLS certificate not found: {e}",
             )
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="mTLS certificate not found.",
-                detail=f"{e}\n\nCheck the mTLS section in:\n  {config_path}",
-                backoff=True,
-            )
-            click.echo("\n" + style_error(f"Error: mTLS certificate not found: {e}"), err=True)
         else:
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="config_not_found",
-                error_message=str(e),
-                error_type="FileNotFoundError",
-                exit_code=1,
+                error=e,
+                popup_message="Configuration not found.",
+                popup_detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
+                terminal_message="Error: Configuration not found.",
+                extra_terminal_lines=["Run 'mcp-acp init' to create a configuration."],
             )
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Configuration not found.",
-                detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
-                backoff=True,
-            )
-            click.echo("\n" + style_error("Error: Configuration not found."), err=True)
-            click.echo("Run 'mcp-acp init' to create a configuration.", err=True)
-        sys.exit(1)
 
     except ValueError as e:
         error_msg = str(e)
@@ -231,181 +290,127 @@ def start(no_ui: bool) -> None:
         sys.exit(1)
 
     except TimeoutError as e:
-        log_startup_error(
+        _handle_startup_error(
             bootstrap_log_path,
             event="backend_timeout",
-            error_message=str(e),
-            error_type="TimeoutError",
-            exit_code=1,
+            error=e,
+            popup_message="Backend connection timed out.",
+            popup_detail=f"{e}\n\nCheck that the backend server is running and responsive.",
+            terminal_message=f"Error: Backend connection timed out: {e}",
+            newline_prefix=False,
         )
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Backend connection timed out.",
-            detail=f"{e}\n\nCheck that the backend server is running and responsive.",
-            backoff=True,
-        )
-        click.echo(style_error(f"Error: Backend connection timed out: {e}"), err=True)
-        sys.exit(1)
 
     except ConnectionError as e:
         # Check for SSL-specific errors
         error_msg = str(e).lower()
         if "ssl" in error_msg or "certificate" in error_msg:
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="ssl_error",
-                error_message=str(e),
-                error_type="ConnectionError",
-                exit_code=1,
+                error=e,
+                popup_message="SSL/TLS error.",
+                popup_detail=f"{e}\n\nCheck your mTLS certificate configuration.",
+                terminal_message=f"Error: SSL/TLS error: {e}",
+                newline_prefix=False,
             )
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="SSL/TLS error.",
-                detail=f"{e}\n\nCheck your mTLS certificate configuration.",
-                backoff=True,
-            )
-            click.echo(style_error(f"Error: SSL/TLS error: {e}"), err=True)
         else:
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="backend_connection_failed",
-                error_message=str(e),
-                error_type="ConnectionError",
-                exit_code=1,
+                error=e,
+                popup_message="Backend connection failed.",
+                popup_detail=f"{e}\n\nCheck that the backend server is running.",
+                terminal_message=f"Error: Backend connection failed: {e}",
+                newline_prefix=False,
             )
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Backend connection failed.",
-                detail=f"{e}\n\nCheck that the backend server is running.",
-                backoff=True,
-            )
-            click.echo(style_error(f"Error: Backend connection failed: {e}"), err=True)
-        sys.exit(1)
 
     except AuditFailure as e:
-        log_startup_error(
+        _handle_startup_error(
             bootstrap_log_path,
             event="audit_failure",
-            error_message=str(e),
-            error_type="AuditFailure",
+            error=e,
+            popup_message="Audit log failure.",
+            popup_detail=f"{e}\n\nThe proxy cannot start without a writable audit log.\nCheck file permissions in the log directory.",
+            terminal_message=f"Error: Audit log failure: {e}",
             exit_code=AuditFailure.exit_code,
+            extra_terminal_lines=["The proxy cannot start without a writable audit log."],
+            newline_prefix=False,
         )
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Audit log failure.",
-            detail=f"{e}\n\nThe proxy cannot start without a writable audit log.\nCheck file permissions in the log directory.",
-            backoff=True,
-        )
-        click.echo(style_error(f"Error: Audit log failure: {e}"), err=True)
-        click.echo("The proxy cannot start without a writable audit log.", err=True)
-        sys.exit(AuditFailure.exit_code)
 
     except AuthenticationError as e:
         error_msg = str(e).lower()
         if "not configured" in error_msg:
             # Auth section missing from config - need to run init
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="auth_not_configured",
-                error_message=str(e),
-                error_type="AuthenticationError",
+                error=e,
+                popup_message="Authentication not configured.",
+                popup_detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
+                terminal_message="Error: Authentication not configured.",
                 exit_code=AuthenticationError.exit_code,
-            )
-            # Terminal output FIRST (so user sees it immediately)
-            click.echo("\n" + style_error("Error: Authentication not configured."), err=True)
-            click.echo("Run 'mcp-acp init' to configure authentication.", err=True)
-            # Popup AFTER (for MCP client users who can't see terminal)
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Authentication not configured.",
-                detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
-                backoff=True,
+                extra_terminal_lines=["Run 'mcp-acp init' to configure authentication."],
+                terminal_first=True,
             )
         elif "not authenticated" in error_msg or "no token" in error_msg or "token not found" in error_msg:
             # Token not found in keychain - need to login
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="not_authenticated",
-                error_message=str(e),
-                error_type="AuthenticationError",
+                error=e,
+                popup_message="Not authenticated.",
+                popup_detail="Run in terminal:\n  mcp-acp auth login\n\nThen restart your MCP client.",
+                terminal_message="Error: Not authenticated.",
                 exit_code=AuthenticationError.exit_code,
-            )
-            click.echo("\n" + style_error("Error: Not authenticated."), err=True)
-            click.echo("Run 'mcp-acp auth login' to authenticate.", err=True)
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Not authenticated.",
-                detail="Run in terminal:\n  mcp-acp auth login\n\nThen restart your MCP client.",
-                backoff=True,
+                extra_terminal_lines=["Run 'mcp-acp auth login' to authenticate."],
+                terminal_first=True,
             )
         elif "expired" in error_msg:
             # Token expired and refresh failed - need to re-login
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="auth_expired",
-                error_message=str(e),
-                error_type="AuthenticationError",
+                error=e,
+                popup_message="Auth session expired.",
+                popup_detail="Run in terminal:\n  mcp-acp auth login\n\nThen restart your MCP client.",
+                terminal_message="Error: Auth session expired.",
                 exit_code=AuthenticationError.exit_code,
-            )
-            click.echo("\n" + style_error("Error: Auth session expired."), err=True)
-            click.echo("Run 'mcp-acp auth login' to re-authenticate.", err=True)
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Auth session expired.",
-                detail="Run in terminal:\n  mcp-acp auth login\n\nThen restart your MCP client.",
-                backoff=True,
+                extra_terminal_lines=["Run 'mcp-acp auth login' to re-authenticate."],
+                terminal_first=True,
             )
         else:
             # Generic auth error
-            log_startup_error(
+            _handle_startup_error(
                 bootstrap_log_path,
                 event="auth_failed",
-                error_message=str(e),
-                error_type="AuthenticationError",
+                error=e,
+                popup_message="Authentication error.",
+                popup_detail=f"{e}\n\nRun 'mcp-acp auth login' to re-authenticate.",
+                terminal_message="Error: Authentication failed.",
                 exit_code=AuthenticationError.exit_code,
+                extra_terminal_lines=[str(e), "", "Run 'mcp-acp auth login' to re-authenticate."],
+                terminal_first=True,
             )
-            click.echo("\n" + style_error("Error: Authentication failed."), err=True)
-            click.echo(str(e), err=True)
-            click.echo("\nRun 'mcp-acp auth login' to re-authenticate.", err=True)
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Authentication error.",
-                detail=f"{e}\n\nRun 'mcp-acp auth login' to re-authenticate.",
-                backoff=True,
-            )
-        sys.exit(AuthenticationError.exit_code)
 
     except DeviceHealthError as e:
-        log_startup_error(
+        _handle_startup_error(
             bootstrap_log_path,
             event="device_health_failed",
-            error_message=str(e),
-            error_type="DeviceHealthError",
+            error=e,
+            popup_message="Device health check failed.",
+            popup_detail=f"{e}\n\nEnsure FileVault is enabled and SIP is not disabled.",
+            terminal_message="Error: Device health check failed",
             exit_code=DeviceHealthError.exit_code,
+            extra_terminal_lines=[str(e)],
         )
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Device health check failed.",
-            detail=f"{e}\n\nEnsure FileVault is enabled and SIP is not disabled.",
-            backoff=True,
-        )
-        click.echo("\n" + style_error("Error: Device health check failed"), err=True)
-        click.echo(str(e), err=True)
-        sys.exit(DeviceHealthError.exit_code)
 
     except (PermissionError, RuntimeError, OSError) as e:
-        log_startup_error(
+        _handle_startup_error(
             bootstrap_log_path,
             event="startup_failed",
-            error_message=str(e),
-            error_type=type(e).__name__,
-            exit_code=1,
+            error=e,
+            popup_message="Proxy startup failed.",
+            popup_detail=f"{e}",
+            terminal_message=f"Error: Proxy startup failed: {e}",
+            newline_prefix=False,
         )
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Proxy startup failed.",
-            detail=f"{e}",
-            backoff=True,
-        )
-        click.echo(style_error(f"Error: Proxy startup failed: {e}"), err=True)
-        sys.exit(1)
