@@ -289,6 +289,30 @@ def policy_edit() -> None:
     click.echo("  mcp-acp policy reload")
 
 
+# All cacheable side effects - matches UI (RuleFormDialog.tsx)
+ALL_CACHEABLE_SIDE_EFFECTS = [
+    "fs_read",
+    "fs_write",
+    "db_read",
+    "db_write",
+    "network_egress",
+    "network_ingress",
+    "process_spawn",
+    "sudo_elevate",
+    "secrets_read",
+    "env_read",
+    "clipboard_read",
+    "clipboard_write",
+    "browser_open",
+    "email_send",
+    "cloud_api",
+    "container_exec",
+    "keychain_read",
+    "screen_capture",
+    "audio_capture",
+    "camera_capture",
+]
+
 RULE_SCHEMA = """\
 Policy Rule Schema
 ==================
@@ -298,8 +322,9 @@ A rule has these top-level fields:
   - description: string (optional) - Human-readable description
   - effect: "allow" | "deny" | "hitl" (REQUIRED)
   - conditions: object (REQUIRED) - At least one condition must be specified
+  - cache_side_effects: string[] (optional, HITL only) - Enable approval caching
 
-Conditions (all use AND logic - all specified must match):
+Conditions:
   - tool_name: string | string[]  - Tool name pattern (glob: *, ?)
   - path_pattern: string | string[]  - File path pattern (glob: *, **, ?)
   - source_path: string | string[]  - Source path for move/copy operations
@@ -311,16 +336,36 @@ Conditions (all use AND logic - all specified must match):
   - mcp_method: string | string[]  - MCP method pattern (e.g., "resources/*")
   - subject_id: string | string[]  - User/subject ID
 
-Note: side_effects condition is not yet exposed in CLI/UI. Tool side effects
-are currently hardcoded; see roadmap.md section 1.1 for planned external
-tool registry that will enable dynamic side effect selection.
+Matching Logic:
+  - Between different conditions: AND (all must match)
+  - Within array values: OR (any value matches)
 
-When a field accepts string[], any value matches (OR logic within field).
+  Example - OR within a field:
+    "tool_name": ["read_*", "write_*"]   --> matches read_* OR write_*
+    "extension": [".env", ".key"]        --> matches .env OR .key
+
+  Example - AND between fields:
+    "tool_name": "bash", "path_pattern": "/home/**"  --> must match BOTH
+
+HITL Approval Caching (only when effect="hitl"):
+  cache_side_effects allows caching user approvals for repeated tool calls.
+  Set to list of side effects to enable, or omit/null to disable.
+
+  Cacheable side effects:
+    fs_read, fs_write, db_read, db_write, network_egress, network_ingress,
+    process_spawn, sudo_elevate, secrets_read, env_read, clipboard_read,
+    clipboard_write, browser_open, email_send, cloud_api, container_exec,
+    keychain_read, screen_capture, audio_capture, camera_capture
+
+  Security: code_exec tools are NEVER cached (command args not in cache key).
+
+Note: side_effects condition is not yet exposed in CLI/UI.
 
 Examples:
   {"effect": "allow", "conditions": {"tool_name": "read_*"}}
   {"effect": "deny", "conditions": {"extension": [".key", ".env", ".pem"]}}
   {"effect": "hitl", "conditions": {"tool_name": "bash", "path_pattern": "/home/**"}}
+  {"effect": "hitl", "conditions": {"tool_name": "read_*"}, "cache_side_effects": ["fs_read"]}
 """
 
 RULE_TEMPLATE = """\
@@ -330,7 +375,8 @@ RULE_TEMPLATE = """\
   "effect": "hitl",
   "conditions": {
     "tool_name": "*"
-  }
+  },
+  "cache_side_effects": null
 }
 """
 
