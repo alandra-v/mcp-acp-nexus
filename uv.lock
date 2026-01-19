@@ -980,7 +980,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mcp-acp-extended"
+name = "mcp-acp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
