@@ -8,7 +8,6 @@ from __future__ import annotations
 __all__ = ["policy"]
 
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -16,10 +15,11 @@ from pathlib import Path
 import click
 
 from mcp_acp.cli.api_client import APIError, ProxyNotRunningError, api_request
+from mcp_acp.constants import CLI_POLICY_RELOAD_TIMEOUT_SECONDS
+from mcp_acp.utils.cli import edit_json_loop, get_editor, show_editor_hints
+from mcp_acp.utils.policy import get_policy_path, load_policy, save_policy
 
 from ..styling import style_dim, style_error, style_label, style_success
-from mcp_acp.constants import CLI_POLICY_RELOAD_TIMEOUT_SECONDS
-from mcp_acp.utils.policy import get_policy_path, load_policy, save_policy
 
 
 @click.group()
@@ -215,54 +215,23 @@ def policy_edit() -> None:
         sys.exit(1)
 
     # Get current content as formatted JSON
-    current_content = json.dumps(original_dict, indent=2)
+    from mcp_acp.pdp.policy import PolicyConfig
 
-    # Determine editor
-    if sys.platform == "win32":
-        default_editor = "notepad"
-    else:
-        default_editor = "vi"
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or default_editor
+    initial_content = json.dumps(original_dict, indent=2)
+
+    # Show editor info and hints
+    editor = get_editor()
     click.echo(f"Opening policy in {editor}...")
-
-    # Show hints for common editors
-    editor_name = os.path.basename(editor).split()[0]
-    if editor_name in ("vim", "vi", "nvim"):
-        click.echo("  Esc = normal mode | :wq = save+exit | :q! = exit no save")
-    elif editor_name == "nano":
-        click.echo("  Ctrl+O Enter = save | Ctrl+X = exit")
+    show_editor_hints(editor)
 
     click.pause("Press Enter to open editor...")
 
-    # Edit loop
-    while True:
-        edited_content = click.edit(current_content, extension=".json")
-
-        if edited_content is None:
-            click.echo(style_dim("Edit cancelled."))
-            sys.exit(0)
-
-        if edited_content.strip() == current_content.strip():
-            click.echo(style_dim("No changes made."))
-            sys.exit(0)
-
-        # Validate
-        try:
-            from mcp_acp.pdp.policy import PolicyConfig
-
-            new_dict = json.loads(edited_content)
-            PolicyConfig.model_validate(new_dict)
-            break
-        except json.JSONDecodeError as e:
-            click.echo("\n" + style_error(f"Error: Invalid JSON: {e}"), err=True)
-        except ValueError as e:
-            click.echo("\n" + style_error(f"Error: Invalid policy: {e}"), err=True)
-
-        if not click.confirm("Re-edit policy?", default=True):
-            click.echo(style_dim("Edit cancelled."))
-            sys.exit(1)
-
-        current_content = edited_content
+    # Edit loop - re-edit on validation failure
+    edited_content, _, _ = edit_json_loop(
+        initial_content,
+        PolicyConfig.model_validate,
+        "policy",
+    )
 
     # Backup and save
     backup_path = policy_path.with_suffix(".json.bak")
@@ -411,12 +380,8 @@ def policy_add() -> None:
     click.echo(RULE_SCHEMA)
     click.echo()
 
-    # Determine editor
-    if sys.platform == "win32":
-        default_editor = "notepad"
-    else:
-        default_editor = "vi"
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or default_editor
+    # Show editor info
+    editor = get_editor()
     click.echo(f"Opening editor ({editor})...")
 
     click.pause("Press Enter to open editor...")

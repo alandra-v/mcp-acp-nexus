@@ -16,17 +16,17 @@ from pathlib import Path
 import click
 
 from mcp_acp.config import AppConfig
-
-from ..styling import style_label
+from mcp_acp.utils.cli import load_config_or_exit
 from mcp_acp.utils.config import (
+    get_audit_log_path,
     get_auth_log_path,
     get_config_history_path,
-    get_config_path,
     get_decisions_log_path,
-    get_audit_log_path,
     get_policy_history_path,
     get_system_log_path,
 )
+
+from ..styling import style_label
 
 # Log types and their path functions
 LOG_TYPES = {
@@ -37,21 +37,6 @@ LOG_TYPES = {
     "config-history": ("Config change history", get_config_history_path),
     "policy-history": ("Policy change history", get_policy_history_path),
 }
-
-
-def _load_config() -> AppConfig:
-    """Load configuration from default path."""
-    config_path = get_config_path()
-
-    if not config_path.exists():
-        raise click.ClickException(
-            f"Configuration not found at {config_path}\n" "Run 'mcp-acp init' to create configuration."
-        )
-
-    try:
-        return AppConfig.load_from_files(config_path)
-    except (OSError, ValueError) as e:
-        raise click.ClickException(f"Failed to load configuration: {e}") from e
 
 
 def _get_log_path(config: AppConfig, log_type: str) -> Path:
@@ -80,7 +65,7 @@ def logs_list() -> None:
 
     Shows all log types with their file paths and sizes.
     """
-    config = _load_config()
+    config = load_config_or_exit()
 
     click.echo("\n" + style_label("Available log files") + "\n")
 
@@ -139,7 +124,7 @@ def logs_show(log_type: str, limit: int) -> None:
     Requires --type to specify which log to show.
     Use 'logs list' to see available log files.
     """
-    config = _load_config()
+    config = load_config_or_exit()
     log_path = _get_log_path(config, log_type)
 
     if not log_path.exists():
@@ -192,7 +177,7 @@ def logs_tail(log_type: str) -> None:
     Use 'logs list' to see available log files.
     Press Ctrl+C to stop.
     """
-    config = _load_config()
+    config = load_config_or_exit()
     log_path = _get_log_path(config, log_type)
 
     if not log_path.exists():

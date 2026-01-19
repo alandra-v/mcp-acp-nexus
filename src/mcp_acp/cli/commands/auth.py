@@ -15,12 +15,6 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from mcp_acp.config import AppConfig
-
-from ..styling import style_dim, style_success
-
-if TYPE_CHECKING:
-    from mcp_acp.config import OIDCConfig
 from mcp_acp.cli.api_client import APIError, ProxyNotRunningError, api_request
 from mcp_acp.constants import CLI_NOTIFICATION_TIMEOUT_SECONDS
 from mcp_acp.exceptions import AuthenticationError
@@ -34,7 +28,12 @@ from mcp_acp.security.auth.token_storage import (
     create_token_storage,
     get_token_storage_info,
 )
-from mcp_acp.utils.config import get_config_path
+from mcp_acp.utils.cli import load_config_or_exit
+
+from ..styling import style_dim, style_success
+
+if TYPE_CHECKING:
+    from mcp_acp.config import AppConfig, OIDCConfig
 
 
 def _notify_proxy(endpoint: str) -> bool:
@@ -51,28 +50,6 @@ def _notify_proxy(endpoint: str) -> bool:
         return True
     except (ProxyNotRunningError, APIError):
         return False  # Proxy not running or request failed
-
-
-def _load_config() -> AppConfig:
-    """Load configuration from default path.
-
-    Returns:
-        AppConfig instance.
-
-    Raises:
-        click.ClickException: If config not found or invalid.
-    """
-    config_path = get_config_path()
-
-    if not config_path.exists():
-        raise click.ClickException(
-            f"Configuration not found at {config_path}\n" "Run 'mcp-acp init' to create configuration."
-        )
-
-    try:
-        return AppConfig.load_from_files(config_path)
-    except Exception as e:
-        raise click.ClickException(f"Failed to load configuration: {e}") from e
 
 
 @click.group()
@@ -96,7 +73,7 @@ def login(no_browser: bool) -> None:
     This is the same pattern as 'gh auth login' or 'aws sso login'.
     """
     # Load config to get OIDC settings
-    config = _load_config()
+    config = load_config_or_exit()
 
     if config.auth is None or config.auth.oidc is None:
         raise click.ClickException(
@@ -224,7 +201,7 @@ def logout(federated: bool) -> None:
     useful when switching between different users.
     """
     # Load config to get OIDC settings (for storage selection)
-    config = _load_config()
+    config = load_config_or_exit()
 
     oidc_config = config.auth.oidc if config.auth else None
     storage = create_token_storage(oidc_config)
@@ -292,7 +269,7 @@ def status(as_json: bool) -> None:
     import json as json_module
 
     # Load config
-    config = _load_config()
+    config = load_config_or_exit()
 
     # Build result dict for JSON output
     result: dict[str, Any] = {

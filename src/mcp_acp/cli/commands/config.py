@@ -8,7 +8,6 @@ from __future__ import annotations
 __all__ = ["config"]
 
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -16,6 +15,7 @@ from pathlib import Path
 import click
 
 from mcp_acp.config import AppConfig
+from mcp_acp.utils.cli import edit_json_loop, get_editor, show_editor_hints
 from mcp_acp.utils.config import (
     get_audit_log_path,
     get_backend_log_path,
@@ -26,7 +26,7 @@ from mcp_acp.utils.config import (
 )
 from mcp_acp.utils.history_logging import log_config_updated
 
-from ..styling import style_dim, style_error, style_header, style_success
+from ..styling import style_error, style_header, style_success
 
 
 def _load_raw_config(config_path: Path) -> dict[str, object]:
@@ -258,62 +258,21 @@ def config_edit() -> None:
         sys.exit(1)
 
     # Get current content as formatted JSON
-    current_content = json.dumps(original_dict, indent=2)
+    initial_content = json.dumps(original_dict, indent=2)
 
-    # Determine editor and show hint
-    # Use platform-appropriate default editor
-    if sys.platform == "win32":
-        default_editor = "notepad"
-    else:
-        default_editor = "vi"
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or default_editor
+    # Show editor info and hints
+    editor = get_editor()
     click.echo(f"Opening config in {editor}...")
-
-    # Show save/exit hints for common editors
-    editor_name = os.path.basename(editor).split()[0]  # Handle "code --wait" etc.
-    if editor_name in ("vim", "vi", "nvim"):
-        click.echo("  Esc = normal mode | :wq = save+exit | :q! = exit no save")
-    elif editor_name == "nano":
-        click.echo("  Ctrl+O Enter = save | Ctrl+X = exit")
-    elif editor_name in ("emacs", "emacsclient"):
-        click.echo("  Ctrl+X Ctrl+S = save | Ctrl+X Ctrl+C = exit")
-    elif editor_name in ("code", "subl", "atom"):
-        click.echo("  Cmd/Ctrl+S = save | close tab to finish")
+    show_editor_hints(editor)
 
     click.pause("Press Enter to open editor...")
 
     # Edit loop - re-edit on validation failure
-    while True:
-        # Open in editor
-        edited_content = click.edit(current_content, extension=".json")
-
-        # User quit without saving
-        if edited_content is None:
-            click.echo(style_dim("Edit cancelled."))
-            sys.exit(0)
-
-        # Check if content changed
-        if edited_content.strip() == current_content.strip():
-            click.echo(style_dim("No changes made."))
-            sys.exit(0)
-
-        # Try to parse and validate
-        try:
-            new_dict = json.loads(edited_content)
-            new_config = AppConfig.model_validate(new_dict)
-            break  # Validation passed, exit loop
-        except json.JSONDecodeError as e:
-            click.echo("\n" + style_error(f"Error: Invalid JSON: {e}"), err=True)
-        except ValueError as e:
-            click.echo("\n" + style_error(f"Error: Invalid configuration: {e}"), err=True)
-
-        # Offer to re-edit
-        if not click.confirm("Re-edit configuration?", default=True):
-            click.echo(style_dim("Edit cancelled."))
-            sys.exit(1)
-
-        # Keep the edited (invalid) content for re-editing
-        current_content = edited_content
+    edited_content, new_dict, new_config = edit_json_loop(
+        initial_content,
+        AppConfig.model_validate,
+        "configuration",
+    )
 
     # Backup original before saving
     backup_path = config_path.with_suffix(".json.bak")

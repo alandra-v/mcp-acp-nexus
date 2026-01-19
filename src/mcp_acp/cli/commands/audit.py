@@ -16,11 +16,11 @@ import click
 from mcp_acp.config import AppConfig
 from mcp_acp.security.integrity import IntegrityStateManager
 from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
+from mcp_acp.utils.cli import load_config_or_exit
 from mcp_acp.utils.config import (
     get_audit_log_path,
     get_auth_log_path,
     get_config_history_path,
-    get_config_path,
     get_decisions_log_path,
     get_log_dir,
     get_policy_history_path,
@@ -43,21 +43,6 @@ AUDIT_LOG_FILES = {
     "config-history": ("Config change history", get_config_history_path),
     "policy-history": ("Policy change history", get_policy_history_path),
 }
-
-
-def _load_config() -> AppConfig:
-    """Load configuration from default path."""
-    config_path = get_config_path()
-
-    if not config_path.exists():
-        raise click.ClickException(
-            f"Configuration not found at {config_path}\n" "Run 'mcp-acp init' to create configuration."
-        )
-
-    try:
-        return AppConfig.load_from_files(config_path)
-    except (OSError, ValueError) as e:
-        raise click.ClickException(f"Failed to load configuration: {e}") from e
 
 
 def _verify_single_file(
@@ -168,7 +153,7 @@ def verify(log_file: str, verbose: bool) -> None:
       1 - Tampering detected (hash chain broken)
       2 - Unable to verify (missing files, read errors)
     """
-    config = _load_config()
+    config = load_config_or_exit()
 
     click.echo()
     click.echo(style_label("Audit Log Integrity Verification"))
@@ -235,7 +220,7 @@ def status() -> None:
     Displays which log files have hash chain protection enabled
     and their current state.
     """
-    config = _load_config()
+    config = load_config_or_exit()
     log_dir = get_log_dir(config)
 
     click.echo()
@@ -316,7 +301,7 @@ def repair(log_file: str, yes: bool) -> None:
     WARNING: This command trusts the current log file contents.
     Only use after confirming the logs have not been tampered with.
     """
-    config = _load_config()
+    config = load_config_or_exit()
     log_dir = get_log_dir(config)
 
     click.echo()
