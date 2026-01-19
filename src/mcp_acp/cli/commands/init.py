@@ -49,6 +49,27 @@ from ..styling import style_dim, style_error, style_header, style_success, style
 RECOMMENDED_LOG_DIR = "~/.mcp-acp"
 
 
+def _require_flag(value: str | None, flag_name: str, message: str | None = None) -> str:
+    """Validate a required CLI flag, exit with error if missing.
+
+    Args:
+        value: The flag value to validate.
+        flag_name: Name of the flag (without --) for error message.
+        message: Optional custom error message (overrides default).
+
+    Returns:
+        The validated non-None value.
+
+    Raises:
+        SystemExit: If value is None or empty.
+    """
+    if not value:
+        msg = message or f"--{flag_name} is required"
+        click.echo(style_error(f"Error: {msg}"), err=True)
+        sys.exit(1)
+    return value
+
+
 def _check_oidc_change_warning(
     old_config: AppConfig | None,
     new_auth_config: AuthConfig,
@@ -342,15 +363,9 @@ def _run_non_interactive_init(
         SystemExit: If required flags are missing.
     """
     # Validate required flags
-    if not log_dir:
-        click.echo(style_error("Error: --log-dir is required"), err=True)
-        sys.exit(1)
-    if not server_name:
-        click.echo(style_error("Error: --server-name is required"), err=True)
-        sys.exit(1)
-    if not connection_type:
-        click.echo(style_error("Error: --connection-type is required"), err=True)
-        sys.exit(1)
+    log_dir = _require_flag(log_dir, "log-dir")
+    server_name = _require_flag(server_name, "server-name")
+    connection_type = _require_flag(connection_type, "connection-type")
 
     # Validate auth flags
     if not oidc_issuer or not oidc_client_id or not oidc_audience:
@@ -395,9 +410,7 @@ def _run_non_interactive_init(
         stdio_config = StdioTransportConfig(command=command, args=args_list, attestation=attestation_config)
 
     if connection_type.lower() in ("http", "both"):
-        if not url:
-            click.echo(style_error("Error: --url required for http connection"), err=True)
-            sys.exit(1)
+        url = _require_flag(url, "url", "--url required for http connection")
         http_config = HttpTransportConfig(url=url, timeout=timeout)
 
         # Test HTTP connectivity
@@ -556,7 +569,7 @@ def init(
             Requires --command and --args.
     - http:  Connect to a remote server via Streamable HTTP URL.
             Requires --url. Warns if server is unreachable but saves config.
-    - both:  Configure both transports with automatic fallback.
+    - auto:  Configure both transports with automatic fallback.
             At runtime: tries HTTP first, falls back to STDIO if
             HTTP is unreachable. Useful for development (local)
             vs production (remote) flexibility.
