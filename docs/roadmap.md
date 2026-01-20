@@ -12,6 +12,7 @@ This document outlines planned improvements and future work for mcp-acp-nexus.
 2. [Policy Engine Enhancements](#2-policy-engine-enhancements)
 3. [Content Inspection](#3-content-inspection)
 4. [Operations & Architecture](#4-operations--architecture)
+5. [HTTP Client Support](#5-http-client-support)
 
 ---
 
@@ -354,8 +355,35 @@ Continuous health checks for backend MCP servers (beyond startup validation).
 | Policy Engine | Confidence policies, provenance, arguments, regex, resource groups, approval-aware |
 | Content Inspection | Request/response inspection, discovery filtering |
 | Operations & Architecture | Heuristic HITL triggers, policy inheritance/sync, third-party engines, health monitoring |
+| HTTP Client Support | Manager reverse proxy, OIDC/mTLS auth, lazy spawn, idle shutdown |
 
 All features are deferred because explicit policy rules and manual tool mapping are sufficient for the current scope.
+
+---
+
+## 5. HTTP Client Support
+
+Enable non-STDIO clients (ChatGPT, custom apps) to connect via HTTP.
+
+See [design/http-client-support.md](design/http-client-support.md) for full design.
+
+### Summary
+
+HTTP client mode enables cloud-based AI assistants and web clients to connect through the manager instead of spawning proxies via STDIO.
+
+**Key features**:
+- Manager as reverse proxy with lazy worker spawn
+- OIDC/mTLS/API key authentication for HTTP clients
+- Idle timeout shutdown for resource management
+- SSE streaming support
+
+**Why deferred**: Introduces zero-trust challenges:
+- Cannot verify device posture for remote clients
+- Cannot verify human intent behind AI requests
+- Requires internet exposure of manager endpoint
+- HITL approval UX needs rethinking for async/remote scenarios
+
+**Alternatives documented**: Local AI only, bastion host pattern, pre-approved action sets, async request queue.
 
 ---
 
