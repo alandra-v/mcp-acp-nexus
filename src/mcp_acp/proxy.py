@@ -42,11 +42,13 @@ from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 
 from mcp_acp.config import AppConfig
 from mcp_acp.constants import (
+    API_SERVER_POLL_INTERVAL_SECONDS,
     API_SERVER_SHUTDOWN_TIMEOUT_SECONDS,
     API_SERVER_STARTUP_TIMEOUT_SECONDS,
     AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
     DEFAULT_API_PORT,
     DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
+    HTTP_SERVER_BACKLOG,
     PROTECTED_CONFIG_DIR,
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
@@ -56,7 +58,7 @@ from mcp_acp.exceptions import (
     DeviceHealthError,
     SessionBindingViolationError,
 )
-from mcp_acp.manager import ProxyState, set_global_proxy_state
+from mcp_acp.manager import ManagerClient, ProxyState, ensure_manager_running, set_global_proxy_state
 from mcp_acp.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp.pips.auth import SessionManager
 from mcp_acp.security import create_identity_provider, SessionRateTracker
@@ -390,6 +392,7 @@ def create_proxy(
         uds_server: uvicorn.Server | None = None
         http_server: uvicorn.Server | None = None
         api_task: asyncio.Task | None = None
+        manager_client: ManagerClient | None = None
         try:
             session_identity = await identity_provider.get_identity()
             # Create session bound to user identity (format: <user_id>:<session_id>)
@@ -428,9 +431,10 @@ def create_proxy(
             # When disabled (--no-ui), no HTTP/UDS servers run - reduces attack surface
             # HITL approvals fall back to osascript dialogs when UI is disabled
             #
-            # Two servers run concurrently:
-            # - UDS server: CLI connects via Unix Domain Socket (OS permissions = auth)
-            # - HTTP server: Browser connects via HTTP (token auth)
+            # Architecture:
+            # - If manager is running: proxy skips HTTP server (manager serves UI on 8765)
+            # - If manager not running: proxy starts its own HTTP server on 8765
+            # - UDS server always starts for CLI access (separate socket from manager)
             if enable_ui:
                 # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
                 import atexit
@@ -440,6 +444,7 @@ def create_proxy(
                 from mcp_acp.api.server import create_api_app
                 from mcp_acp.api.security import generate_token
                 from mcp_acp.constants import RUNTIME_DIR, SOCKET_PATH
+                from mcp_acp.manager import is_manager_available
 
                 def is_port_in_use(port: int) -> bool:
                     """Check if TCP port is accepting connections."""
@@ -465,8 +470,14 @@ def create_proxy(
                         # Stale socket, remove it
                         SOCKET_PATH.unlink(missing_ok=True)
 
-                # Check if HTTP port is already in use (another instance running)
-                ui_already_running = is_port_in_use(DEFAULT_API_PORT)
+                # Try to start manager FIRST (before binding to port 8765)
+                # This ensures manager gets the port if it can start
+                # If manager starts successfully, proxy will skip its own HTTP server
+                ensure_manager_running()
+
+                # Check if manager is now running (serves UI on port 8765)
+                # If so, proxy skips its own HTTP server to avoid port conflict
+                manager_serves_ui = is_manager_available()
 
                 # Cleanup stale UDS socket from previous crash
                 cleanup_stale_socket()
@@ -486,20 +497,14 @@ def create_proxy(
                     )
                     raise
 
-                # Generate API token (for browser HTTP only, not needed for UDS)
-                api_token = generate_token()
-
-                # Create TWO app instances - they share state but have different security
-                # UDS: OS permissions = auth (no token needed)
-                # HTTP: token required for browser access
-                uds_app = create_api_app(token=None, is_uds=True)
-                http_app = create_api_app(token=api_token, is_uds=False)
-
                 # Suppress uvicorn's error logging during shutdown
                 for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
                     logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
-                # UDS server for CLI
+                # Always create UDS app for CLI access
+                uds_app = create_api_app(token=None, is_uds=True)
+
+                # UDS server for CLI (always runs, separate socket from manager)
                 uds_config = uvicorn.Config(
                     uds_app,
                     uds=str(SOCKET_PATH),
@@ -507,106 +512,123 @@ def create_proxy(
                 )
                 uds_server = uvicorn.Server(uds_config)
 
-                # HTTP server for browser
-                # Create socket with SO_REUSEADDR to avoid TIME_WAIT issues after crashes
-                # This allows immediate rebinding if the previous process died unexpectedly
-                http_socket = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM)
-                http_socket.setsockopt(socket_module.SOL_SOCKET, socket_module.SO_REUSEADDR, 1)
-                try:
-                    http_socket.bind(("127.0.0.1", DEFAULT_API_PORT))
-                except OSError as e:
-                    import errno
+                # HTTP server only if manager is NOT running
+                # Type: socket.socket | None (can't use socket_module.socket in annotation)
+                http_socket: "socket_module.socket | None" = None
+                http_app = None  # Type inferred from create_api_app() return
+                if not manager_serves_ui:
+                    # Generate API token (for browser HTTP only)
+                    api_token = generate_token()
+                    http_app = create_api_app(token=api_token, is_uds=False)
 
-                    if e.errno == errno.EADDRINUSE:
-                        raise RuntimeError(
-                            f"Port {DEFAULT_API_PORT} is already in use.\n"
-                            f"Another process is using this port. "
-                            f"Stop it or use --no-ui to disable the management UI."
-                        ) from e
-                    raise
-                http_socket.listen(100)
-                http_socket.setblocking(False)
+                    # HTTP server for browser
+                    # Create socket with SO_REUSEADDR to avoid TIME_WAIT issues
+                    http_socket = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM)
+                    http_socket.setsockopt(socket_module.SOL_SOCKET, socket_module.SO_REUSEADDR, 1)
+                    try:
+                        http_socket.bind(("127.0.0.1", DEFAULT_API_PORT))
+                    except OSError as e:
+                        import errno
 
-                http_config = uvicorn.Config(
-                    http_app,
-                    fd=http_socket.fileno(),
-                    log_config=None,
-                )
-                http_server = uvicorn.Server(http_config)
+                        if e.errno == errno.EADDRINUSE:
+                            raise RuntimeError(
+                                f"Port {DEFAULT_API_PORT} is already in use.\n"
+                                f"Another process is using this port. "
+                                f"Stop it or use --no-ui to disable the management UI."
+                            ) from e
+                        raise
+                    http_socket.listen(HTTP_SERVER_BACKLOG)
+                    http_socket.setblocking(False)
+
+                    http_config = uvicorn.Config(
+                        http_app,
+                        fd=http_socket.fileno(),
+                        log_config=None,
+                    )
+                    http_server = uvicorn.Server(http_config)
+                else:
+                    http_server = None
+                    system_logger.info(
+                        {
+                            "event": "manager_serves_ui",
+                            "message": "Manager already running, proxy skipping HTTP server",
+                            "component": "proxy",
+                        }
+                    )
 
                 async def run_api_servers() -> None:
-                    """Run UDS and HTTP API servers concurrently.
+                    """Run API servers concurrently.
 
                     Uses uvicorn's _serve() to avoid signal handler conflicts.
                     Gracefully handles CancelledError on shutdown.
                     """
                     try:
-                        # Use _serve() to avoid uvicorn capturing SIGINT/SIGTERM
-                        await asyncio.gather(
-                            uds_server._serve(),
-                            http_server._serve(),
-                        )
+                        if http_server is not None:
+                            await asyncio.gather(
+                                uds_server._serve(),
+                                http_server._serve(),
+                            )
+                        else:
+                            # Only UDS server (manager serves HTTP)
+                            await uds_server._serve()
                     except asyncio.CancelledError:
                         pass  # Clean shutdown
 
                 api_task = asyncio.create_task(run_api_servers())
 
                 # Wait for servers to be ready
-                # Poll until HTTP port accepts connections
-                poll_interval = 0.1
-                max_polls = int(API_SERVER_STARTUP_TIMEOUT_SECONDS / poll_interval)
-                for _ in range(max_polls):
-                    await asyncio.sleep(poll_interval)
-                    # Check if server task crashed during startup
-                    if api_task.done():
-                        exc = api_task.exception()
-                        if exc:
-                            system_logger.error(
-                                {
-                                    "event": "api_server_startup_failed",
-                                    "message": f"API server failed to start: {exc}",
-                                    "component": "proxy",
-                                    "error": str(exc),
-                                    "error_type": type(exc).__name__,
-                                }
-                            )
-                            raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
-                    if is_port_in_use(DEFAULT_API_PORT):
-                        break
+                if http_server is not None:
+                    # Poll until HTTP port accepts connections
+                    max_polls = int(API_SERVER_STARTUP_TIMEOUT_SECONDS / API_SERVER_POLL_INTERVAL_SECONDS)
+                    for _ in range(max_polls):
+                        await asyncio.sleep(API_SERVER_POLL_INTERVAL_SECONDS)
+                        if api_task.done():
+                            exc = api_task.exception()
+                            if exc:
+                                system_logger.error(
+                                    {
+                                        "event": "api_server_startup_failed",
+                                        "message": f"API server failed to start: {exc}",
+                                        "component": "proxy",
+                                        "error": str(exc),
+                                        "error_type": type(exc).__name__,
+                                    }
+                                )
+                                raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
+                        if is_port_in_use(DEFAULT_API_PORT):
+                            break
 
-                # Verify HTTP server is actually listening after poll timeout
-                if not is_port_in_use(DEFAULT_API_PORT):
-                    # Check if task failed after poll loop
-                    if api_task.done():
-                        exc = api_task.exception()
-                        if exc:
-                            raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
-                    system_logger.error(
-                        {
-                            "event": "api_server_startup_timeout",
-                            "message": f"HTTP server not listening after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s",
-                            "component": "proxy",
-                            "port": DEFAULT_API_PORT,
-                        }
-                    )
-                    raise RuntimeError(
-                        f"HTTP server not listening on port {DEFAULT_API_PORT} "
-                        f"after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s"
-                    )
+                    if not is_port_in_use(DEFAULT_API_PORT):
+                        if api_task.done():
+                            exc = api_task.exception()
+                            if exc:
+                                raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
+                        system_logger.error(
+                            {
+                                "event": "api_server_startup_timeout",
+                                "message": f"HTTP server not listening after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s",
+                                "component": "proxy",
+                                "port": DEFAULT_API_PORT,
+                            }
+                        )
+                        raise RuntimeError(
+                            f"HTTP server not listening on port {DEFAULT_API_PORT} "
+                            f"after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s"
+                        )
+                else:
+                    # Just wait briefly for UDS server to start
+                    await asyncio.sleep(API_SERVER_POLL_INTERVAL_SECONDS)
 
                 # Set socket permissions after creation (0600 = owner read/write only)
                 if SOCKET_PATH.exists():
                     SOCKET_PATH.chmod(0o600)
 
-                # Define socket cleanup function (called from finally block and atexit)
-                # Primary cleanup is in finally block; atexit is belt-and-suspenders
-                # for edge cases where finally doesn't run (e.g., os._exit())
+                # Define socket cleanup function
                 def cleanup_socket() -> None:
                     """Remove UDS socket file on process exit."""
                     try:
                         SOCKET_PATH.unlink(missing_ok=True)
                     except OSError as e:
-                        # Log but don't raise - cleanup is best-effort
                         system_logger.warning(
                             {
                                 "event": "uds_socket_cleanup_failed",
@@ -619,25 +641,24 @@ def create_proxy(
 
                 atexit.register(cleanup_socket)
 
-                # Wire shared state to BOTH apps BEFORE opening browser
-                # Both UDS and HTTP apps need access to the same state objects
-                # This must happen before browser opens to avoid race condition
-                # where SSE endpoint is hit before proxy_state is available
-                for api_app in (uds_app, http_app):
+                # Wire shared state to apps
+                apps_to_wire = [uds_app]
+                if http_app is not None:
+                    apps_to_wire.append(http_app)
+                for api_app in apps_to_wire:
                     api_app.state.policy_reloader = policy_reloader
                     api_app.state.proxy_state = proxy_state
                     api_app.state.identity_provider = identity_provider
                     api_app.state.config = config
                     api_app.state.approval_store = enforcement_middleware.approval_store
 
-                # Auto-open management UI in browser (only if not already running)
-                # Must be after state wiring to ensure SSE endpoint works
+                # Auto-open management UI in browser
+                # If manager is running, it serves UI; otherwise proxy serves it
                 ui_url = f"http://127.0.0.1:{DEFAULT_API_PORT}"
-                if not ui_already_running:
+                if not manager_serves_ui:
                     try:
                         webbrowser.open(ui_url)
                     except Exception:
-                        # Browser didn't open - show macOS notification with URL
                         try:
                             subprocess.run(
                                 [
@@ -649,7 +670,45 @@ def create_proxy(
                                 capture_output=True,
                             )
                         except Exception:
-                            pass  # Non-fatal - UI can be opened manually
+                            pass  # Non-fatal
+
+                # Connect to manager for event aggregation
+                # Manager was either already running or auto-started above
+                manager_client = ManagerClient(
+                    proxy_name="default",
+                    instance_id=proxy_state.proxy_id,
+                    proxy_api_socket_path=str(SOCKET_PATH),
+                )
+                if await manager_client.connect():
+                    config_summary = {
+                        "backend_id": config.backend.server_name,
+                        "transport": transport_type,
+                        "api_port": DEFAULT_API_PORT if not manager_serves_ui else None,
+                    }
+                    if await manager_client.register(config_summary=config_summary):
+                        proxy_state.set_manager_client(manager_client)
+                        system_logger.info(
+                            {
+                                "event": "manager_registered",
+                                "message": "Registered with manager daemon",
+                                "proxy_name": "default",
+                                "instance_id": proxy_state.proxy_id,
+                            }
+                        )
+                    else:
+                        system_logger.warning(
+                            {
+                                "event": "manager_registration_failed",
+                                "message": "Failed to register with manager",
+                            }
+                        )
+                else:
+                    system_logger.info(
+                        {
+                            "event": "manager_not_available",
+                            "message": "Manager not running, proxy operating standalone",
+                        }
+                    )
 
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:
@@ -763,10 +822,16 @@ def create_proxy(
                 # However, we DO close the HTTP socket here to release the port binding.
                 # This helps avoid TIME_WAIT issues on graceful shutdown.
                 # (If os._exit() is called, the OS will clean up the TCP socket anyway)
-                try:
-                    http_socket.close()
-                except (NameError, Exception):
-                    pass  # Socket not created or already closed
+                if http_socket is not None:
+                    try:
+                        http_socket.close()
+                    except (NameError, OSError):
+                        pass  # Socket not created or already closed
+
+            # Disconnect from manager (if connected)
+            if manager_client is not None:
+                proxy_state.set_manager_client(None)  # Stop event forwarding
+                await manager_client.disconnect()
 
             await device_monitor.stop()
             await audit_monitor.stop()

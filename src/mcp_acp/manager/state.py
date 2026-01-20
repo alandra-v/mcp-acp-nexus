@@ -801,8 +801,20 @@ class ProxyState:
         """Check if any UI clients are connected via SSE.
 
         Used by HITL handler to decide between web UI and osascript.
+
+        Returns True if:
+        - Local SSE subscribers exist (UI connected directly to proxy), OR
+        - Proxy is registered with manager (UI connects via manager's /api/events)
         """
-        return len(self._sse_subscribers) > 0
+        # Direct connection to proxy
+        if len(self._sse_subscribers) > 0:
+            return True
+
+        # Connected via manager - assume UI could be watching
+        if self._manager_client is not None and self._manager_client.registered:
+            return True
+
+        return False
 
     def _broadcast_event(self, event: dict[str, Any]) -> None:
         """Broadcast an event to all SSE subscribers and manager.
