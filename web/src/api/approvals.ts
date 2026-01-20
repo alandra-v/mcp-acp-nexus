@@ -10,7 +10,9 @@ export async function subscribeToPendingApprovals(
   onEvent: (event: SSEEvent) => void,
   onError?: (error: Event) => void
 ): Promise<EventSource> {
-  return createSSEConnection<SSEEvent>('/approvals/pending', onEvent, onError)
+  // Use manager's aggregated events endpoint (multi-proxy ready)
+  // Falls back to proxy's direct endpoint for backwards compat
+  return createSSEConnection<SSEEvent>('/events', onEvent, onError)
 }
 
 export async function approveRequest(id: string): Promise<{ status: string; approval_id: string }> {

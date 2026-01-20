@@ -207,6 +207,19 @@ export interface SSENewLogEntriesEvent extends SSESystemEventBase {
   count?: number
 }
 
+// Proxy Registration Events (from manager)
+export interface SSEProxyRegisteredEvent extends SSESystemEventBase {
+  type: 'proxy_registered'
+  proxy_name?: string
+  instance_id?: string
+}
+
+export interface SSEProxyDisconnectedEvent extends SSESystemEventBase {
+  type: 'proxy_disconnected'
+  proxy_name?: string
+  instance_id?: string
+}
+
 // System events (extend SSESystemEventBase, have severity/message)
 export type SSESystemEvent =
   | SSEPendingNotFoundEvent
@@ -222,6 +235,8 @@ export type SSESystemEvent =
   | SSECriticalEvent
   | SSEStatsUpdatedEvent
   | SSENewLogEntriesEvent
+  | SSEProxyRegisteredEvent
+  | SSEProxyDisconnectedEvent
 
 // Discriminated union of all SSE event types
 export type SSEEvent =

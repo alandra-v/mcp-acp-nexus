@@ -34,5 +34,15 @@ export function useProxies(): UseProxiesResult {
     fetchProxies()
   }, [fetchProxies])
 
+  // Listen for proxy_registered SSE event to refetch
+  useEffect(() => {
+    const handleProxyRegistered = () => {
+      fetchProxies()
+    }
+
+    window.addEventListener('proxy-registered', handleProxyRegistered)
+    return () => window.removeEventListener('proxy-registered', handleProxyRegistered)
+  }, [fetchProxies])
+
   return { proxies, loading, refetch: fetchProxies }
 }

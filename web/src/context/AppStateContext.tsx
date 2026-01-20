@@ -190,6 +190,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           window.dispatchEvent(new CustomEvent('new-log-entries', { detail: event.count }))
           break
 
+        // Proxy registered/disconnected - trigger refetch of proxy data
+        case 'proxy_registered':
+          window.dispatchEvent(new CustomEvent('proxy-registered'))
+          break
+        case 'proxy_disconnected':
+          window.dispatchEvent(new CustomEvent('proxy-registered')) // Same event triggers refetch
+          break
+
         // Critical shutdown - show persistent toast and stop reconnecting
         case 'critical_shutdown':
           isShutdownRef.current = true
