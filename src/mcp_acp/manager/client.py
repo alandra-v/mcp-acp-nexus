@@ -18,17 +18,24 @@ __all__ = [
     "ManagerClient",
     "ManagerConnectionError",
     "PROTOCOL_VERSION",
+    "ensure_manager_running",
+    "is_manager_available",
 ]
 
 import asyncio
+import fcntl
 import json
 import logging
-import socket
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 from mcp_acp.constants import (
+    MANAGER_LOCK_PATH,
     MANAGER_SOCKET_PATH,
+    RUNTIME_DIR,
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
 
@@ -37,9 +44,6 @@ PROTOCOL_VERSION = 1
 
 # Timeout for registration handshake (seconds)
 REGISTRATION_TIMEOUT_SECONDS = 5.0
-
-# Buffer size for reading responses
-READ_BUFFER_SIZE = 4096
 
 _logger = logging.getLogger("mcp-acp.manager.client")
 
@@ -78,18 +82,21 @@ class ManagerClient:
         self,
         proxy_name: str,
         instance_id: str,
-        socket_path: Path | None = None,
+        manager_socket_path: Path | None = None,
+        proxy_api_socket_path: str | None = None,
     ) -> None:
         """Initialize manager client.
 
         Args:
             proxy_name: Name of this proxy (e.g., "default").
             instance_id: Unique instance ID for this proxy run.
-            socket_path: Path to manager socket. Defaults to MANAGER_SOCKET_PATH.
+            manager_socket_path: Path to manager socket. Defaults to MANAGER_SOCKET_PATH.
+            proxy_api_socket_path: Path to this proxy's API socket (for manager routing).
         """
         self._proxy_name = proxy_name
         self._instance_id = instance_id
-        self._socket_path = socket_path or MANAGER_SOCKET_PATH
+        self._socket_path = manager_socket_path or MANAGER_SOCKET_PATH
+        self._proxy_api_socket_path = proxy_api_socket_path or ""
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._connected = False
@@ -163,6 +170,7 @@ class ManagerClient:
                     "proxy_name": self._proxy_name,
                     "instance_id": self._instance_id,
                     "config_summary": config_summary or {},
+                    "socket_path": self._proxy_api_socket_path,
                 }
                 await self._send_message(reg_msg)
 
@@ -273,14 +281,110 @@ def is_manager_available() -> bool:
     Returns:
         True if manager is likely running, False otherwise.
     """
-    if not MANAGER_SOCKET_PATH.exists():
+    from mcp_acp.manager.utils import test_socket_connection
+
+    return test_socket_connection(MANAGER_SOCKET_PATH)
+
+
+# Auto-start timeout constants
+MANAGER_STARTUP_TIMEOUT_SECONDS = 5.0
+MANAGER_POLL_INTERVAL_SECONDS = 0.2
+
+
+def ensure_manager_running() -> bool:
+    """Ensure manager daemon is running, starting it if needed.
+
+    Uses file locking to prevent race conditions when multiple proxies
+    start simultaneously.
+
+    Returns:
+        True if manager is running (was already running or successfully started).
+        False if manager could not be started.
+    """
+    # Quick check - if already running, no need for lock
+    if is_manager_available():
+        _logger.debug("Manager already running")
+        return True
+
+    # Ensure runtime directory exists
+    RUNTIME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    # Acquire file lock to prevent race conditions
+    lock_file = None
+    try:
+        lock_file = open(MANAGER_LOCK_PATH, "w")
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+
+        # Double-check after acquiring lock (another proxy may have started it)
+        if is_manager_available():
+            _logger.debug("Manager started by another proxy while waiting for lock")
+            return True
+
+        # Start manager daemon
+        _logger.info("Starting manager daemon...")
+        if not _spawn_manager_daemon():
+            _logger.warning("Failed to spawn manager daemon")
+            return False
+
+        # Wait for manager to become ready
+        if _wait_for_manager_ready():
+            _logger.info("Manager daemon started successfully")
+            return True
+        else:
+            _logger.warning("Manager daemon did not become ready in time")
+            return False
+
+    except OSError as e:
+        _logger.warning("Failed to acquire manager lock: %s", e)
         return False
+    finally:
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except OSError:
+                pass
+
+
+def _spawn_manager_daemon() -> bool:
+    """Spawn manager as a detached daemon process.
+
+    Returns:
+        True if process was spawned successfully.
+    """
+    # Find the mcp-acp executable
+    mcp_acp_path = shutil.which("mcp-acp")
+    if mcp_acp_path is None:
+        # Fall back to python -m mcp_acp.cli
+        mcp_acp_cmd = [sys.executable, "-m", "mcp_acp.cli"]
+    else:
+        mcp_acp_cmd = [mcp_acp_path]
 
     try:
-        test_sock = socket.socket(socket.AF_UNIX)
-        test_sock.settimeout(SOCKET_CONNECT_TIMEOUT_SECONDS)
-        test_sock.connect(str(MANAGER_SOCKET_PATH))
-        test_sock.close()
+        # Use _run command to avoid recursive daemonization
+        subprocess.Popen(
+            mcp_acp_cmd + ["manager", "_run"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         return True
-    except (ConnectionRefusedError, FileNotFoundError, OSError):
+    except OSError as e:
+        _logger.warning("Failed to spawn manager: %s", e)
         return False
+
+
+def _wait_for_manager_ready() -> bool:
+    """Wait for manager socket to accept connections.
+
+    Returns:
+        True if manager became ready within timeout.
+    """
+    from mcp_acp.manager.utils import wait_for_condition
+
+    return wait_for_condition(
+        is_manager_available,
+        timeout_seconds=MANAGER_STARTUP_TIMEOUT_SECONDS,
+        poll_interval=MANAGER_POLL_INTERVAL_SECONDS,
+    )

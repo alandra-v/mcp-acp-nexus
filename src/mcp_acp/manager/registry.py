@@ -33,6 +33,7 @@ class ProxyConnection:
         instance_id: Unique ID for this proxy run.
         config_summary: Summary of proxy configuration.
         connected_at: When the proxy connected.
+        socket_path: Path to proxy's UDS API socket.
         writer: Async stream writer for sending messages back.
         reader: Async stream reader for receiving messages.
     """
@@ -41,6 +42,7 @@ class ProxyConnection:
     instance_id: str
     config_summary: dict[str, Any]
     connected_at: datetime
+    socket_path: str
     writer: asyncio.StreamWriter
     reader: asyncio.StreamReader
     _event_task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -53,6 +55,7 @@ class ProxyConnection:
             "connected": True,
             "connected_at": self.connected_at.isoformat(),
             "config_summary": self.config_summary,
+            "socket_path": self.socket_path,
         }
 
 
@@ -76,6 +79,7 @@ class ProxyRegistry:
         proxy_name: str,
         instance_id: str,
         config_summary: dict[str, Any],
+        socket_path: str,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> bool:
@@ -85,6 +89,7 @@ class ProxyRegistry:
             proxy_name: Name of the proxy.
             instance_id: Unique instance ID.
             config_summary: Proxy configuration summary.
+            socket_path: Path to proxy's UDS API socket for HTTP routing.
             reader: Stream reader for the connection.
             writer: Stream writer for the connection.
 
@@ -110,6 +115,7 @@ class ProxyRegistry:
                 instance_id=instance_id,
                 config_summary=config_summary,
                 connected_at=datetime.now(timezone.utc),
+                socket_path=socket_path,
                 writer=writer,
                 reader=reader,
             )

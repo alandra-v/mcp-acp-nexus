@@ -53,7 +53,9 @@ __all__ = [
     "DEFAULT_API_PORT",
     "SOCKET_CONNECT_TIMEOUT_SECONDS",
     "API_SERVER_STARTUP_TIMEOUT_SECONDS",
+    "API_SERVER_POLL_INTERVAL_SECONDS",
     "API_SERVER_SHUTDOWN_TIMEOUT_SECONDS",
+    "HTTP_SERVER_BACKLOG",
     "CLI_NOTIFICATION_TIMEOUT_SECONDS",
     "CLI_POLICY_RELOAD_TIMEOUT_SECONDS",
     # Runtime directory (UDS socket)
@@ -346,9 +348,16 @@ SOCKET_CONNECT_TIMEOUT_SECONDS: float = 1.0
 # Proxy waits for HTTP port to accept connections before continuing
 API_SERVER_STARTUP_TIMEOUT_SECONDS: float = 2.0
 
+# Poll interval when waiting for API server to start (seconds)
+API_SERVER_POLL_INTERVAL_SECONDS: float = 0.1
+
 # Timeout for graceful API server shutdown (seconds)
 # After this, task is cancelled
 API_SERVER_SHUTDOWN_TIMEOUT_SECONDS: float = 5.0
+
+# Socket listen backlog for HTTP server
+# Number of unaccepted connections before refusing new ones
+HTTP_SERVER_BACKLOG: int = 100
 
 # Timeout for CLI proxy notifications (seconds)
 # Used for quick health checks (login/logout/reload notifications)

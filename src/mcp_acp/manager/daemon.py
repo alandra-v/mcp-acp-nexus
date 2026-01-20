@@ -38,9 +38,10 @@ import socket
 from pathlib import Path
 from typing import Any
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -106,7 +107,8 @@ class _ConsoleFormatter(logging.Formatter):
         if isinstance(record.msg, dict):
             msg = record.msg.get("message") or record.msg.get("event", "")
             return f"{record.levelname}: {msg}"
-        return f"{record.levelname}: {record.msg}"
+        # Use getMessage() to substitute %s placeholders with args
+        return f"{record.levelname}: {record.getMessage()}"
 
 
 def _configure_manager_logging(config: ManagerConfig) -> None:
@@ -171,8 +173,12 @@ class ManagerStatusResponse(BaseModel):
     proxies_connected: int
 
 
-class ProxyInfo(BaseModel):
-    """Information about a registered proxy."""
+class RegisteredProxyInfo(BaseModel):
+    """API response model for a registered proxy.
+
+    Note: This is distinct from manager.state.ProxyInfo which contains
+    full proxy runtime information. This model is for manager API responses.
+    """
 
     name: str
     instance_id: str
@@ -215,17 +221,9 @@ def _test_socket_connection(socket_path: Path) -> bool:
     Returns:
         True if socket accepts connection, False otherwise.
     """
-    if not socket_path.exists():
-        return False
+    from mcp_acp.manager.utils import test_socket_connection
 
-    try:
-        test_sock = socket.socket(socket.AF_UNIX)
-        test_sock.settimeout(SOCKET_CONNECT_TIMEOUT_SECONDS)
-        test_sock.connect(str(socket_path))
-        test_sock.close()
-        return True
-    except (ConnectionRefusedError, FileNotFoundError, OSError):
-        return False
+    return test_socket_connection(socket_path)
 
 
 def is_manager_running() -> bool:
@@ -407,17 +405,23 @@ async def _handle_proxy_connection(
             )
             await _send_error(
                 writer,
-                f"Incompatible protocol version {protocol_version} " f"(expected {PROTOCOL_VERSION})",
+                f"Incompatible protocol version {protocol_version} (expected {PROTOCOL_VERSION})",
             )
             return
 
         proxy_name = msg.get("proxy_name")
         instance_id = msg.get("instance_id")
         config_summary = msg.get("config_summary", {})
+        socket_path = msg.get("socket_path", "")
 
         if not proxy_name or not instance_id:
             _logger.warning("Missing proxy_name or instance_id in registration")
             await _send_error(writer, "Missing proxy_name or instance_id")
+            return
+
+        if not socket_path:
+            _logger.warning("Missing socket_path in registration")
+            await _send_error(writer, "Missing socket_path")
             return
 
         # Register the proxy
@@ -425,6 +429,7 @@ async def _handle_proxy_connection(
             proxy_name=proxy_name,
             instance_id=instance_id,
             config_summary=config_summary,
+            socket_path=socket_path,
             reader=reader,
             writer=writer,
         )
@@ -432,6 +437,9 @@ async def _handle_proxy_connection(
         # Send acknowledgment
         ack = {"type": "registered", "ok": True}
         await _send_message(writer, ack)
+
+        # Fetch initial state from proxy and broadcast to browsers
+        await _broadcast_proxy_snapshot(socket_path, registry)
 
         # Now listen for events from proxy
         await _handle_proxy_events(reader, proxy_name, registry)
@@ -449,6 +457,69 @@ async def _handle_proxy_connection(
             await writer.wait_closed()
         except OSError:
             pass
+
+
+async def _broadcast_proxy_snapshot(
+    socket_path: str,
+    registry: ProxyRegistry,
+) -> None:
+    """Fetch proxy state and broadcast to all SSE subscribers.
+
+    Called after proxy registration so browsers get immediate update.
+
+    Args:
+        socket_path: Path to proxy's UDS API socket.
+        registry: Proxy registry for broadcasting events.
+    """
+    try:
+        transport = httpx.AsyncHTTPTransport(uds=socket_path)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://localhost",
+            timeout=5.0,
+        ) as client:
+            # Fetch pending approvals
+            try:
+                pending_resp = await client.get("/api/approvals/pending/list")
+                if pending_resp.status_code == 200:
+                    pending = pending_resp.json()
+                    await registry._broadcast_sse_event(
+                        "snapshot",
+                        {"approvals": pending},
+                    )
+            except Exception as e:
+                _logger.debug("Failed to fetch pending approvals: %s", e)
+
+            # Fetch cached approvals
+            try:
+                cached_resp = await client.get("/api/approvals/cached")
+                if cached_resp.status_code == 200:
+                    cached = cached_resp.json()
+                    await registry._broadcast_sse_event(
+                        "cached_snapshot",
+                        {
+                            "approvals": cached.get("approvals", []),
+                            "ttl_seconds": cached.get("ttl_seconds", 600),
+                            "count": cached.get("count", 0),
+                        },
+                    )
+            except Exception as e:
+                _logger.debug("Failed to fetch cached approvals: %s", e)
+
+            # Fetch stats
+            try:
+                stats_resp = await client.get("/api/debug/stats")
+                if stats_resp.status_code == 200:
+                    stats = stats_resp.json()
+                    await registry._broadcast_sse_event(
+                        "stats_updated",
+                        {"stats": stats},
+                    )
+            except Exception as e:
+                _logger.debug("Failed to fetch stats: %s", e)
+
+    except Exception as e:
+        _logger.warning("Failed to broadcast proxy snapshot: %s", e)
 
 
 async def _handle_proxy_events(
@@ -546,18 +617,89 @@ def _create_manager_api_app(
             proxies_connected=await reg.proxy_count(),
         )
 
-    @app.get("/api/proxies")
-    async def list_proxies(request: Request) -> list[dict[str, Any]]:
-        """List all registered proxies."""
+    @app.get("/api/manager/proxies")
+    async def list_registered_proxies(request: Request) -> list[dict[str, Any]]:
+        """List all registered proxies (manager's view).
+
+        Returns registration info (name, instance_id, socket_path).
+        For full proxy details (transport, stats), use /api/proxies which
+        routes to the proxy itself.
+        """
         reg: ProxyRegistry = request.app.state.registry
         return await reg.list_proxies()
 
     @app.get("/api/events")
     async def sse_events(request: Request) -> EventSourceResponse:
-        """SSE endpoint for aggregated proxy events."""
+        """SSE endpoint for aggregated proxy events.
+
+        Event format matches proxy's format for UI compatibility:
+        - `data: {"type": "...", ...}` (type embedded in data JSON)
+        - No named SSE events (uses onmessage handler)
+        - Events include `proxy_name` for multi-proxy filtering
+
+        On connect, sends initial snapshots by fetching from proxy via UDS.
+        """
         reg: ProxyRegistry = request.app.state.registry
 
         async def event_generator() -> Any:
+            # Send initial snapshots from proxy (if connected)
+            proxy_conn = await reg.get_proxy("default")
+            sent_pending_snapshot = False
+
+            if proxy_conn and proxy_conn.socket_path:
+                try:
+                    # Fetch initial state from proxy via UDS
+                    transport = httpx.AsyncHTTPTransport(uds=proxy_conn.socket_path)
+                    async with httpx.AsyncClient(
+                        transport=transport,
+                        base_url="http://localhost",
+                        timeout=5.0,
+                    ) as client:
+                        # Fetch pending approvals
+                        try:
+                            pending_resp = await client.get("/api/approvals/pending/list")
+                            if pending_resp.status_code == 200:
+                                pending = pending_resp.json()
+                                yield {"data": json.dumps({"type": "snapshot", "approvals": pending})}
+                                sent_pending_snapshot = True
+                        except Exception as e:
+                            _logger.debug("Failed to fetch pending approvals: %s", e)
+
+                        # Fetch cached approvals
+                        try:
+                            cached_resp = await client.get("/api/approvals/cached")
+                            if cached_resp.status_code == 200:
+                                cached = cached_resp.json()
+                                yield {
+                                    "data": json.dumps(
+                                        {
+                                            "type": "cached_snapshot",
+                                            "approvals": cached.get("approvals", []),
+                                            "ttl_seconds": cached.get("ttl_seconds", 600),
+                                            "count": cached.get("count", 0),
+                                        }
+                                    )
+                                }
+                        except Exception as e:
+                            _logger.debug("Failed to fetch cached approvals: %s", e)
+
+                        # Fetch stats
+                        try:
+                            stats_resp = await client.get("/api/debug/stats")
+                            if stats_resp.status_code == 200:
+                                stats = stats_resp.json()
+                                yield {"data": json.dumps({"type": "stats_updated", "stats": stats})}
+                        except Exception as e:
+                            _logger.debug("Failed to fetch stats: %s", e)
+
+                except Exception as e:
+                    _logger.debug("Failed to connect to proxy: %s", e)
+
+            # Send empty snapshot only if we haven't sent one yet
+            if not sent_pending_snapshot:
+                yield {"data": json.dumps({"type": "snapshot", "approvals": []})}
+
+            # Subscribe to ongoing events
             queue = await reg.subscribe_sse()
             try:
                 while True:
@@ -566,17 +708,235 @@ def _create_manager_api_app(
                         break
                     try:
                         event = await asyncio.wait_for(queue.get(), timeout=30.0)
-                        yield {
-                            "event": event["type"],
-                            "data": json.dumps(event["data"]),
+                        # Format: {"type": "...", ...data...} - matches proxy format
+                        # UI uses event.data.type for routing
+                        event_data = {
+                            "type": event["type"],
+                            **event["data"],
                         }
+                        yield {"data": json.dumps(event_data)}
                     except asyncio.TimeoutError:
-                        # Send keepalive
-                        yield {"event": "keepalive", "data": ""}
+                        # Send keepalive (no type needed, UI ignores empty data)
+                        yield {"data": ""}
             finally:
                 await reg.unsubscribe_sse(queue)
 
         return EventSourceResponse(event_generator())
+
+    # ==========================================================================
+    # API Routing: Forward /api/proxy/{name}/* to proxy's UDS socket
+    # ==========================================================================
+
+    @app.api_route(
+        "/api/proxy/{proxy_name}/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    )
+    async def route_to_proxy(
+        proxy_name: str,
+        path: str,
+        request: Request,
+    ) -> Response:
+        """Route API requests to the appropriate proxy.
+
+        Manager forwards /api/proxy/{name}/* requests to the proxy's UDS socket.
+        The path after /api/proxy/{name}/ becomes /api/{path} on the proxy.
+
+        Args:
+            proxy_name: Name of the target proxy (e.g., "default").
+            path: Remaining path after proxy name (e.g., "approvals/pending").
+            request: Incoming FastAPI request.
+
+        Returns:
+            Response from the proxy, or error response if proxy unavailable.
+        """
+        reg: ProxyRegistry = request.app.state.registry
+
+        # Look up proxy in registry
+        proxy_conn = await reg.get_proxy(proxy_name)
+        if proxy_conn is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Proxy '{proxy_name}' not found"},
+            )
+
+        socket_path = proxy_conn.socket_path
+        if not socket_path or not Path(socket_path).exists():
+            return JSONResponse(
+                status_code=503,
+                content={"error": f"Proxy '{proxy_name}' socket not available"},
+            )
+
+        # Build target URL (proxy expects /api/... paths)
+        target_path = f"/api/{path}"
+        if request.url.query:
+            target_path = f"{target_path}?{request.url.query}"
+
+        # Forward request to proxy via UDS
+        try:
+            # Create httpx transport for UDS
+            transport = httpx.AsyncHTTPTransport(uds=socket_path)
+
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://localhost",  # Required but not used for UDS
+                timeout=30.0,
+            ) as client:
+                # Read body for POST/PUT/PATCH
+                body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+
+                # Forward headers (filter out hop-by-hop headers)
+                forward_headers = {
+                    k: v
+                    for k, v in request.headers.items()
+                    if k.lower() not in ("host", "connection", "transfer-encoding")
+                }
+
+                # Make request to proxy
+                response = await client.request(
+                    method=request.method,
+                    url=target_path,
+                    content=body,
+                    headers=forward_headers,
+                )
+
+                # Return proxy response
+                return Response(
+                    content=response.content,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=response.headers.get("content-type"),
+                )
+
+        except httpx.ConnectError:
+            _logger.warning("Failed to connect to proxy '%s' at %s", proxy_name, socket_path)
+            return JSONResponse(
+                status_code=503,
+                content={"error": f"Proxy '{proxy_name}' connection failed"},
+            )
+        except httpx.TimeoutException:
+            _logger.warning("Timeout connecting to proxy '%s'", proxy_name)
+            return JSONResponse(
+                status_code=504,
+                content={"error": f"Proxy '{proxy_name}' request timed out"},
+            )
+        except Exception as e:
+            _logger.error("Error routing to proxy '%s': %s", proxy_name, e)
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Internal error routing to proxy: {type(e).__name__}"},
+            )
+
+    # ==========================================================================
+    # Fallback: Route /api/* (non-manager endpoints) to default proxy
+    # ==========================================================================
+    # Manager-level endpoints: /api/manager/*, /api/proxies, /api/events
+    # Everything else is forwarded to the "default" proxy for backwards compatibility
+    # This allows existing UI code to work without changes in Phase 3
+
+    MANAGER_API_PREFIXES = ("/api/manager/", "/api/events", "/api/proxy/")
+
+    @app.api_route(
+        "/api/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    )
+    async def fallback_to_default_proxy(path: str, request: Request) -> Response:
+        """Fallback: route unhandled /api/* requests to default proxy.
+
+        This provides backwards compatibility - existing UI code that uses
+        /api/approvals, /api/policy, etc. is automatically routed to the
+        default proxy without URL changes.
+
+        Manager-level endpoints (/api/manager/*, /api/proxies, /api/events)
+        are handled by explicit routes above and won't hit this fallback.
+
+        Args:
+            path: Path after /api/ (e.g., "approvals/pending").
+            request: Incoming FastAPI request.
+
+        Returns:
+            Response from the default proxy, or 404 if no proxy registered.
+        """
+        # Check if this should be handled by explicit manager routes
+        # (This shouldn't happen due to route ordering, but defensive)
+        full_path = f"/api/{path}"
+        for prefix in MANAGER_API_PREFIXES:
+            if full_path.startswith(prefix):
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "Not found"},
+                )
+
+        # Route to default proxy
+        reg: ProxyRegistry = request.app.state.registry
+        proxy_conn = await reg.get_proxy("default")
+        if proxy_conn is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "No proxy connected",
+                    "detail": "Proxy 'default' is not registered with the manager. "
+                    "Start a proxy to enable API access.",
+                },
+            )
+
+        socket_path = proxy_conn.socket_path
+        if not socket_path or not Path(socket_path).exists():
+            return JSONResponse(
+                status_code=503,
+                content={"error": "Proxy socket not available"},
+            )
+
+        # Build target URL (proxy expects /api/... paths)
+        target_path = f"/api/{path}"
+        if request.url.query:
+            target_path = f"{target_path}?{request.url.query}"
+
+        # Forward request to proxy via UDS
+        try:
+            transport = httpx.AsyncHTTPTransport(uds=socket_path)
+
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://localhost",
+                timeout=30.0,
+            ) as client:
+                body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+                forward_headers = {
+                    k: v
+                    for k, v in request.headers.items()
+                    if k.lower() not in ("host", "connection", "transfer-encoding")
+                }
+
+                response = await client.request(
+                    method=request.method,
+                    url=target_path,
+                    content=body,
+                    headers=forward_headers,
+                )
+
+                return Response(
+                    content=response.content,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=response.headers.get("content-type"),
+                )
+
+        except httpx.ConnectError:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "Proxy connection failed"},
+            )
+        except httpx.TimeoutException:
+            return JSONResponse(
+                status_code=504,
+                content={"error": "Proxy request timed out"},
+            )
+        except Exception as e:
+            _logger.error("Error routing to default proxy: %s", e)
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Internal error: {type(e).__name__}"},
+            )
 
     # Serve static files (built React app)
     if STATIC_DIR.exists():
@@ -769,6 +1129,31 @@ async def run_manager(port: int | None = None) -> None:
     server_task = asyncio.create_task(run_servers())
 
     _logger.info("Manager started successfully")
+
+    # Auto-open browser to management UI
+    ui_url = f"http://127.0.0.1:{effective_port}"
+    try:
+        import webbrowser
+
+        webbrowser.open(ui_url)
+        _logger.info("Opened browser to %s", ui_url)
+    except Exception as e:
+        # Browser didn't open - show macOS notification with URL
+        _logger.debug("Failed to open browser: %s", e)
+        try:
+            import subprocess
+
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'display notification "{ui_url}" with title "MCP-ACP Manager" subtitle "Management UI ready"',
+                ],
+                check=False,
+                capture_output=True,
+            )
+        except Exception:
+            pass  # Non-fatal - UI can be opened manually
 
     # Wait for shutdown signal
     try:

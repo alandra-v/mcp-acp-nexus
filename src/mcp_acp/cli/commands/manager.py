@@ -15,8 +15,7 @@ import json
 import shutil
 import subprocess
 import sys
-import time
-from collections.abc import Callable
+from typing import Any
 
 import click
 
@@ -33,6 +32,8 @@ from mcp_acp.manager import (
     stop_manager,
 )
 
+from mcp_acp.manager.utils import wait_for_condition
+
 from ..styling import style_error, style_label, style_success, style_warning
 
 # Timeout for manager to become ready after start (seconds)
@@ -40,32 +41,6 @@ MANAGER_STARTUP_TIMEOUT_SECONDS = 5.0
 
 # Timeout for manager to stop after SIGTERM (seconds)
 MANAGER_STOP_TIMEOUT_SECONDS = 5.0
-
-# Poll interval when waiting for manager state change (seconds)
-POLL_INTERVAL_SECONDS = 0.2
-
-
-def _wait_for_condition(
-    condition_fn: Callable[[], bool],
-    timeout_seconds: float,
-    poll_interval: float = POLL_INTERVAL_SECONDS,
-) -> bool:
-    """Wait for a condition to become true.
-
-    Args:
-        condition_fn: Function that returns True when condition is met.
-        timeout_seconds: Maximum time to wait.
-        poll_interval: Time between condition checks.
-
-    Returns:
-        True if condition was met within timeout, False otherwise.
-    """
-    start_time = time.monotonic()
-    while time.monotonic() - start_time < timeout_seconds:
-        if condition_fn():
-            return True
-        time.sleep(poll_interval)
-    return False
 
 
 @click.group()
@@ -165,7 +140,7 @@ def start(port: int | None, foreground: bool) -> None:
             sys.exit(1)
 
         # Wait for manager to become ready
-        if _wait_for_condition(is_manager_running, MANAGER_STARTUP_TIMEOUT_SECONDS):
+        if wait_for_condition(is_manager_running, MANAGER_STARTUP_TIMEOUT_SECONDS):
             pid = get_manager_pid()
             click.echo(style_success(f"Manager started (pid: {pid})"))
             click.echo(f"  UI: http://127.0.0.1:{effective_port}")
@@ -211,7 +186,7 @@ def stop() -> None:
 
     if stop_manager():
         # Wait for process to exit
-        if _wait_for_condition(
+        if wait_for_condition(
             lambda: not is_manager_running(),
             MANAGER_STOP_TIMEOUT_SECONDS,
         ):
@@ -226,6 +201,28 @@ def stop() -> None:
         sys.exit(1)
 
 
+def _fetch_proxies(ui_port: int) -> list[dict[str, Any]]:
+    """Fetch registered proxies from manager API.
+
+    Args:
+        ui_port: Manager HTTP port.
+
+    Returns:
+        List of proxy info dicts, empty list on error.
+    """
+    import urllib.error
+    import urllib.request
+
+    try:
+        url = f"http://127.0.0.1:{ui_port}/api/manager/proxies"
+        with urllib.request.urlopen(url, timeout=2.0) as response:
+            data = response.read().decode("utf-8")
+            result: list[dict[str, Any]] = json.loads(data)
+            return result
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+        return []
+
+
 @manager.command("status")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def status(as_json: bool) -> None:
@@ -237,6 +234,11 @@ def status(as_json: bool) -> None:
     config = load_manager_config()
     ui_port = config.ui_port
 
+    # Fetch proxies from manager API if running
+    proxies: list[dict] = []
+    if running:
+        proxies = _fetch_proxies(ui_port)
+
     result = {
         "manager": {
             "running": running,
@@ -244,7 +246,7 @@ def status(as_json: bool) -> None:
             "socket": str(MANAGER_SOCKET_PATH) if running else None,
             "ui_url": f"http://127.0.0.1:{ui_port}" if running else None,
         },
-        "proxies": [],  # TODO: Step 3.2 - fetch from manager API
+        "proxies": proxies,
     }
 
     if as_json:
@@ -260,8 +262,14 @@ def status(as_json: bool) -> None:
             click.echo()
             click.echo("  Start with: mcp-acp manager start")
 
-        # TODO: Step 3.2 - show registered proxies
         click.echo()
         click.echo(style_label("Proxies"))
-        click.echo("  No proxies registered")
+        if proxies:
+            for proxy in proxies:
+                name = proxy.get("name", "unknown")
+                instance_id = proxy.get("instance_id", "")[:8]
+                connected_at = proxy.get("connected_at", "")
+                click.echo(f"  {name} ({instance_id}) - connected {connected_at}")
+        else:
+            click.echo("  No proxies registered")
         click.echo()

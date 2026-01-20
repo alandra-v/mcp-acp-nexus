@@ -24,6 +24,7 @@ __all__ = [
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -33,8 +34,25 @@ from mcp_acp.utils.file_helpers import get_app_dir, set_secure_permissions
 
 _logger = logging.getLogger(__name__)
 
-# Default log directory for manager (relative to user's home)
-DEFAULT_MANAGER_LOG_DIR = "~/Library/Logs"
+
+def _get_default_log_dir() -> str:
+    """Get platform-appropriate default log directory.
+
+    Returns:
+        Default log directory path (unexpanded).
+    """
+    if sys.platform == "darwin":
+        return "~/Library/Logs"
+    elif sys.platform == "win32":
+        # Windows: use AppData/Local
+        return "~/AppData/Local"
+    else:
+        # Linux/Unix: use ~/.local/share
+        return "~/.local/share"
+
+
+# Default log directory for manager (platform-specific)
+DEFAULT_MANAGER_LOG_DIR = _get_default_log_dir()
 
 
 class ManagerConfig(BaseModel):

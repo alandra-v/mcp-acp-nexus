@@ -22,6 +22,7 @@ from .client import (
     PROTOCOL_VERSION,
     ManagerClient,
     ManagerConnectionError,
+    ensure_manager_running,
     is_manager_available,
 )
 from .config import (
@@ -43,12 +44,17 @@ from .registry import (
     ProxyRegistry,
     get_proxy_registry,
 )
+from .utils import (
+    test_socket_connection,
+    wait_for_condition,
+)
 from .state import (
     CachedApprovalSummary,
     PendingApprovalInfo,
     PendingApprovalRequest,
     ProxyInfo,
     ProxyState,
+    ProxyStats,
     get_global_proxy_state,
     set_global_proxy_state,
 )
@@ -58,6 +64,7 @@ __all__ = [
     "ManagerClient",
     "ManagerConnectionError",
     "PROTOCOL_VERSION",
+    "ensure_manager_running",
     "is_manager_available",
     # Config
     "ManagerConfig",
@@ -75,12 +82,16 @@ __all__ = [
     "ProxyConnection",
     "ProxyRegistry",
     "get_proxy_registry",
+    # Utilities
+    "test_socket_connection",
+    "wait_for_condition",
     # State classes
     "CachedApprovalSummary",
     "PendingApprovalInfo",
     "PendingApprovalRequest",
     "ProxyInfo",
     "ProxyState",
+    "ProxyStats",
     "get_global_proxy_state",
     "set_global_proxy_state",
 ]
