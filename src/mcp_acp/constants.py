@@ -59,6 +59,10 @@ __all__ = [
     # Runtime directory (UDS socket)
     "RUNTIME_DIR",
     "SOCKET_PATH",
+    # Manager daemon
+    "MANAGER_SOCKET_PATH",
+    "MANAGER_PID_PATH",
+    "MANAGER_LOCK_PATH",
     # History versioning
     "INITIAL_VERSION",
     # Crash recovery
@@ -370,6 +374,12 @@ RUNTIME_DIR: Path = Path(user_runtime_dir("mcp-acp"))
 # OS file permissions provide authentication (no token needed)
 # CLI connects via UDS, browser uses HTTP with token
 SOCKET_PATH: Path = RUNTIME_DIR / "api.sock"
+
+# Manager daemon paths
+# Manager serves UI and aggregates proxy state (Phase 3+)
+MANAGER_SOCKET_PATH: Path = RUNTIME_DIR / "manager.sock"
+MANAGER_PID_PATH: Path = RUNTIME_DIR / "manager.pid"
+MANAGER_LOCK_PATH: Path = RUNTIME_DIR / "manager.lock"
 
 # ============================================================================
 # History Versioning

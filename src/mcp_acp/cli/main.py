@@ -10,6 +10,7 @@ Commands:
     init      - Initialize proxy configuration
     install   - Installation helpers (mcp-json)
     logs      - Log viewing (show, tail)
+    manager   - Manager daemon commands (start, stop, status)
     policy    - Policy management (show, edit, add, validate, reload)
     sessions  - Session management (list)
     start     - Start the proxy server manually
@@ -36,6 +37,7 @@ from .commands.config import config
 from .commands.init import init
 from .commands.install import install
 from .commands.logs import logs
+from .commands.manager import manager
 from .commands.policy import policy
 from .commands.sessions import sessions
 from .commands.start import start
@@ -112,6 +114,7 @@ cli.add_command(config)
 cli.add_command(init)
 cli.add_command(install)
 cli.add_command(logs)
+cli.add_command(manager)
 cli.add_command(policy)
 cli.add_command(sessions)
 cli.add_command(start)
