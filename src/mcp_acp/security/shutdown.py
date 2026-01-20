@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from mcp_acp.manager.state import ProxyState
     from mcp_acp.telemetry.audit.auth_logger import AuthLogger
 
+from mcp_acp.constants import CRASH_BREADCRUMB_FILENAME
+
 # Secure file permissions (defined inline to avoid circular imports)
 _DIR_PERMISSIONS = 0o700  # Owner rwx only
 _FILE_PERMISSIONS = 0o600  # Owner rw only
@@ -116,12 +118,12 @@ def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
 
     Args:
         failure_type: Category of failure (e.g., "audit_failure").
-        log_dir: Directory containing .last_crash file.
+        log_dir: Directory containing crash breadcrumb file.
     """
     if platform.system() != "Darwin":
         return
 
-    crash_file = log_dir / ".last_crash"
+    crash_file = log_dir / CRASH_BREADCRUMB_FILENAME
 
     script = f"""
     display alert "MCP ACP" message "Proxy shut down due to {failure_type}.
@@ -152,7 +154,7 @@ def _write_crash_breadcrumb(
 ) -> None:
     """Write breadcrumb file with failure details.
 
-    Location: <log_dir>/.last_crash
+    Location: <log_dir>/{CRASH_BREADCRUMB_FILENAME}
     Format:
         <timestamp>
         failure_type: <type>
@@ -179,7 +181,7 @@ def _write_crash_breadcrumb(
     except OSError:
         pass  # If we can't create dir, try writing anyway
 
-    crash_file = log_dir / ".last_crash"
+    crash_file = log_dir / CRASH_BREADCRUMB_FILENAME
     timestamp = datetime.now(timezone.utc).isoformat()
     context_json = json.dumps(context) if context else "{}"
     crash_file.write_text(

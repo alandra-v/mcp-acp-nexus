@@ -185,7 +185,11 @@ class IntegrityStateManager:
                 pass
             raise
 
-    def verify_on_startup(self, log_paths: list[Path]) -> VerificationResult:
+    def verify_on_startup(
+        self,
+        log_paths: list[Path],
+        auto_repair_on_crash: bool = False,
+    ) -> VerificationResult:
         """Verify all log files match stored state and have valid hash chains.
 
         Checks for each file with stored state:
@@ -198,14 +202,27 @@ class IntegrityStateManager:
 
         Args:
             log_paths: List of log file paths to verify.
+            auto_repair_on_crash: If True and there's evidence of a recent crash,
+                automatically repair state for files with inode mismatches or
+                missing files (common after crash-induced shutdown). This allows
+                recovery from crash scenarios without manual `mcp-acp audit repair`.
 
         Returns:
             VerificationResult with pass/fail status and details.
         """
+        from mcp_acp.constants import CRASH_BREADCRUMB_FILENAME
         from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
 
         errors: list[str] = []
         warnings: list[str] = []
+        # Track files that need repair due to crash recovery scenarios
+        # These are files where state exists but file was recreated (inode mismatch)
+        # or file is missing. These are repairable if we detect a recent crash.
+        crash_repairable_files: list[Path] = []
+
+        # Check for evidence of recent crash (breadcrumb file from shutdown coordinator)
+        crash_breadcrumb_path = self._log_dir / CRASH_BREADCRUMB_FILENAME
+        had_recent_crash = crash_breadcrumb_path.exists()
 
         for log_path in log_paths:
             file_key = self._get_file_key(log_path)
@@ -217,22 +234,32 @@ class IntegrityStateManager:
 
             # Check file exists
             if not log_path.exists():
-                errors.append(
-                    f"{file_key}: Log file is missing but integrity state exists. "
-                    f"This can happen after a crash or if logs were deleted. "
-                    f"Run 'mcp-acp audit repair' to resync integrity state with current log files."
-                )
+                if auto_repair_on_crash and had_recent_crash:
+                    # File missing after crash - repairable by clearing state
+                    crash_repairable_files.append(log_path)
+                    warnings.append(f"{file_key}: Log file missing after crash, will auto-repair")
+                else:
+                    errors.append(
+                        f"{file_key}: Log file is missing but integrity state exists. "
+                        f"This can happen after a crash or if logs were deleted. "
+                        f"Run 'mcp-acp audit repair' to resync integrity state with current log files."
+                    )
                 continue
 
             # Check inode/dev (file swap detection)
             try:
                 stat = log_path.stat()
                 if stat.st_ino != state.last_inode or stat.st_dev != state.last_dev:
-                    errors.append(
-                        f"{file_key}: Log file was replaced or recreated. "
-                        f"This can happen after a crash or if logs were deleted. "
-                        f"Run 'mcp-acp audit repair' to resync integrity state with current log files."
-                    )
+                    if auto_repair_on_crash and had_recent_crash:
+                        # File recreated after crash - repairable
+                        crash_repairable_files.append(log_path)
+                        warnings.append(f"{file_key}: Log file recreated after crash, will auto-repair")
+                    else:
+                        errors.append(
+                            f"{file_key}: Log file was replaced or recreated. "
+                            f"This can happen after a crash or if logs were deleted. "
+                            f"Run 'mcp-acp audit repair' to resync integrity state with current log files."
+                        )
                     continue
             except OSError as e:
                 errors.append(f"{file_key}: Cannot stat file: {e}")
@@ -262,11 +289,57 @@ class IntegrityStateManager:
             except (OSError, json.JSONDecodeError) as e:
                 errors.append(f"{file_key}: Cannot verify chain integrity: {e}")
 
+        # Auto-repair crash recovery files if enabled and no other errors
+        if crash_repairable_files and auto_repair_on_crash and had_recent_crash:
+            self._perform_crash_recovery_repair(crash_repairable_files, errors, warnings)
+
         return VerificationResult(
             success=len(errors) == 0,
             errors=errors,
             warnings=warnings,
         )
+
+    def _perform_crash_recovery_repair(
+        self,
+        crash_repairable_files: list[Path],
+        errors: list[str],
+        warnings: list[str],
+    ) -> None:
+        """Attempt auto-repair for files affected by crash recovery.
+
+        Only repairs if there are no other non-repairable errors (to avoid
+        masking real tampering). Modifies errors and warnings lists in place.
+
+        Args:
+            crash_repairable_files: Files with inode mismatch or missing after crash.
+            errors: List to append repair errors to (modified in place).
+            warnings: List to append repair warnings to (modified in place).
+        """
+        if not errors:
+            # Only auto-repair if there are no non-repairable errors
+            # This prevents masking real tampering by auto-repairing
+            for log_path in crash_repairable_files:
+                success, msg = self.repair_state_for_file(log_path)
+                if success:
+                    warnings.append(f"Auto-repaired: {msg}")
+                else:
+                    # Repair failed - convert to error
+                    errors.append(f"Auto-repair failed: {msg}")
+
+            # Note: We intentionally do NOT remove the .last_crash breadcrumb here.
+            # That file is owned by ShutdownCoordinator and serves as audit evidence.
+            # It should be managed by the UI/CLI (shown to user) or left as history.
+        else:
+            # Have both repairable and non-repairable errors
+            # Don't auto-repair - require manual intervention
+            for log_path in crash_repairable_files:
+                file_key = self._get_file_key(log_path)
+                errors.append(
+                    f"{file_key}: Cannot auto-repair - other integrity errors present. "
+                    f"Run 'mcp-acp audit repair' to manually recover."
+                )
+            # Clear warnings about auto-repair since we're not doing it
+            warnings[:] = [w for w in warnings if "will auto-repair" not in w]
 
     def get_chain_state(self, file_key: str) -> tuple[str, int]:
         """Get (prev_hash, next_sequence) for file.

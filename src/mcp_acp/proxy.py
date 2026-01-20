@@ -196,8 +196,14 @@ def create_proxy(
     # Configure hash chain for history loggers (config_history.jsonl, policy_history.jsonl)
     configure_history_logging_hash_chain(integrity_manager, log_dir)
 
+    # Get system logger early for use throughout startup
+    # (also used later in PHASE 2 for shutdown_coordinator)
+    system_logger = get_system_logger()
+
     # Verify hash chain integrity on startup (Zero Trust - hard fail if compromised)
     # This detects log tampering that occurred while proxy was stopped
+    # auto_repair_on_crash=True allows automatic recovery from crash scenarios
+    # where files were recreated during shutdown (inode mismatch)
     verification = integrity_manager.verify_on_startup(
         [
             audit_path,
@@ -206,8 +212,22 @@ def create_proxy(
             system_log_path,
             config_history_path,
             policy_history_path,
-        ]
+        ],
+        auto_repair_on_crash=True,
     )
+
+    # Log any warnings (including auto-repair notifications)
+    for warning in verification.warnings:
+        system_logger.warning(
+            {
+                "event": "integrity_verification_warning",
+                "message": warning,
+                "action": "startup_verification",
+                "auto_repair_enabled": True,
+                "had_crash_breadcrumb": True,  # Warning only appears if crash was detected
+            }
+        )
+
     if not verification.success:
         # Aggregate all errors into a single message
         error_details = "; ".join(verification.errors)
@@ -226,8 +246,7 @@ def create_proxy(
     # =========================================================================
 
     # Create shutdown coordinator for fail-closed behavior
-    # Note: log_dir was already set above during integrity verification
-    system_logger = get_system_logger()
+    # Note: log_dir and system_logger were already set above during integrity verification
     shutdown_coordinator = ShutdownCoordinator(log_dir, system_logger)
 
     # Create shutdown callback with hybrid approach:

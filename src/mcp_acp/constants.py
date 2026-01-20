@@ -61,6 +61,8 @@ __all__ = [
     "SOCKET_PATH",
     # History versioning
     "INITIAL_VERSION",
+    # Crash recovery
+    "CRASH_BREADCRUMB_FILENAME",
 ]
 
 from pathlib import Path
@@ -375,3 +377,15 @@ SOCKET_PATH: Path = RUNTIME_DIR / "api.sock"
 
 # Initial version for new history files
 INITIAL_VERSION = "v1"
+
+# ============================================================================
+# Crash Recovery
+# ============================================================================
+
+# Breadcrumb file written by ShutdownCoordinator on crash/security failure
+# Contains timestamp, failure_type, exit_code, reason, and context
+# Used by:
+# - IntegrityStateManager: detect recent crash for auto-repair
+# - UI incidents page: show crash history to user
+# - Startup popup: alert user to recent crash
+CRASH_BREADCRUMB_FILENAME = ".last_crash"

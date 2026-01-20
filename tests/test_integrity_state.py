@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from mcp_acp.constants import CRASH_BREADCRUMB_FILENAME
 from mcp_acp.security.integrity.hash_chain import compute_entry_hash
 from mcp_acp.security.integrity.integrity_state import (
     GENESIS_HASH,
@@ -610,3 +611,212 @@ class TestIntegrityStateManagerVerification:
         assert success is True
         assert "cleared" in message.lower()
         assert "audit/missing.jsonl" not in state_manager._states
+
+
+class TestIntegrityStateAutoRepairOnCrash:
+    """Tests for auto_repair_on_crash functionality in verify_on_startup()."""
+
+    @pytest.fixture
+    def temp_log_dir(self) -> Path:
+        """Create a temporary log directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_dir = Path(tmpdir) / "mcp_acp_logs"
+            log_dir.mkdir(parents=True)
+            yield log_dir
+
+    @pytest.fixture
+    def state_manager(self, temp_log_dir: Path) -> IntegrityStateManager:
+        """Create a state manager with temp directory."""
+        return IntegrityStateManager(temp_log_dir)
+
+    def test_auto_repair_on_crash_with_inode_mismatch(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Auto-repair works when file is recreated after crash."""
+        log_path = temp_log_dir / "audit" / "test.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text('{"original": 1}\n')
+
+        # Store state with original inode
+        state_manager.update_chain_state(
+            "audit/test.jsonl",
+            entry_hash="hash",
+            sequence=1,
+            log_path=log_path,
+        )
+
+        # Replace file (creates new inode) - simulating crash recovery
+        log_path.unlink()
+        log_path.write_text("")  # Empty file after crash
+
+        # Create crash breadcrumb to indicate recent crash
+        crash_file = temp_log_dir / CRASH_BREADCRUMB_FILENAME
+        crash_file.write_text("2025-01-18T10:00:00Z\nfailure_type: audit_failure\n")
+
+        # Create new manager and verify with auto_repair_on_crash=True
+        new_manager = IntegrityStateManager(temp_log_dir)
+        new_manager.load_state()
+
+        result = new_manager.verify_on_startup([log_path], auto_repair_on_crash=True)
+
+        # Should succeed after auto-repair
+        assert result.success is True
+        # Should have warnings about auto-repair
+        assert any("auto-repair" in w.lower() for w in result.warnings)
+        # Crash file should be preserved (needed for incidents page)
+        assert crash_file.exists()
+
+    def test_auto_repair_on_crash_with_missing_file(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Auto-repair works when file is missing after crash."""
+        log_path = temp_log_dir / "audit" / "test.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text('{"test": 1}\n')
+
+        # Store state
+        state_manager.update_chain_state(
+            "audit/test.jsonl",
+            entry_hash="hash",
+            sequence=1,
+            log_path=log_path,
+        )
+
+        # Delete file - simulating it was deleted before crash
+        log_path.unlink()
+
+        # Create crash breadcrumb
+        crash_file = temp_log_dir / CRASH_BREADCRUMB_FILENAME
+        crash_file.write_text("2025-01-18T10:00:00Z\nfailure_type: audit_failure\n")
+
+        # Create new manager and verify with auto_repair_on_crash=True
+        new_manager = IntegrityStateManager(temp_log_dir)
+        new_manager.load_state()
+
+        result = new_manager.verify_on_startup([log_path], auto_repair_on_crash=True)
+
+        # Should succeed after auto-repair
+        assert result.success is True
+        # Should have warnings about auto-repair
+        assert any("auto-repair" in w.lower() for w in result.warnings)
+        # State should be cleared for the missing file
+        assert not new_manager.has_state_for_file("audit/test.jsonl")
+
+    def test_auto_repair_disabled_by_default(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Auto-repair is disabled by default (requires explicit opt-in)."""
+        log_path = temp_log_dir / "audit" / "test.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text('{"original": 1}\n')
+
+        # Store state with original inode
+        state_manager.update_chain_state(
+            "audit/test.jsonl",
+            entry_hash="hash",
+            sequence=1,
+            log_path=log_path,
+        )
+
+        # Replace file (creates new inode)
+        log_path.unlink()
+        log_path.write_text("")
+
+        # Create crash breadcrumb
+        crash_file = temp_log_dir / CRASH_BREADCRUMB_FILENAME
+        crash_file.write_text("2025-01-18T10:00:00Z\nfailure_type: audit_failure\n")
+
+        # Create new manager and verify WITHOUT auto_repair_on_crash
+        new_manager = IntegrityStateManager(temp_log_dir)
+        new_manager.load_state()
+
+        result = new_manager.verify_on_startup([log_path])  # auto_repair_on_crash=False by default
+
+        # Should fail (no auto-repair)
+        assert result.success is False
+        assert any("replaced or recreated" in e.lower() for e in result.errors)
+        # Crash file should still exist
+        assert crash_file.exists()
+
+    def test_auto_repair_requires_crash_breadcrumb(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Auto-repair only happens if crash breadcrumb exists."""
+        log_path = temp_log_dir / "audit" / "test.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text('{"original": 1}\n')
+
+        # Store state with original inode
+        state_manager.update_chain_state(
+            "audit/test.jsonl",
+            entry_hash="hash",
+            sequence=1,
+            log_path=log_path,
+        )
+
+        # Replace file (creates new inode)
+        log_path.unlink()
+        log_path.write_text("")
+
+        # NO crash breadcrumb (could be tampering, not crash)
+
+        # Create new manager and verify with auto_repair_on_crash=True
+        new_manager = IntegrityStateManager(temp_log_dir)
+        new_manager.load_state()
+
+        result = new_manager.verify_on_startup([log_path], auto_repair_on_crash=True)
+
+        # Should fail (no crash evidence, might be tampering)
+        assert result.success is False
+        assert any("replaced or recreated" in e.lower() for e in result.errors)
+
+    def test_auto_repair_blocked_when_other_errors_present(
+        self, state_manager: IntegrityStateManager, temp_log_dir: Path
+    ) -> None:
+        """Auto-repair is blocked when there are non-repairable errors."""
+        log_path_1 = temp_log_dir / "audit" / "test1.jsonl"
+        log_path_2 = temp_log_dir / "audit" / "test2.jsonl"
+        log_path_1.parent.mkdir(parents=True, exist_ok=True)
+
+        # File 1: Will have inode mismatch (repairable)
+        log_path_1.write_text('{"original": 1}\n')
+        state_manager.update_chain_state(
+            "audit/test1.jsonl", entry_hash="hash1", sequence=1, log_path=log_path_1
+        )
+        log_path_1.unlink()
+        log_path_1.write_text("")  # Recreated with new inode
+
+        # File 2: Will have genuine tampering (non-repairable)
+        entry = {
+            "time": "2025-01-18T10:00:00.000Z",
+            "sequence": 5,
+            "prev_hash": "some_prev_hash",
+            "event": "test",
+        }
+        entry["entry_hash"] = compute_entry_hash(entry)
+        log_path_2.write_text(json.dumps(entry) + "\n")
+        stat = log_path_2.stat()
+        state_manager._states["audit/test2.jsonl"] = FileIntegrityState(
+            last_hash="wrong_hash_indicating_tampering",
+            last_sequence=5,
+            last_inode=stat.st_ino,
+            last_dev=stat.st_dev,
+        )
+        state_manager.save_state()
+
+        # Create crash breadcrumb
+        crash_file = temp_log_dir / CRASH_BREADCRUMB_FILENAME
+        crash_file.write_text("2025-01-18T10:00:00Z\nfailure_type: audit_failure\n")
+
+        # Create new manager and verify
+        new_manager = IntegrityStateManager(temp_log_dir)
+        new_manager.load_state()
+
+        result = new_manager.verify_on_startup([log_path_1, log_path_2], auto_repair_on_crash=True)
+
+        # Should fail - don't auto-repair when tampering is also present
+        assert result.success is False
+        # Should have errors for both files
+        assert len(result.errors) >= 2
+        # Crash file should still exist (we didn't recover)
+        assert crash_file.exists()
