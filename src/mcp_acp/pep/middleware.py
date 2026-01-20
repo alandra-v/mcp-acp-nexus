@@ -393,8 +393,9 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_eval_ms=eval_duration_ms,
         )
 
-        # Record stats for live UI updates
-        if self._hitl_handler.proxy_state is not None:
+        # Record stats for live UI updates (skip discovery - only count policy-evaluated)
+        if self._hitl_handler.proxy_state is not None and final_rule != "discovery_bypass":
+            self._hitl_handler.proxy_state.record_request()
             self._hitl_handler.proxy_state.record_decision(Decision.ALLOW)
 
         # Execute backend call with error detection for SSE events
@@ -544,8 +545,9 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_eval_ms=eval_duration_ms,
         )
 
-        # Record stats for live UI updates
+        # Record stats for live UI updates (DENY is always policy-evaluated, never discovery)
         if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_request()
             self._hitl_handler.proxy_state.record_decision(Decision.DENY)
 
         tool_name = decision_context.resource.tool.name if decision_context.resource.tool else None
@@ -590,8 +592,9 @@ class PolicyEnforcementMiddleware(Middleware):
         Raises:
             PermissionDeniedError: If user denies or times out.
         """
-        # Record stats for live UI updates (count HITL when triggered, regardless of outcome)
+        # Record stats for live UI updates (HITL is always policy-evaluated, never discovery)
         if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_request()
             self._hitl_handler.proxy_state.record_decision(Decision.HITL)
 
         # Extract context for caching
@@ -724,10 +727,6 @@ class PolicyEnforcementMiddleware(Middleware):
         # Extract arguments
         arguments = self._extract_arguments(context)
         method = context.method or "unknown"
-
-        # Record request for stats (counts ALL requests including discovery)
-        if self._hitl_handler.proxy_state is not None:
-            self._hitl_handler.proxy_state.record_request()
 
         # Rate limiting check (before policy evaluation for efficiency)
         if self._rate_breach_handler and method == "tools/call":

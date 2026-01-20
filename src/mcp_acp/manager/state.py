@@ -26,10 +26,11 @@ import asyncio
 import os
 import time
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
@@ -135,12 +136,21 @@ EventSeverity = Literal["success", "warning", "error", "critical", "info"]
 logger = get_system_logger()
 
 
-class CachedApprovalSummary(NamedTuple):
+class CachedApprovalSummary(BaseModel):
     """Summary of a cached approval for API responses.
 
     Used by get_cached_approvals() to return structured data
     instead of an opaque tuple.
+
+    Attributes:
+        subject_id: The user who was granted the approval.
+        tool_name: The tool that was approved.
+        path: The path that was approved (if applicable).
+        age_seconds: How long ago the approval was granted.
+        expires_in_seconds: Time until the approval expires.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     subject_id: str
     tool_name: str
@@ -150,13 +160,13 @@ class CachedApprovalSummary(NamedTuple):
 
 
 if TYPE_CHECKING:
+    from mcp_acp.manager.client import ManagerClient
     from mcp_acp.pdp import Decision
     from mcp_acp.pep.approval_store import ApprovalStore, CachedApproval
     from mcp_acp.pips.auth.session import BoundSession, SessionManager
 
 
-@dataclass(frozen=True)
-class ProxyInfo:
+class ProxyInfo(BaseModel):
     """Information about a running proxy.
 
     Attributes:
@@ -176,6 +186,8 @@ class ProxyInfo:
         client_id: MCP client application name (from initialize request).
     """
 
+    model_config = ConfigDict(frozen=True)
+
     id: str
     backend_id: str
     status: str
@@ -192,16 +204,20 @@ class ProxyInfo:
     client_id: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class ProxyStats:
+class ProxyStats(BaseModel):
     """Request statistics for a proxy.
 
+    Only counts policy-evaluated requests (tools/call). Discovery requests
+    (tools/list, resources/list, etc.) are not included in these counts.
+
     Attributes:
-        requests_total: Total number of requests processed.
-        requests_allowed: Number of requests allowed by policy.
-        requests_denied: Number of requests denied by policy.
-        requests_hitl: Number of requests requiring HITL approval.
+        requests_total: Total policy-evaluated requests (= allowed + denied + hitl).
+        requests_allowed: Requests allowed by policy.
+        requests_denied: Requests denied by policy.
+        requests_hitl: Requests that triggered HITL approval dialog.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     requests_total: int
     requests_allowed: int
@@ -210,16 +226,10 @@ class ProxyStats:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict for SSE/API."""
-        return {
-            "requests_total": self.requests_total,
-            "requests_allowed": self.requests_allowed,
-            "requests_denied": self.requests_denied,
-            "requests_hitl": self.requests_hitl,
-        }
+        return self.model_dump()
 
 
-@dataclass(frozen=True)
-class PendingApprovalInfo:
+class PendingApprovalInfo(BaseModel):
     """API-facing pending approval data (immutable, serializable).
 
     This is the public representation of a pending approval, used
@@ -235,7 +245,10 @@ class PendingApprovalInfo:
         timeout_seconds: How long to wait for decision.
         request_id: Original MCP request ID for correlation.
         can_cache: Whether this approval can be cached.
+        cache_ttl_seconds: How long cached approval will last (for UI display).
     """
+
+    model_config = ConfigDict(frozen=True)
 
     id: str
     proxy_id: str
@@ -250,18 +263,7 @@ class PendingApprovalInfo:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict for SSE."""
-        return {
-            "id": self.id,
-            "proxy_id": self.proxy_id,
-            "tool_name": self.tool_name,
-            "path": self.path,
-            "subject_id": self.subject_id,
-            "created_at": self.created_at.isoformat(),
-            "timeout_seconds": self.timeout_seconds,
-            "request_id": self.request_id,
-            "can_cache": self.can_cache,
-            "cache_ttl_seconds": self.cache_ttl_seconds,
-        }
+        return self.model_dump(mode="json")
 
 
 class PendingApprovalRequest:
@@ -393,6 +395,20 @@ class ProxyState:
         # Backend connection state tracking (for reconnect detection)
         self._backend_disconnected = False
 
+        # Manager client for event forwarding (set after connection)
+        self._manager_client: "ManagerClient | None" = None
+
+    def set_manager_client(self, client: "ManagerClient | None") -> None:
+        """Set the manager client for event forwarding.
+
+        Called by proxy lifespan after connecting to manager.
+        Events will be forwarded to manager for browser aggregation.
+
+        Args:
+            client: ManagerClient instance or None to disable forwarding.
+        """
+        self._manager_client = client
+
     @property
     def proxy_id(self) -> str:
         """Get the unique proxy ID."""
@@ -439,19 +455,14 @@ class ProxyState:
     # =========================================================================
 
     def record_request(self) -> None:
-        """Record an MCP request for stats tracking.
+        """Record a policy-evaluated request for stats tracking.
 
-        Called by middleware at the start of EVERY request (including discovery).
-        Emits stats_updated SSE event if UI is connected.
+        Called by middleware for policy-evaluated requests only (not discovery).
+        Must be followed by record_decision() which emits the SSE event.
         """
         self._requests_total += 1
-
-        # Emit live updates to connected UI clients
-        if self.is_ui_connected:
-            self.emit_system_event(
-                SSEEventType.STATS_UPDATED,
-                stats=self.get_stats().to_dict(),
-            )
+        # No SSE emit here - record_decision() is always called immediately after
+        # and will emit the complete updated stats
 
     def record_decision(self, decision: "Decision") -> None:
         """Record a policy decision for stats tracking.
@@ -794,11 +805,12 @@ class ProxyState:
         return len(self._sse_subscribers) > 0
 
     def _broadcast_event(self, event: dict[str, Any]) -> None:
-        """Broadcast an event to all SSE subscribers.
+        """Broadcast an event to all SSE subscribers and manager.
 
         Args:
             event: Event dict to broadcast.
         """
+        # Broadcast to local SSE subscribers (web UI connected directly)
         for queue in self._sse_subscribers:
             try:
                 queue.put_nowait(event)
@@ -808,6 +820,11 @@ class ProxyState:
                     "SSE queue full, dropping event: type=%s",
                     event.get("type", "unknown"),
                 )
+
+        # Forward to manager for aggregation (if connected)
+        if self._manager_client is not None and self._manager_client.registered:
+            event_type = event.get("type", "unknown")
+            asyncio.create_task(self._manager_client.push_event(event_type, event))
 
     def emit_system_event(
         self,
