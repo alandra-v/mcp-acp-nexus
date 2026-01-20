@@ -2,7 +2,7 @@
  * Incidents page - displays security shutdowns, startup errors, and emergency audit fallbacks.
  */
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, RefreshCw, ShieldAlert } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
@@ -25,8 +25,11 @@ const FILTER_OPTIONS: { value: FilterType; label: string }[] = [
 export function IncidentsPage() {
   const navigate = useNavigate()
   const { incidents, loading, hasMore, loadMore, refresh } = useIncidents()
-  const { markAsRead } = useIncidentsContext()
+  const { markAsRead, lastSeenTimestamp } = useIncidentsContext()
   const [filter, setFilter] = useState<FilterType>('all')
+
+  // Capture lastSeenTimestamp on mount (before markAsRead updates it)
+  const initialLastSeenRef = useRef<string | null>(lastSeenTimestamp)
 
   const handleBack = useCallback(() => {
     navigate('/')
@@ -38,6 +41,13 @@ export function IncidentsPage() {
     const timer = setTimeout(markAsRead, 500)
     return () => clearTimeout(timer)
   }, [markAsRead])
+
+  /** Check if an incident is new (after the last time user viewed incidents) */
+  const isIncidentNew = useCallback((incidentTime: string | undefined): boolean => {
+    if (!incidentTime) return false // No timestamp = can't determine, treat as old
+    if (!initialLastSeenRef.current) return true // Never viewed = all are new
+    return incidentTime > initialLastSeenRef.current
+  }, [])
 
   // Filter incidents
   const filteredIncidents = useMemo<IncidentEntry[]>(() => {
@@ -121,6 +131,7 @@ export function IncidentsPage() {
                 key={`${incident.incident_type}-${incident.time}-${index}`}
                 incident={incident}
                 isLast={index === filteredIncidents.length - 1 && !hasMore}
+                isNew={isIncidentNew(incident.time)}
               />
             ))}
 

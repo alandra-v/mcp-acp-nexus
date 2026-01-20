@@ -7,7 +7,7 @@
  * - Emergency: Audit fallback entries when normal audit fails
  */
 
-import { apiGet } from './client'
+import { apiGet, type RequestOptions } from './client'
 import type { LogsResponse } from '@/types/api'
 
 // =============================================================================
@@ -82,6 +82,6 @@ export async function getEmergencyLogs(
  * Get incidents summary with counts and latest timestamp.
  * Used for badge state calculation.
  */
-export async function getIncidentsSummary(): Promise<IncidentsSummary> {
-  return apiGet<IncidentsSummary>('/incidents/summary')
+export async function getIncidentsSummary(options?: RequestOptions): Promise<IncidentsSummary> {
+  return apiGet<IncidentsSummary>('/incidents/summary', options)
 }
