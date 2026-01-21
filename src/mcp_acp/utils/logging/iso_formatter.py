@@ -44,10 +44,10 @@ class ISO8601Formatter(logging.Formatter):
             try:
                 log_data = json.loads(record.msg)
             except json.JSONDecodeError:
-                log_data = {"message": record.msg}
-        # Handle plain string/other messages
+                log_data = {"message": record.getMessage()}
+        # Handle plain string/other messages (use getMessage() to apply %s args)
         else:
-            log_data = {"message": str(record.msg)}
+            log_data = {"message": record.getMessage()}
 
         # Add timestamp as first field
         log_entry = {"time": timestamp, **log_data}
