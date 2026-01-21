@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_acp.constants import APP_NAME
+
 if TYPE_CHECKING:
     from mcp_acp.config import AppConfig
 
@@ -77,9 +79,9 @@ def get_log_base_path(config: "AppConfig") -> Path:
         config: Application configuration containing logging settings.
 
     Returns:
-        Path to the log directory (e.g., ~/.mcp-acp/mcp_acp_logs).
+        Path to the log directory (e.g., ~/Library/Logs/mcp-acp/proxies/default).
     """
-    return Path(config.logging.log_dir).expanduser() / "mcp_acp_logs"
+    return Path(config.logging.log_dir).expanduser() / APP_NAME / "proxies" / "default"
 
 
 # =============================================================================

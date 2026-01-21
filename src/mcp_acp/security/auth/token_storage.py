@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from mcp_acp.constants import PROTECTED_CONFIG_DIR
+from mcp_acp.constants import APP_NAME, PROTECTED_CONFIG_DIR
 from mcp_acp.exceptions import AuthenticationError
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from mcp_acp.config import OIDCConfig
 
 # Service name for keyring storage
-KEYRING_SERVICE = "mcp-acp"
+KEYRING_SERVICE = APP_NAME
 
 # Username key for keyring (single-user design)
 KEYRING_USERNAME = "oauth_tokens"
@@ -288,7 +288,7 @@ class EncryptedFileStorage(TokenStorage):
         # Combine machine identifiers
         machine_id = self._get_machine_id()
         hostname = socket.gethostname()
-        combined = f"{machine_id}:{hostname}:mcp-acp-token-storage"
+        combined = f"{machine_id}:{hostname}:{APP_NAME}-token-storage"
 
         # Derive key using PBKDF2
         # Note: Salt is static per-application for key stability across restarts.
@@ -298,7 +298,7 @@ class EncryptedFileStorage(TokenStorage):
         # 3. Tokens are short-lived (24h access, 30d refresh)
         # 4. This is fallback storage when keychain is unavailable
         # Future enhancement: store random salt in a separate file
-        salt = b"mcp-acp-v1"
+        salt = f"{APP_NAME}-v1".encode()
         key = hashlib.pbkdf2_hmac(
             "sha256",
             combined.encode(),
@@ -391,7 +391,7 @@ def _is_keyring_available() -> bool:
             return False
 
         # Try a test write/read/delete cycle
-        test_service = "mcp-acp-test"
+        test_service = f"{APP_NAME}-test"
         test_user = "availability-check"
         test_value = "test"
 

@@ -107,7 +107,7 @@ class FailClosedAuditHandler(logging.FileHandler):
             # Build comprehensive report of what's missing (all critical logs, not debug)
             missing = []
             file_path = Path(self.baseFilename)
-            log_root = file_path.parent.parent  # e.g., mcp_acp_logs/
+            log_root = file_path.parent.parent  # e.g., mcp-acp/proxies/default/
 
             # Critical directories and their files
             critical_paths = {

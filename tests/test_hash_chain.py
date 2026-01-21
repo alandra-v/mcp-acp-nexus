@@ -91,7 +91,7 @@ class TestHashChainFormatter:
     def temp_log_dir(self) -> Path:
         """Create a temporary log directory."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            log_dir = Path(tmpdir) / "mcp_acp_logs"
+            log_dir = Path(tmpdir) / "mcp-acp/proxies/default"
             log_dir.mkdir(parents=True)
             yield log_dir
 

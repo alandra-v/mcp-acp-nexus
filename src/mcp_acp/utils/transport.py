@@ -17,6 +17,7 @@ from fastmcp.server.proxy import ProxyClient
 
 from mcp_acp import __version__
 from mcp_acp.constants import (
+    APP_NAME,
     BACKEND_RETRY_BACKOFF_MULTIPLIER,
     BACKEND_RETRY_INITIAL_DELAY,
     BACKEND_RETRY_MAX_ATTEMPTS,
@@ -40,7 +41,7 @@ from mcp_acp.security.mtls import (
 )
 
 # User-Agent header for HTTP backend connections (informational, not security)
-USER_AGENT = f"mcp-acp/{__version__}"
+USER_AGENT = f"{APP_NAME}/{__version__}"
 
 if TYPE_CHECKING:
     from mcp.shared._httpx_utils import McpHttpClientFactory

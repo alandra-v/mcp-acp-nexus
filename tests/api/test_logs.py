@@ -184,7 +184,7 @@ class TestLogEndpoints:
     def test_get_decision_logs_success(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/decisions returns decision logs."""
         # Arrange
-        log_dir = tmp_path / "mcp_acp_logs" / "audit"
+        log_dir = tmp_path / "mcp-acp/proxies/default" / "audit"
         log_dir.mkdir(parents=True)
         log_file = log_dir / "decisions.jsonl"
         log_file.write_text('{"type": "decision", "action": "allow"}\n')
@@ -201,7 +201,7 @@ class TestLogEndpoints:
     def test_get_operation_logs_success(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/operations returns operation logs."""
         # Arrange
-        log_dir = tmp_path / "mcp_acp_logs" / "audit"
+        log_dir = tmp_path / "mcp-acp/proxies/default" / "audit"
         log_dir.mkdir(parents=True)
         log_file = log_dir / "operations.jsonl"
         log_file.write_text('{"type": "operation"}\n{"type": "operation"}\n')
@@ -230,7 +230,7 @@ class TestLogEndpoints:
     def test_get_system_logs_success(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/system returns system logs."""
         # Arrange
-        log_dir = tmp_path / "mcp_acp_logs" / "system"
+        log_dir = tmp_path / "mcp-acp/proxies/default" / "system"
         log_dir.mkdir(parents=True)
         log_file = log_dir / "system.jsonl"
         log_file.write_text('{"level": "INFO", "message": "Started"}\n')
@@ -262,7 +262,7 @@ class TestLogEndpoints:
     def test_pagination_returns_correct_count(self, client: TestClient, tmp_path: Path) -> None:
         """Given limit, returns correct entries."""
         # Arrange
-        log_dir = tmp_path / "mcp_acp_logs" / "audit"
+        log_dir = tmp_path / "mcp-acp/proxies/default" / "audit"
         log_dir.mkdir(parents=True)
         log_file = log_dir / "decisions.jsonl"
         entries = [json.dumps({"id": i}) for i in range(10)]

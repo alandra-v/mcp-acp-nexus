@@ -219,7 +219,7 @@ class ShutdownCoordinator:
         """Initialize the shutdown coordinator.
 
         Args:
-            log_dir: Directory for breadcrumb file (e.g., ~/.../mcp_acp_logs/)
+            log_dir: Directory for breadcrumb file (e.g., <log_dir>/mcp-acp/proxies/default/)
             system_logger: System logger for critical events
         """
         self.log_dir = log_dir
