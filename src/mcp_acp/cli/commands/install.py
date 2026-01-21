@@ -17,6 +17,7 @@ from pathlib import Path
 import click
 
 from mcp_acp.config import AppConfig
+from mcp_acp.constants import APP_NAME
 from mcp_acp.utils.config import get_config_path
 
 from ..styling import style_error, style_success
@@ -34,7 +35,7 @@ def _get_executable_path() -> str:
     Raises:
         click.ClickException: If executable cannot be found in PATH.
     """
-    path = shutil.which("mcp-acp")
+    path = shutil.which(APP_NAME)
     if path:
         return str(Path(path).resolve())
 

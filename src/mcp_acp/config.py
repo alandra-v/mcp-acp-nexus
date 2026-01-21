@@ -15,6 +15,7 @@ Example usage:
 from __future__ import annotations
 
 __all__ = [
+    "DEFAULT_LOG_DIR",
     "AppConfig",
     "AuthConfig",
     "BackendConfig",
@@ -29,12 +30,15 @@ __all__ = [
 ]
 
 import json
+import os
+import sys
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from mcp_acp.constants import (
+    APP_NAME,
     DEFAULT_APPROVAL_TTL_SECONDS,
     DEFAULT_HITL_TIMEOUT_SECONDS,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
@@ -47,6 +51,37 @@ from mcp_acp.constants import (
 )
 from mcp_acp.context.resource import SideEffect
 from mcp_acp.utils.file_helpers import load_validated_json, require_file_exists
+
+
+# =============================================================================
+# Platform-specific defaults
+# =============================================================================
+
+
+def _get_platform_log_dir() -> str:
+    """Get platform-appropriate base log directory following OS conventions.
+
+    Returns:
+        Platform-specific base log directory path (unexpanded).
+        Proxy logs go in <base>/mcp-acp/proxies/default/.
+
+    Platform conventions:
+        - macOS: ~/Library/Logs (Apple standard, integrates with Console.app)
+        - Linux: ~/.local/state (XDG Base Directory Specification for logs/state)
+        - Windows: ~/AppData/Local (standard for app data)
+    """
+    if sys.platform == "darwin":
+        return "~/Library/Logs"
+    elif sys.platform == "win32":
+        return "~/AppData/Local"
+    else:
+        # Linux/Unix: XDG_STATE_HOME is for logs, history, state
+        # Falls back to ~/.local/state per XDG spec
+        return os.environ.get("XDG_STATE_HOME", "~/.local/state")
+
+
+# Default base log directory (platform-specific, follows OS conventions)
+DEFAULT_LOG_DIR = _get_platform_log_dir()
 
 
 # =============================================================================
@@ -118,26 +153,29 @@ class AuthConfig(BaseModel):
 class LoggingConfig(BaseModel):
     """Logging configuration settings.
 
-    The log_dir specifies a base directory. Within it, logs are stored
-    in a mcp_acp_logs/ subdirectory with this structure:
+    The log_dir specifies a base directory. Logs are stored in
+    <log_dir>/mcp-acp/proxies/default/ with this structure:
         <log_dir>/
-        └── mcp_acp_logs/
-            ├── debug/                  # Only created when log_level=DEBUG
-            │   ├── client_wire.jsonl
-            │   └── backend_wire.jsonl
-            ├── system/
-            │   ├── system.jsonl
-            │   └── config_history.jsonl
-            └── audit/                  # Always enabled (security audit trail)
-                └── operations.jsonl
+        └── mcp-acp/
+            └── proxy/
+                ├── debug/                  # Only created when log_level=DEBUG
+                │   ├── client_wire.jsonl
+                │   └── backend_wire.jsonl
+                ├── system/
+                │   ├── system.jsonl
+                │   └── config_history.jsonl
+                └── audit/                  # Always enabled (security audit trail)
+                    └── operations.jsonl
 
     Attributes:
-        log_dir: Base directory for logs (required, user-specified via init).
+        log_dir: Base directory for logs. Platform-specific default:
+            - macOS: ~/Library/Logs
+            - Linux: $XDG_STATE_HOME (~/.local/state)
         log_level: Logging level (DEBUG or INFO). DEBUG enables wire logs.
         include_payloads: Whether to include full message payloads in debug logs.
     """
 
-    log_dir: str = Field(min_length=1)
+    log_dir: str = Field(default=DEFAULT_LOG_DIR, min_length=1)
     log_level: Literal["DEBUG", "INFO"] = "INFO"
     include_payloads: bool = True
 
@@ -231,7 +269,7 @@ class ProxyConfig(BaseModel):
         name: Proxy server name for identification.
     """
 
-    name: str = Field(default="mcp-acp", min_length=1)
+    name: str = Field(default=APP_NAME, min_length=1)
 
 
 class HITLConfig(BaseModel):

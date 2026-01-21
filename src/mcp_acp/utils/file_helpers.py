@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypeVar
 import click
 from pydantic import BaseModel, ValidationError
 
-from mcp_acp.constants import INITIAL_VERSION
+from mcp_acp.constants import APP_NAME, INITIAL_VERSION
 from mcp_acp.utils.logging.logger_setup import setup_jsonl_logger
 
 if TYPE_CHECKING:
@@ -63,7 +63,7 @@ def get_app_dir() -> Path:
     Returns:
         Path to the application directory.
     """
-    return Path(click.get_app_dir("mcp-acp"))
+    return Path(click.get_app_dir(APP_NAME))
 
 
 def compute_file_checksum(file_path: Path) -> str:

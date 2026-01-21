@@ -14,6 +14,7 @@ from typing import Literal, cast
 import click
 
 from mcp_acp.config import (
+    DEFAULT_LOG_DIR,
     AppConfig,
     AuthConfig,
     BackendConfig,
@@ -44,9 +45,6 @@ from mcp_acp.security.auth.token_storage import create_token_storage
 
 from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
 from ..styling import style_dim, style_error, style_header, style_success, style_warning
-
-# Recommended log directory shown in init prompts (user can customize)
-RECOMMENDED_LOG_DIR = "~/.mcp-acp"
 
 
 def _require_flag(value: str | None, flag_name: str, message: str | None = None) -> str:
@@ -252,7 +250,7 @@ def _run_interactive_init(
 
     # Logging settings
     click.echo(style_header("Logging"))
-    log_dir = log_dir or prompt_with_retry(f"Log directory (recommended: {RECOMMENDED_LOG_DIR})")
+    log_dir = log_dir or prompt_with_retry(f"Log directory (default: {DEFAULT_LOG_DIR})")
     click.echo("  DEBUG enables debug wire logs (client <-> proxy <-> backend)")
     log_level = click.prompt(
         "Log level",
@@ -475,7 +473,7 @@ def _run_non_interactive_init(
 )
 @click.option(
     "--log-dir",
-    help=f"Log directory path (recommended: {RECOMMENDED_LOG_DIR})",
+    help=f"Log directory path (default: {DEFAULT_LOG_DIR})",
 )
 @click.option(
     "--log-level",
