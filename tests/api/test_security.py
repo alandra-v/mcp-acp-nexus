@@ -256,21 +256,23 @@ class TestSecurityMiddlewareHTTP:
         """Given valid token in HttpOnly cookie, accepts request."""
         _, token = app_with_middleware
 
+        client.cookies.set("api_token", token)
         response = client.get(
             "/api/test",
             headers={"host": "localhost:8765"},
-            cookies={"api_token": token},
         )
+        client.cookies.clear()
 
         assert response.status_code == 200
 
     def test_rejects_invalid_cookie_token(self, client: TestClient) -> None:
         """Given invalid token in cookie, returns 401."""
+        client.cookies.set("api_token", "wrong-token")
         response = client.get(
             "/api/test",
             headers={"host": "localhost:8765"},
-            cookies={"api_token": "wrong-token"},
         )
+        client.cookies.clear()
 
         assert response.status_code == 401
 
@@ -281,11 +283,12 @@ class TestSecurityMiddlewareHTTP:
         _, token = app_with_middleware
 
         # Valid bearer, invalid cookie - should succeed (bearer takes precedence)
+        client.cookies.set("api_token", "wrong-token")
         response = client.get(
             "/api/test",
             headers={"host": "localhost:8765", "authorization": f"Bearer {token}"},
-            cookies={"api_token": "wrong-token"},
         )
+        client.cookies.clear()
 
         assert response.status_code == 200
 
