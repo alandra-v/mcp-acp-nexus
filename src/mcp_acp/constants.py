@@ -7,6 +7,8 @@ For user-configurable settings per deployment, see config.py.
 import os
 
 __all__ = [
+    # Application identity
+    "APP_NAME",
     # Protected directories
     "PROTECTED_CONFIG_DIR",
     # Transport configuration
@@ -76,6 +78,13 @@ from pathlib import Path
 from platformdirs import user_config_dir, user_runtime_dir
 
 # ============================================================================
+# Application Identity
+# ============================================================================
+
+# Application name used for directory names, service names, etc.
+APP_NAME: str = "mcp-acp"
+
+# ============================================================================
 # Protected Configuration Directory (Built-in Security)
 # ============================================================================
 
@@ -89,7 +98,7 @@ from platformdirs import user_config_dir, user_runtime_dir
 # - Windows: %APPDATA%\mcp-acp\
 #
 # Note: Resolved with os.path.realpath() to prevent symlink bypass.
-PROTECTED_CONFIG_DIR: str = os.path.realpath(user_config_dir("mcp-acp"))
+PROTECTED_CONFIG_DIR: str = os.path.realpath(user_config_dir(APP_NAME))
 
 # ============================================================================
 # Transport Configuration
@@ -377,7 +386,7 @@ CLI_POLICY_RELOAD_TIMEOUT_SECONDS: float = 10.0
 #   - Linux: $XDG_RUNTIME_DIR/mcp-acp/ (auto-cleaned on logout)
 #
 # Note: This implementation is macOS-only. Linux support can be added later.
-RUNTIME_DIR: Path = Path(user_runtime_dir("mcp-acp"))
+RUNTIME_DIR: Path = Path(user_runtime_dir(APP_NAME))
 
 # Unix Domain Socket for CLI communication
 # OS file permissions provide authentication (no token needed)

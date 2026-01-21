@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.system import ConfigHistoryEvent
 from mcp_acp.utils.config.config_helpers import compute_config_checksum
 from mcp_acp.utils.file_helpers import (
@@ -52,7 +53,7 @@ _CONFIG_LOGGER_CONFIG = HistoryLoggerConfig(
     path_field="config_path",
     entity_name="Configuration",
     entity_name_lower="config",
-    logger_name="mcp-acp.config.history",
+    logger_name=f"{APP_NAME}.config.history",
     event_class=ConfigHistoryEvent,
     compute_checksum=compute_config_checksum,
     created_change_type="initial_load",
@@ -238,9 +239,9 @@ def log_config_validation_failed(
     Note on log location:
         When validation fails, we cannot read log_dir from the invalid config.
         The caller (cli.py) uses a fallback location in the config directory:
-            <config_dir>/mcp_acp_logs/system/config_history.jsonl
+            <config_dir>/logs/system/config_history.jsonl
         instead of the normal location:
-            <log_dir>/mcp_acp_logs/system/config_history.jsonl
+            <log_dir>/mcp-acp/proxies/default/system/config_history.jsonl
 
         This ensures validation failures are always logged to a predictable
         location even when the config is corrupt or missing required fields.

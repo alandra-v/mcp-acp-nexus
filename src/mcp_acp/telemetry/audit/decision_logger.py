@@ -1,7 +1,7 @@
 """Decision logging for policy enforcement.
 
 This module provides logging for policy decisions (ALLOW, DENY, HITL).
-Logs are written to <log_dir>/mcp_acp_logs/audit/decisions.jsonl.
+Logs are written to <log_dir>/mcp-acp/proxies/default/audit/decisions.jsonl.
 
 Decision logs are ALWAYS enabled (not controlled by log_level).
 """
@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Callable
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.context import DecisionContext
 from mcp_acp.pdp import Decision, MatchedRule
 from mcp_acp.security.integrity.emergency_audit import log_with_fallback
@@ -51,7 +52,7 @@ def create_decision_logger(
         Configured logger instance with fail-closed handler.
     """
     return setup_failclosed_audit_logger(
-        "mcp-acp.audit.decisions",
+        f"{APP_NAME}.audit.decisions",
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,

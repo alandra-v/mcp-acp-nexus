@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp_acp.constants import (
+    APP_NAME,
     MANAGER_LOCK_PATH,
     MANAGER_SOCKET_PATH,
     RUNTIME_DIR,
@@ -45,7 +46,7 @@ PROTOCOL_VERSION = 1
 # Timeout for registration handshake (seconds)
 REGISTRATION_TIMEOUT_SECONDS = 5.0
 
-_logger = logging.getLogger("mcp-acp.manager.client")
+_logger = logging.getLogger(f"{APP_NAME}.manager.client")
 
 
 class ManagerConnectionError(Exception):
@@ -353,7 +354,7 @@ def _spawn_manager_daemon() -> bool:
         True if process was spawned successfully.
     """
     # Find the mcp-acp executable
-    mcp_acp_path = shutil.which("mcp-acp")
+    mcp_acp_path = shutil.which(APP_NAME)
     if mcp_acp_path is None:
         # Fall back to python -m mcp_acp.cli
         mcp_acp_cmd = [sys.executable, "-m", "mcp_acp.cli"]

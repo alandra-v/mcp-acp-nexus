@@ -9,7 +9,7 @@ Wire logs include:
 - Errors and duration data
 - Server information during initialization
 
-Logs are written to <log_dir>/mcp_acp_logs/debug/backend_wire.jsonl using Pydantic models.
+Logs are written to <log_dir>/mcp-acp/proxies/default/debug/backend_wire.jsonl using Pydantic models.
 The log_dir is specified in the user's configuration file.
 
 IMPORTANT - Backend Connection Error Handling:
@@ -52,6 +52,7 @@ from fastmcp.client.transports import ClientTransport
 from fastmcp.server.proxy import ProxyClient
 from pydantic.networks import AnyUrl
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.debug.backend_logger import (
     log_backend_error,
     log_backend_response,
@@ -507,7 +508,7 @@ def create_logging_proxy_client(
         logger = setup_backend_wire_logger(log_path)
     else:
         # Create a logger that discards all messages
-        logger = logging.getLogger("mcp-acp.debug.backend.null")
+        logger = logging.getLogger(f"{APP_NAME}.debug.backend.null")
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False

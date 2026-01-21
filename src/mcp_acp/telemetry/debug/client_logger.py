@@ -8,7 +8,7 @@ Wire logs include:
 - Request/response timing
 - Protocol-level details
 
-Logs are written to <log_dir>/mcp_acp_logs/debug/client_wire.jsonl using Pydantic models.
+Logs are written to <log_dir>/mcp-acp/proxies/default/debug/client_wire.jsonl using Pydantic models.
 The log_dir is specified in the user's configuration file.
 """
 
@@ -29,6 +29,7 @@ from typing import Any
 from fastmcp.server.middleware.logging import BaseLoggingMiddleware
 from fastmcp.server.middleware.middleware import MiddlewareContext
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.wire import (
     ClientRequestEvent,
     ProxyErrorEvent,
@@ -73,7 +74,7 @@ class BidirectionalClientLoggingMiddleware(BaseLoggingMiddleware):
             transport: Transport type ("stdio" or "http").
         """
         # Debug logger for wire-level logs
-        self.logger = logger or logging.getLogger("mcp-acp.debug.client")
+        self.logger = logger or logging.getLogger(f"{APP_NAME}.debug.client")
         self.log_level = log_level
 
         # System logger for operational warnings/errors
@@ -208,13 +209,13 @@ def setup_client_wire_logger(log_path: Path) -> logging.Logger:
     Each log entry includes ISO 8601 timestamp with milliseconds in UTC.
 
     Args:
-        log_path: Path to the client wire log file (e.g., <log_dir>/mcp_acp_logs/debug/client_wire.jsonl).
+        log_path: Path to the client wire log file (e.g., <log_dir>/mcp-acp/proxies/default/debug/client_wire.jsonl).
 
     Returns:
         logging.Logger: Configured logger instance for client wire logs.
     """
     return setup_jsonl_logger(
-        "mcp-acp.debug.client",
+        f"{APP_NAME}.debug.client",
         log_path,
         logging.INFO,
     )
@@ -247,7 +248,7 @@ def create_client_logging_middleware(
         logger = setup_client_wire_logger(log_path)
     else:
         # Create a logger that discards all messages
-        logger = logging.getLogger("mcp-acp.debug.client.null")
+        logger = logging.getLogger(f"{APP_NAME}.debug.client.null")
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False

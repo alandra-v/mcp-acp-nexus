@@ -218,7 +218,7 @@ class TestConfigEdit:
         "invalid_value,expected_error",
         [
             ({"logging": {"log_dir": "/tmp", "log_level": "INVALID"}}, "log_level"),
-            ({"logging": {"log_level": "INFO"}}, "log_dir"),  # Missing required field
+            ({"logging": {"log_dir": "", "log_level": "INFO"}}, "log_dir"),  # Empty string fails min_length
         ],
     )
     def test_edit_invalid_field_shows_error(

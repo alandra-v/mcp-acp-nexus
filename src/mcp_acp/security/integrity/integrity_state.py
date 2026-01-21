@@ -86,7 +86,7 @@ class IntegrityStateManager:
     - Detecting file swaps between proxy runs
 
     The state file is stored in the root of the log directory:
-        <log_dir>/mcp_acp_logs/.integrity_state
+        <log_dir>/mcp-acp/proxies/default/.integrity_state
     """
 
     STATE_FILE_NAME = ".integrity_state"
@@ -96,7 +96,7 @@ class IntegrityStateManager:
         """Initialize with log directory.
 
         Args:
-            log_dir: Path to mcp_acp_logs directory (parent of audit/, system/).
+            log_dir: Path to proxy log directory (parent of audit/, system/).
         """
         self._log_dir = log_dir
         self._state_file = log_dir / self.STATE_FILE_NAME

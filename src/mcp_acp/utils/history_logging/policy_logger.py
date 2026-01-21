@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.system import PolicyHistoryEvent
 from mcp_acp.utils.file_helpers import (
     VersionInfo,
@@ -42,7 +43,7 @@ _POLICY_LOGGER_CONFIG = HistoryLoggerConfig(
     path_field="policy_path",
     entity_name="Policy",
     entity_name_lower="policy",
-    logger_name="mcp-acp.policy.history",
+    logger_name=f"{APP_NAME}.policy.history",
     event_class=PolicyHistoryEvent,
     compute_checksum=compute_policy_checksum,
     created_change_type="initial_creation",
@@ -152,4 +153,4 @@ def get_policy_history_path_from_config_dir() -> Path:
     """
     from mcp_acp.utils.policy import get_policy_dir
 
-    return get_policy_dir() / "mcp_acp_logs" / "system" / "policy_history.jsonl"
+    return get_policy_dir() / "logs" / "system" / "policy_history.jsonl"

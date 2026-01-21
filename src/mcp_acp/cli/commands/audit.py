@@ -208,7 +208,7 @@ def status() -> None:
     click.echo(style_label("Audit Log Hash Chain Status"))
     click.echo()
 
-    # Check for state file (log_dir already includes mcp_acp_logs)
+    # Check for state file (log_dir already includes mcp-acp/proxies/default)
     state_file = log_dir / IntegrityStateManager.STATE_FILE_NAME
     if state_file.exists():
         click.echo(f"State file: {style_success('present')}")

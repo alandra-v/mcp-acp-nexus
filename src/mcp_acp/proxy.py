@@ -115,11 +115,11 @@ def create_proxy(
       - Fall back to STDIO if HTTP unavailable or not configured
 
     Logging:
-    - Audit logs (ALWAYS enabled): <log_dir>/mcp_acp_logs/audit/operations.jsonl
-    - Decision logs (ALWAYS enabled): <log_dir>/mcp_acp_logs/audit/decisions.jsonl
+    - Audit logs (ALWAYS enabled): <log_dir>/mcp-acp/proxies/default/audit/operations.jsonl
+    - Decision logs (ALWAYS enabled): <log_dir>/mcp-acp/proxies/default/audit/decisions.jsonl
     - Debug wire logs (when log_level == "DEBUG"):
-      - Client<->Proxy: <log_dir>/mcp_acp_logs/debug/client_wire.jsonl
-      - Proxy<->Backend: <log_dir>/mcp_acp_logs/debug/backend_wire.jsonl
+      - Client<->Proxy: <log_dir>/mcp-acp/proxies/default/debug/client_wire.jsonl
+      - Proxy<->Backend: <log_dir>/mcp-acp/proxies/default/debug/backend_wire.jsonl
     - All logs include correlation IDs (request_id, session_id)
     - JSONL format with ISO 8601 timestamps
 

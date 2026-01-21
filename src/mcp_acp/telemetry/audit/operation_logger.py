@@ -6,7 +6,7 @@ single-event pattern per operation for atomic records and query simplicity.
 
 Audit logs are ALWAYS enabled (not controlled by log_level).
 
-Logs are written to <log_dir>/mcp_acp_logs/audit/operations.jsonl.
+Logs are written to <log_dir>/mcp-acp/proxies/default/audit/operations.jsonl.
 """
 
 import logging
@@ -28,6 +28,7 @@ from fastmcp.server.middleware.middleware import MiddlewareContext
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.audit import (
     ArgumentsSummary,
     DurationInfo,
@@ -333,7 +334,7 @@ def create_audit_logging_middleware(
         AuditLoggingMiddleware: Configured middleware for the proxy.
     """
     logger = setup_failclosed_audit_logger(
-        "mcp-acp.audit.operations",
+        f"{APP_NAME}.audit.operations",
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,

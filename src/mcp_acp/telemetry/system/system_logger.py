@@ -32,7 +32,7 @@ import logging
 import sys
 from pathlib import Path
 
-from mcp_acp.constants import TRANSPORT_ERRORS
+from mcp_acp.constants import APP_NAME, TRANSPORT_ERRORS
 from mcp_acp.utils.logging.iso_formatter import ISO8601Formatter
 from mcp_acp.utils.logging.logging_helpers import clean_backend_error
 
@@ -109,7 +109,7 @@ def get_system_logger() -> logging.Logger:
         return _system_logger
 
     # Create base logger at INFO level (accepts INFO and above)
-    _system_logger = logging.getLogger("mcp-acp.system")
+    _system_logger = logging.getLogger(f"{APP_NAME}.system")
     _system_logger.setLevel(logging.INFO)
     _system_logger.propagate = False  # Don't propagate to root logger
 

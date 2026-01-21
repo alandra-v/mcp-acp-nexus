@@ -3,7 +3,7 @@
 This module provides setup functions and event logging for wire-level debug logging
 of communication between the proxy and backend MCP servers.
 
-Logs are written to <log_dir>/mcp_acp_logs/debug/backend_wire.jsonl.
+Logs are written to <log_dir>/mcp-acp/proxies/default/debug/backend_wire.jsonl.
 The log_dir is specified in the user's configuration file.
 
 Event logging functions:
@@ -26,6 +26,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.wire import (
     BackendErrorEvent,
     BackendResponseEvent,
@@ -47,13 +48,13 @@ def setup_backend_wire_logger(log_path: Path) -> logging.Logger:
     Each log entry includes ISO 8601 timestamp with milliseconds in UTC.
 
     Args:
-        log_path: Path to the backend wire log file (e.g., <log_dir>/mcp_acp_logs/debug/backend_wire.jsonl).
+        log_path: Path to the backend wire log file (e.g., <log_dir>/mcp-acp/proxies/default/debug/backend_wire.jsonl).
 
     Returns:
         logging.Logger: Configured logger instance for backend wire logs.
     """
     return setup_jsonl_logger(
-        "mcp-acp.debug.backend",
+        f"{APP_NAME}.debug.backend",
         log_path,
         logging.INFO,
     )

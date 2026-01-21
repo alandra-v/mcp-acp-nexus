@@ -25,6 +25,7 @@ __all__ = [
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.utils.file_helpers import (
     compute_file_checksum,
     get_app_dir,
@@ -59,15 +60,15 @@ def get_config_path() -> Path:
 
 
 def get_log_dir(config: "AppConfig") -> Path:
-    """Get log directory (always <config.logging.log_dir>/mcp_acp_logs/).
+    """Get proxy log directory (<config.logging.log_dir>/mcp-acp/proxies/<name>/).
 
     Args:
         config: Application configuration.
 
     Returns:
-        Path: Log directory path (<log_dir>/mcp_acp_logs/).
+        Path: Log directory path (<log_dir>/mcp-acp/proxies/default/).
     """
-    return Path(config.logging.log_dir).expanduser() / "mcp_acp_logs"
+    return Path(config.logging.log_dir).expanduser() / APP_NAME / "proxies" / "default"
 
 
 def get_client_log_path(config: "AppConfig") -> Path:
@@ -189,10 +190,11 @@ def ensure_directories(config: "AppConfig") -> None:
 
     Creates the standard log directory structure:
         <log_dir>/
-        └── mcp_acp_logs/
-            ├── audit/
-            ├── debug/    (only if log_level == DEBUG)
-            └── system/
+        └── mcp-acp/
+            └── proxy/
+                ├── audit/
+                ├── debug/    (only if log_level == DEBUG)
+                └── system/
 
     Note: Config directory is created by AppConfig.save_to_file().
 
@@ -202,16 +204,18 @@ def ensure_directories(config: "AppConfig") -> None:
         config: Application configuration.
     """
     log_base = Path(config.logging.log_dir).expanduser()
-    log_dir = log_base / "mcp_acp_logs"
-    audit_dir = log_dir / "audit"
-    system_dir = log_dir / "system"
+    mcp_acp_dir = log_base / APP_NAME
+    proxies_dir = mcp_acp_dir / "proxies"
+    proxy_dir = proxies_dir / "default"  # TODO: Use proxy name from config in Phase 4
+    audit_dir = proxy_dir / "audit"
+    system_dir = proxy_dir / "system"
 
     # Directories to create (debug only when enabled)
-    dirs_to_create = [log_base, log_dir, audit_dir, system_dir]
+    dirs_to_create = [log_base, mcp_acp_dir, proxies_dir, proxy_dir, audit_dir, system_dir]
 
     # Only create debug directory if DEBUG logging is enabled
     if config.logging.log_level == "DEBUG":
-        debug_dir = log_dir / "debug"
+        debug_dir = proxy_dir / "debug"
         dirs_to_create.append(debug_dir)
 
     # Create log directories with secure permissions

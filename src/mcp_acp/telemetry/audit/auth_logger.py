@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Callable, Literal
 if TYPE_CHECKING:
     from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
+from mcp_acp.constants import APP_NAME
 from mcp_acp.security.integrity.emergency_audit import log_with_fallback
 from mcp_acp.telemetry.models.audit import (
     AuthEvent,
@@ -333,7 +334,7 @@ def create_auth_logger(
         AuthLogger: Configured logger for authentication events.
     """
     logger = setup_failclosed_audit_logger(
-        "mcp-acp.audit.auth",
+        f"{APP_NAME}.audit.auth",
         log_path,
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,
