@@ -1,0 +1,567 @@
+"""FastAPI routes and HTTP helpers for the manager daemon.
+
+This module contains:
+- Constants for static file serving and HTTP timeouts
+- HTTP client helpers for UDS communication with proxies
+- The FastAPI application factory with all manager routes
+
+Routes:
+- /api/manager/status: Manager health status
+- /api/manager/proxies: List registered proxies
+- /api/events: SSE event stream
+- /api/proxy/{name}/{path}: Route to specific proxy
+- /api/{path}: Fallback to default proxy
+- /{path}: Serve SPA static files
+"""
+
+from __future__ import annotations
+
+__all__ = [
+    "PROXY_REQUEST_TIMEOUT_SECONDS",
+    "PROXY_SNAPSHOT_TIMEOUT_SECONDS",
+    "STATIC_DIR",
+    "STATIC_MEDIA_TYPES",
+    "create_manager_api_app",
+    "create_uds_client",
+    "error_response",
+    "fetch_proxy_snapshots",
+]
+
+import asyncio
+import json
+import logging
+import os
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, AsyncIterator
+
+import httpx
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from sse_starlette.sse import EventSourceResponse
+
+from mcp_acp.constants import APP_NAME
+from mcp_acp.manager.models import ManagerStatusResponse
+from mcp_acp.manager.registry import ProxyRegistry, get_proxy_registry
+
+# Static files directory (built React app)
+STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
+
+# HTTP client timeouts for proxy communication (seconds)
+PROXY_SNAPSHOT_TIMEOUT_SECONDS = 5.0
+PROXY_REQUEST_TIMEOUT_SECONDS = 30.0
+
+# Media type mapping for static file serving
+STATIC_MEDIA_TYPES: dict[str, str] = {
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".json": "application/json",
+    ".js": "application/javascript",
+    ".css": "text/css",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".map": "application/json",
+}
+
+# Manager API prefixes (not forwarded to proxy)
+MANAGER_API_PREFIXES = ("/api/manager/", "/api/events", "/api/proxy/")
+
+_logger = logging.getLogger(f"{APP_NAME}.manager.routes")
+
+
+# =============================================================================
+# HTTP Client Helpers
+# =============================================================================
+
+
+@asynccontextmanager
+async def create_uds_client(
+    socket_path: str,
+    timeout: float = PROXY_REQUEST_TIMEOUT_SECONDS,
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Create HTTP client for UDS communication with proxy.
+
+    This is an async context manager that properly handles client lifecycle.
+
+    Args:
+        socket_path: Path to the Unix Domain Socket.
+        timeout: Request timeout in seconds.
+
+    Yields:
+        Configured httpx.AsyncClient for UDS communication.
+
+    Example:
+        async with create_uds_client("/tmp/proxy.sock") as client:
+            response = await client.get("/api/status")
+    """
+    transport = httpx.AsyncHTTPTransport(uds=socket_path)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://localhost",  # Required but not used for UDS
+        timeout=timeout,
+    ) as client:
+        yield client
+
+
+async def fetch_proxy_snapshots(
+    client: httpx.AsyncClient,
+    logger: logging.Logger,
+) -> dict[str, Any]:
+    """Fetch all snapshots from proxy API.
+
+    Fetches pending approvals, cached approvals, and stats from a proxy.
+    Errors are logged but don't propagate - returns None for failed fetches.
+
+    Args:
+        client: HTTP client configured for UDS communication.
+        logger: Logger for debug messages.
+
+    Returns:
+        Dict with keys: pending, cached, stats. Each may be None on error.
+    """
+    result: dict[str, Any] = {"pending": None, "cached": None, "stats": None}
+
+    # Fetch pending approvals
+    try:
+        resp = await client.get("/api/approvals/pending/list")
+        if resp.status_code == 200:
+            result["pending"] = resp.json()
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
+        logger.debug("Failed to fetch pending approvals: %s", e)
+
+    # Fetch cached approvals
+    try:
+        resp = await client.get("/api/approvals/cached")
+        if resp.status_code == 200:
+            result["cached"] = resp.json()
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
+        logger.debug("Failed to fetch cached approvals: %s", e)
+
+    # Fetch stats from /api/proxies (stats included in proxy response)
+    try:
+        resp = await client.get("/api/proxies")
+        if resp.status_code == 200:
+            proxies = resp.json()
+            if proxies and len(proxies) > 0:
+                result["stats"] = proxies[0].get("stats")
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
+        logger.debug("Failed to fetch stats: %s", e)
+
+    return result
+
+
+def error_response(
+    status_code: int,
+    message: str,
+    detail: str | None = None,
+) -> JSONResponse:
+    """Create standardized error response.
+
+    Args:
+        status_code: HTTP status code.
+        message: Error message for the "error" field.
+        detail: Optional additional detail.
+
+    Returns:
+        JSONResponse with error structure.
+    """
+    content: dict[str, Any] = {"error": message}
+    if detail:
+        content["detail"] = detail
+    return JSONResponse(status_code=status_code, content=content)
+
+
+# =============================================================================
+# Path Validation
+# =============================================================================
+
+
+def _is_safe_path(base_dir: Path, requested_path: Path) -> bool:
+    """Check if requested path is safely within base directory.
+
+    Prevents path traversal attacks (e.g., ../../etc/passwd).
+
+    Args:
+        base_dir: Base directory that should contain the path.
+        requested_path: Path to validate.
+
+    Returns:
+        True if path is safely within base_dir.
+    """
+    try:
+        # Resolve both paths to absolute, normalized paths
+        base_resolved = base_dir.resolve()
+        requested_resolved = requested_path.resolve()
+        # Check if requested path starts with base path
+        return requested_resolved.is_relative_to(base_resolved)
+    except (ValueError, RuntimeError):
+        return False
+
+
+# =============================================================================
+# Request Forwarding
+# =============================================================================
+
+
+async def _forward_request_to_proxy(
+    socket_path: str,
+    target_path: str,
+    request: Request,
+    proxy_name: str = "default",
+) -> Response:
+    """Forward an HTTP request to a proxy via UDS.
+
+    Common logic for routing requests to proxy sockets.
+
+    Args:
+        socket_path: Path to proxy's UDS socket.
+        target_path: Target path on the proxy (e.g., "/api/approvals").
+        request: Incoming FastAPI request to forward.
+        proxy_name: Proxy name for error messages.
+
+    Returns:
+        Response from the proxy, or error JSONResponse on failure.
+    """
+    try:
+        async with create_uds_client(socket_path) as client:
+            # Read body for POST/PUT/PATCH
+            body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
+
+            # Forward headers (filter out hop-by-hop headers)
+            forward_headers = {
+                k: v
+                for k, v in request.headers.items()
+                if k.lower() not in ("host", "connection", "transfer-encoding")
+            }
+
+            # Make request to proxy
+            response = await client.request(
+                method=request.method,
+                url=target_path,
+                content=body,
+                headers=forward_headers,
+            )
+
+            # Return proxy response
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.headers.get("content-type"),
+            )
+
+    except httpx.ConnectError:
+        _logger.warning("Failed to connect to proxy '%s' at %s", proxy_name, socket_path)
+        return error_response(503, f"Proxy '{proxy_name}' connection failed")
+    except httpx.TimeoutException:
+        _logger.warning("Timeout connecting to proxy '%s'", proxy_name)
+        return error_response(504, f"Proxy '{proxy_name}' request timed out")
+    except OSError as e:
+        _logger.error("OS error routing to proxy '%s': %s", proxy_name, e)
+        return error_response(500, f"Internal error routing to proxy: {type(e).__name__}")
+
+
+# =============================================================================
+# FastAPI Application Factory
+# =============================================================================
+
+
+def create_manager_api_app(
+    token: str | None = None,
+    registry: ProxyRegistry | None = None,
+) -> FastAPI:
+    """Create the FastAPI application for manager.
+
+    Serves static UI and manager-level API endpoints.
+
+    Args:
+        token: Bearer token for API authentication. None for UDS (OS auth).
+        registry: Proxy registry for API endpoints.
+
+    Returns:
+        Configured FastAPI application.
+    """
+    app = FastAPI(
+        title="MCP-ACP Manager",
+        description="Manager daemon for MCP-ACP proxies",
+        version="0.1.0",
+    )
+
+    # Store token and registry
+    app.state.api_token = token
+    app.state.registry = registry or get_proxy_registry()
+
+    # TODO (Phase 4): Add SecurityMiddleware when auth moves to manager
+
+    @app.get("/api/manager/status", response_model=ManagerStatusResponse)
+    async def manager_status(request: Request) -> ManagerStatusResponse:
+        """Get manager health status."""
+        reg: ProxyRegistry = request.app.state.registry
+        return ManagerStatusResponse(
+            running=True,
+            pid=os.getpid(),
+            proxies_connected=await reg.proxy_count(),
+        )
+
+    @app.get("/api/manager/proxies")
+    async def list_registered_proxies(request: Request) -> list[dict[str, Any]]:
+        """List all registered proxies (manager's view).
+
+        Returns registration info (name, instance_id, socket_path).
+        For full proxy details (transport, stats), use /api/proxies which
+        routes to the proxy itself.
+        """
+        reg: ProxyRegistry = request.app.state.registry
+        return await reg.list_proxies()
+
+    @app.get("/api/events")
+    async def sse_events(request: Request) -> EventSourceResponse:
+        """SSE endpoint for aggregated proxy events.
+
+        Event format matches proxy's format for UI compatibility:
+        - `data: {"type": "...", ...}` (type embedded in data JSON)
+        - No named SSE events (uses onmessage handler)
+        - Events include `proxy_name` for multi-proxy filtering
+
+        On connect, sends initial snapshots by fetching from proxy via UDS.
+        """
+        reg: ProxyRegistry = request.app.state.registry
+
+        async def event_generator() -> Any:
+            # Send initial snapshots from proxy (if connected)
+            proxy_conn = await reg.get_proxy("default")
+            sent_pending_snapshot = False
+
+            if proxy_conn and proxy_conn.socket_path:
+                try:
+                    async with create_uds_client(
+                        proxy_conn.socket_path,
+                        timeout=PROXY_SNAPSHOT_TIMEOUT_SECONDS,
+                    ) as client:
+                        snapshots = await fetch_proxy_snapshots(client, _logger)
+
+                        # Send pending approvals
+                        if snapshots["pending"] is not None:
+                            yield {
+                                "data": json.dumps({"type": "snapshot", "approvals": snapshots["pending"]})
+                            }
+                            sent_pending_snapshot = True
+
+                        # Send cached approvals
+                        if snapshots["cached"] is not None:
+                            cached = snapshots["cached"]
+                            yield {
+                                "data": json.dumps(
+                                    {
+                                        "type": "cached_snapshot",
+                                        "approvals": cached.get("approvals", []),
+                                        "ttl_seconds": cached.get("ttl_seconds", 600),
+                                        "count": cached.get("count", 0),
+                                    }
+                                )
+                            }
+
+                        # Send stats
+                        if snapshots["stats"] is not None:
+                            yield {"data": json.dumps({"type": "stats_updated", "stats": snapshots["stats"]})}
+
+                except (httpx.ConnectError, OSError) as e:
+                    _logger.debug("Failed to connect to proxy: %s", e)
+
+            # Send empty snapshot only if we haven't sent one yet
+            if not sent_pending_snapshot:
+                yield {"data": json.dumps({"type": "snapshot", "approvals": []})}
+
+            # Subscribe to ongoing events
+            queue = await reg.subscribe_sse()
+            try:
+                while True:
+                    # Check if client disconnected
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                        # Format: {"type": "...", ...data...} - matches proxy format
+                        # UI uses event.data.type for routing
+                        event_data = {
+                            "type": event["type"],
+                            **event["data"],
+                        }
+                        yield {"data": json.dumps(event_data)}
+                    except asyncio.TimeoutError:
+                        # Send SSE comment as keepalive (not data, won't trigger onmessage)
+                        yield {"comment": "keepalive"}
+            finally:
+                await reg.unsubscribe_sse(queue)
+
+        return EventSourceResponse(event_generator())
+
+    # ==========================================================================
+    # API Routing: Forward /api/proxy/{name}/* to proxy's UDS socket
+    # ==========================================================================
+
+    @app.api_route(
+        "/api/proxy/{proxy_name}/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    )
+    async def route_to_proxy(
+        proxy_name: str,
+        path: str,
+        request: Request,
+    ) -> Response:
+        """Route API requests to the appropriate proxy.
+
+        Manager forwards /api/proxy/{name}/* requests to the proxy's UDS socket.
+        The path after /api/proxy/{name}/ becomes /api/{path} on the proxy.
+
+        Args:
+            proxy_name: Name of the target proxy (e.g., "default").
+            path: Remaining path after proxy name (e.g., "approvals/pending").
+            request: Incoming FastAPI request.
+
+        Returns:
+            Response from the proxy, or error response if proxy unavailable.
+        """
+        reg: ProxyRegistry = request.app.state.registry
+
+        # Look up proxy in registry
+        proxy_conn = await reg.get_proxy(proxy_name)
+        if proxy_conn is None:
+            return error_response(404, f"Proxy '{proxy_name}' not found")
+
+        socket_path = proxy_conn.socket_path
+        if not socket_path or not Path(socket_path).exists():
+            return error_response(503, f"Proxy '{proxy_name}' socket not available")
+
+        # Build target URL (proxy expects /api/... paths)
+        target_path = f"/api/{path}"
+        if request.url.query:
+            target_path = f"{target_path}?{request.url.query}"
+
+        return await _forward_request_to_proxy(socket_path, target_path, request, proxy_name)
+
+    # ==========================================================================
+    # Fallback: Route /api/* (non-manager endpoints) to default proxy
+    # ==========================================================================
+    # Manager-level endpoints: /api/manager/*, /api/proxies, /api/events
+    # Everything else is forwarded to the "default" proxy for backwards compatibility
+    # This allows existing UI code to work without changes in Phase 3
+
+    @app.api_route(
+        "/api/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    )
+    async def fallback_to_default_proxy(path: str, request: Request) -> Response:
+        """Fallback: route unhandled /api/* requests to default proxy.
+
+        This provides backwards compatibility - existing UI code that uses
+        /api/approvals, /api/policy, etc. is automatically routed to the
+        default proxy without URL changes.
+
+        Manager-level endpoints (/api/manager/*, /api/proxies, /api/events)
+        are handled by explicit routes above and won't hit this fallback.
+
+        Args:
+            path: Path after /api/ (e.g., "approvals/pending").
+            request: Incoming FastAPI request.
+
+        Returns:
+            Response from the default proxy, or 404 if no proxy registered.
+        """
+        # Check if this should be handled by explicit manager routes
+        # (This shouldn't happen due to route ordering, but defensive)
+        full_path = f"/api/{path}"
+        for prefix in MANAGER_API_PREFIXES:
+            if full_path.startswith(prefix):
+                return error_response(404, "Not found")
+
+        # Route to default proxy
+        reg: ProxyRegistry = request.app.state.registry
+        proxy_conn = await reg.get_proxy("default")
+        if proxy_conn is None:
+            return error_response(
+                503,
+                "No proxy connected",
+                "Proxy 'default' is not registered with the manager. " "Start a proxy to enable API access.",
+            )
+
+        socket_path = proxy_conn.socket_path
+        if not socket_path or not Path(socket_path).exists():
+            return error_response(503, "Proxy socket not available")
+
+        # Build target URL (proxy expects /api/... paths)
+        target_path = f"/api/{path}"
+        if request.url.query:
+            target_path = f"{target_path}?{request.url.query}"
+
+        return await _forward_request_to_proxy(socket_path, target_path, request)
+
+    # Serve static files (built React app)
+    if STATIC_DIR.exists():
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+
+            @app.get("/{path:path}", response_model=None)
+            async def serve_spa(path: str, request: Request) -> Response:
+                """Serve static files or index.html for SPA routing.
+
+                Args:
+                    path: Requested URL path.
+                    request: FastAPI request object.
+
+                Returns:
+                    Static file or index.html for SPA routes.
+                """
+                # Check for static files (root-level or in assets/)
+                if path:
+                    static_file = STATIC_DIR / path
+                    # Security: Prevent path traversal attacks
+                    if not _is_safe_path(STATIC_DIR, static_file):
+                        _logger.warning("Path traversal attempt blocked: %s", path)
+                        return HTMLResponse(
+                            content="Not Found",
+                            status_code=404,
+                        )
+
+                    if static_file.exists() and static_file.is_file():
+                        suffix = static_file.suffix.lower()
+                        media_type = STATIC_MEDIA_TYPES.get(suffix, "application/octet-stream")
+                        cache_control = (
+                            "public, max-age=31536000, immutable"
+                            if path.startswith("assets/")
+                            else "public, max-age=3600"
+                        )
+                        return FileResponse(
+                            static_file,
+                            media_type=media_type,
+                            headers={"Cache-Control": cache_control},
+                        )
+
+                # SPA fallback: serve index.html
+                html = index_file.read_text()
+                api_token = getattr(request.app.state, "api_token", None)
+
+                # TODO (Phase 4): Token injection for dev mode
+
+                response = HTMLResponse(
+                    content=html,
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+                )
+
+                # Set HttpOnly cookie for browser authentication
+                if api_token:
+                    response.set_cookie(
+                        key="api_token",
+                        value=api_token,
+                        httponly=True,
+                        samesite="strict",
+                        path="/api",
+                    )
+
+                return response
+
+    return app

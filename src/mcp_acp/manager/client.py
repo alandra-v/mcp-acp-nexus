@@ -17,14 +17,12 @@ from __future__ import annotations
 __all__ = [
     "ManagerClient",
     "ManagerConnectionError",
-    "PROTOCOL_VERSION",
     "ensure_manager_running",
     "is_manager_available",
 ]
 
 import asyncio
 import fcntl
-import json
 import logging
 import shutil
 import subprocess
@@ -39,9 +37,7 @@ from mcp_acp.constants import (
     RUNTIME_DIR,
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
-
-# Protocol version for manager-proxy communication
-PROTOCOL_VERSION = 1
+from mcp_acp.manager.protocol import PROTOCOL_VERSION, decode_ndjson, encode_ndjson
 
 # Timeout for registration handshake (seconds)
 REGISTRATION_TIMEOUT_SECONDS = 5.0
@@ -248,23 +244,20 @@ class ManagerClient:
         """Send a JSON message over the connection (NDJSON format)."""
         if not self._writer:
             raise ManagerConnectionError("Not connected")
-        line = json.dumps(msg, separators=(",", ":")) + "\n"
-        self._writer.write(line.encode("utf-8"))
+        self._writer.write(encode_ndjson(msg))
         await self._writer.drain()
 
     async def _read_message(self) -> dict[str, Any] | None:
         """Read a JSON message from the connection."""
         if not self._reader:
             return None
-        try:
-            line = await self._reader.readline()
-            if not line:
-                return None
-            result: dict[str, Any] = json.loads(line.decode("utf-8"))
-            return result
-        except json.JSONDecodeError as e:
-            _logger.warning("Invalid JSON from manager: %s", e)
+        line = await self._reader.readline()
+        if not line:
             return None
+        msg = decode_ndjson(line)
+        if msg is None:
+            _logger.warning("Invalid JSON from manager")
+        return msg
 
     async def _handle_disconnect(self) -> None:
         """Handle unexpected disconnect from manager."""

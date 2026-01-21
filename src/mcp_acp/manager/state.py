@@ -11,13 +11,16 @@ When no UI is connected, HITL falls back to osascript dialogs.
 from __future__ import annotations
 
 __all__ = [
+    # Re-exported from other modules (for backward compatibility)
     "CachedApprovalSummary",
+    "EventSeverity",
     "PendingApprovalInfo",
     "PendingApprovalRequest",
     "ProxyInfo",
-    "ProxyState",
     "ProxyStats",
     "SSEEventType",
+    # Defined in this module
+    "ProxyState",
     "get_global_proxy_state",
     "set_global_proxy_state",
 ]
@@ -27,12 +30,20 @@ import os
 import time
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal
-
-from pydantic import BaseModel, ConfigDict, Field
+from typing import TYPE_CHECKING, Any
 
 from mcp_acp.telemetry.system.system_logger import get_system_logger
+
+# Re-export from new modules for backward compatibility
+# This allows existing code to import from manager.state
+from mcp_acp.manager.events import EventSeverity, SSEEventType
+from mcp_acp.manager.models import (
+    CachedApprovalSummary,
+    PendingApprovalInfo,
+    ProxyInfo,
+    ProxyStats,
+)
+from mcp_acp.manager.pending import PendingApprovalRequest
 
 # Global proxy state for SSE event emission from non-middleware code paths
 # (e.g., LoggingProxyClient connection failures that bypass middleware)
@@ -50,277 +61,14 @@ def get_global_proxy_state() -> "ProxyState | None":
     return _global_proxy_state
 
 
-class SSEEventType(str, Enum):
-    """SSE event types for UI notifications.
-
-    Events are grouped by domain:
-    - pending_*: HITL approval lifecycle
-    - backend_*: Backend connection status
-    - tls_*: TLS/mTLS errors
-    - auth_*: Authentication events
-    - policy_*: Policy reload events
-    - rate_limit_*: Rate limiting events
-    - cache_*: Approval cache events
-    - request_*: Request processing events
-    - critical_*: Security-critical events (proxy shutdown)
-    """
-
-    # Existing HITL events
-    SNAPSHOT = "snapshot"
-    PENDING_CREATED = "pending_created"
-    PENDING_RESOLVED = "pending_resolved"
-    PENDING_TIMEOUT = "pending_timeout"
-    PENDING_NOT_FOUND = "pending_not_found"
-
-    # Backend connection
-    BACKEND_CONNECTED = "backend_connected"
-    BACKEND_RECONNECTED = "backend_reconnected"
-    BACKEND_DISCONNECTED = "backend_disconnected"
-    BACKEND_TIMEOUT = "backend_timeout"
-    BACKEND_REFUSED = "backend_refused"
-
-    # TLS/mTLS
-    TLS_ERROR = "tls_error"
-    MTLS_FAILED = "mtls_failed"
-    CERT_VALIDATION_FAILED = "cert_validation_failed"
-
-    # Authentication
-    AUTH_LOGIN = "auth_login"
-    AUTH_LOGOUT = "auth_logout"
-    AUTH_SESSION_EXPIRING = "auth_session_expiring"
-    TOKEN_REFRESH_FAILED = "token_refresh_failed"
-    TOKEN_VALIDATION_FAILED = "token_validation_failed"
-    AUTH_FAILURE = "auth_failure"
-
-    # Policy
-    POLICY_RELOADED = "policy_reloaded"
-    POLICY_RELOAD_FAILED = "policy_reload_failed"
-    POLICY_FILE_NOT_FOUND = "policy_file_not_found"
-    POLICY_ROLLBACK = "policy_rollback"
-    CONFIG_CHANGE_DETECTED = "config_change_detected"
-
-    # Rate limiting
-    RATE_LIMIT_TRIGGERED = "rate_limit_triggered"
-    RATE_LIMIT_APPROVED = "rate_limit_approved"
-    RATE_LIMIT_DENIED = "rate_limit_denied"
-
-    # Cache
-    CACHE_CLEARED = "cache_cleared"
-    CACHE_ENTRY_DELETED = "cache_entry_deleted"
-    CACHED_SNAPSHOT = "cached_snapshot"
-
-    # Request processing
-    REQUEST_ERROR = "request_error"
-    HITL_PARSE_FAILED = "hitl_parse_failed"
-    TOOL_SANITIZATION_FAILED = "tool_sanitization_failed"
-
-    # Live updates
-    STATS_UPDATED = "stats_updated"
-    NEW_LOG_ENTRIES = "new_log_entries"
-
-    # Critical events (proxy shutdown)
-    CRITICAL_SHUTDOWN = "critical_shutdown"
-    AUDIT_INIT_FAILED = "audit_init_failed"
-    DEVICE_HEALTH_FAILED = "device_health_failed"
-    SESSION_HIJACKING = "session_hijacking"
-    AUDIT_TAMPERING = "audit_tampering"
-    AUDIT_MISSING = "audit_missing"
-    AUDIT_PERMISSION_DENIED = "audit_permission_denied"
-    HEALTH_DEGRADED = "health_degraded"
-    HEALTH_MONITOR_FAILED = "health_monitor_failed"
-
-
-# Severity type for toast styling
-EventSeverity = Literal["success", "warning", "error", "critical", "info"]
-
 logger = get_system_logger()
-
-
-class CachedApprovalSummary(BaseModel):
-    """Summary of a cached approval for API responses.
-
-    Used by get_cached_approvals() to return structured data
-    instead of an opaque tuple.
-
-    Attributes:
-        subject_id: The user who was granted the approval.
-        tool_name: The tool that was approved.
-        path: The path that was approved (if applicable).
-        age_seconds: How long ago the approval was granted.
-        expires_in_seconds: Time until the approval expires.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    subject_id: str
-    tool_name: str
-    path: str | None
-    age_seconds: float
-    expires_in_seconds: float
 
 
 if TYPE_CHECKING:
     from mcp_acp.manager.client import ManagerClient
     from mcp_acp.pdp import Decision
-    from mcp_acp.pep.approval_store import ApprovalStore, CachedApproval
+    from mcp_acp.pep.approval_store import ApprovalStore
     from mcp_acp.pips.auth.session import BoundSession, SessionManager
-
-
-class ProxyInfo(BaseModel):
-    """Information about a running proxy.
-
-    Attributes:
-        id: Unique proxy ID in format {uuid}:{backend_id}.
-        backend_id: The backend server name from config.
-        status: Current status (always "running" for now).
-        started_at: When the proxy was started.
-        pid: Process ID of the proxy.
-        api_port: Port the management API is listening on.
-        uptime_seconds: Seconds since proxy started.
-        command: Backend command (for STDIO transport).
-        args: Backend command arguments (for STDIO transport).
-        url: Backend URL (for HTTP transport).
-        client_transport: Transport type for client-to-proxy connection.
-        backend_transport: Transport type for proxy-to-backend connection.
-        mtls_enabled: Whether mTLS is enabled for backend connection.
-        client_id: MCP client application name (from initialize request).
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    backend_id: str
-    status: str
-    started_at: datetime
-    pid: int
-    api_port: int
-    uptime_seconds: float
-    command: str | None = None
-    args: list[str] | None = None
-    url: str | None = None
-    client_transport: str = "stdio"
-    backend_transport: str = "stdio"
-    mtls_enabled: bool = False
-    client_id: str | None = None
-
-
-class ProxyStats(BaseModel):
-    """Request statistics for a proxy.
-
-    Only counts policy-evaluated requests (tools/call). Discovery requests
-    (tools/list, resources/list, etc.) are not included in these counts.
-
-    Attributes:
-        requests_total: Total policy-evaluated requests (= allowed + denied + hitl).
-        requests_allowed: Requests allowed by policy.
-        requests_denied: Requests denied by policy.
-        requests_hitl: Requests that triggered HITL approval dialog.
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    requests_total: int
-    requests_allowed: int
-    requests_denied: int
-    requests_hitl: int
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to JSON-serializable dict for SSE/API."""
-        return self.model_dump()
-
-
-class PendingApprovalInfo(BaseModel):
-    """API-facing pending approval data (immutable, serializable).
-
-    This is the public representation of a pending approval, used
-    for API responses and SSE events.
-
-    Attributes:
-        id: Unique approval request ID.
-        proxy_id: ID of the proxy that created this request.
-        tool_name: The tool being invoked.
-        path: The path being accessed (if applicable).
-        subject_id: The user making the request.
-        created_at: When the request was created.
-        timeout_seconds: How long to wait for decision.
-        request_id: Original MCP request ID for correlation.
-        can_cache: Whether this approval can be cached.
-        cache_ttl_seconds: How long cached approval will last (for UI display).
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    id: str
-    proxy_id: str
-    tool_name: str
-    path: str | None
-    subject_id: str
-    created_at: datetime
-    timeout_seconds: int
-    request_id: str
-    can_cache: bool = True
-    cache_ttl_seconds: int | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to JSON-serializable dict for SSE."""
-        return self.model_dump(mode="json")
-
-
-class PendingApprovalRequest:
-    """Internal pending approval with async wait capability.
-
-    Wraps PendingApprovalInfo with the async machinery needed to
-    wait for and receive a decision from the UI.
-    """
-
-    def __init__(self, info: PendingApprovalInfo) -> None:
-        """Initialize with approval info.
-
-        Args:
-            info: The immutable approval information.
-        """
-        self.info = info
-        self._decision_event = asyncio.Event()
-        self._decision: str | None = None
-        self._approver_id: str | None = None
-
-    @property
-    def id(self) -> str:
-        """Get the approval ID."""
-        return self.info.id
-
-    @property
-    def approver_id(self) -> str | None:
-        """Get the approver ID (set when resolved)."""
-        return self._approver_id
-
-    def resolve(self, decision: str, approver_id: str | None = None) -> None:
-        """Resolve this pending approval with a decision.
-
-        Args:
-            decision: "allow", "allow_once", or "deny".
-            approver_id: OIDC subject ID of the user who approved/denied.
-        """
-        self._decision = decision
-        self._approver_id = approver_id
-        self._decision_event.set()
-
-    async def wait(self, timeout: float) -> tuple[str | None, str | None]:
-        """Wait for a decision with timeout.
-
-        Args:
-            timeout: Maximum seconds to wait.
-
-        Returns:
-            Tuple of (decision, approver_id). Decision is "allow", "allow_once",
-            or "deny" if decided, None if timeout. Approver_id is the OIDC subject
-            ID of whoever approved/denied, None if timeout.
-        """
-        try:
-            await asyncio.wait_for(self._decision_event.wait(), timeout=timeout)
-            return self._decision, self._approver_id
-        except asyncio.TimeoutError:
-            return None, None
 
 
 class ProxyState:
@@ -858,7 +606,7 @@ class ProxyState:
     def emit_system_event(
         self,
         event_type: SSEEventType,
-        severity: EventSeverity = "info",
+        severity: "EventSeverity" = "info",
         message: str | None = None,
         details: str | None = None,
         **extra: Any,
