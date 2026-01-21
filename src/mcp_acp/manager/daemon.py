@@ -69,6 +69,9 @@ API_TOKEN_BYTES = 32
 # HTTP server backlog (number of pending connections)
 HTTP_LISTEN_BACKLOG = 100
 
+# Timeout for proxy registration handshake (seconds)
+PROXY_REGISTRATION_TIMEOUT_SECONDS = 10.0
+
 # Get module logger - initially with stderr only
 # File handler added via _configure_manager_logging() after config is loaded
 _logger = logging.getLogger(f"{APP_NAME}.manager")
@@ -130,7 +133,14 @@ def _configure_manager_logging(config: ManagerConfig) -> None:
         _logger.addHandler(file_handler)
         _file_handler_configured = True
     except OSError as e:
-        _logger.warning("Failed to configure file logging: %s", e)
+        _logger.warning(
+            {
+                "event": "file_logging_failed",
+                "message": "Failed to configure file logging",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
 
 
 # Initialize with stderr-only until config is loaded
@@ -238,7 +248,13 @@ def _cleanup_stale_socket() -> None:
 
     # Stale socket, remove it
     MANAGER_SOCKET_PATH.unlink(missing_ok=True)
-    _logger.debug("Removed stale socket: %s", MANAGER_SOCKET_PATH)
+    _logger.info(
+        {
+            "event": "stale_socket_removed",
+            "message": f"Removed stale socket: {MANAGER_SOCKET_PATH}",
+            "socket_path": str(MANAGER_SOCKET_PATH),
+        }
+    )
 
 
 def _cleanup_stale_pid() -> None:
@@ -256,13 +272,18 @@ def _cleanup_stale_pid() -> None:
 
     # Stale PID file, remove it
     MANAGER_PID_PATH.unlink(missing_ok=True)
-    _logger.debug("Removed stale PID file: %s", MANAGER_PID_PATH)
+    _logger.info(
+        {
+            "event": "stale_pid_removed",
+            "message": f"Removed stale PID file: {MANAGER_PID_PATH}",
+        }
+    )
 
 
 def _write_pid_file() -> None:
     """Write current process PID to PID file."""
-    MANAGER_PID_PATH.write_text(str(os.getpid()))
-    _logger.debug("Wrote PID file: %s (pid=%d)", MANAGER_PID_PATH, os.getpid())
+    pid = os.getpid()
+    MANAGER_PID_PATH.write_text(str(pid))
 
 
 def _remove_pid_file() -> None:
@@ -306,34 +327,46 @@ async def _handle_proxy_connection(
         registry: Proxy registry to register with.
     """
     proxy_name: str | None = None
-    peername = writer.get_extra_info("peername")
-    _logger.debug("New proxy connection from %s", peername)
 
     try:
         # Read registration message
-        line = await asyncio.wait_for(reader.readline(), timeout=10.0)
+        line = await asyncio.wait_for(reader.readline(), timeout=PROXY_REGISTRATION_TIMEOUT_SECONDS)
         if not line:
-            _logger.debug("Proxy disconnected before registration")
             return
 
         msg = decode_ndjson(line)
         if msg is None:
-            _logger.warning("Invalid JSON in registration")
+            _logger.warning(
+                {
+                    "event": "registration_invalid_json",
+                    "message": "Invalid JSON in registration",
+                }
+            )
             await _send_error(writer, "Invalid JSON")
             return
 
         # Validate registration message
         if msg.get("type") != "register":
-            _logger.warning("Expected 'register' message, got: %s", msg.get("type"))
+            _logger.warning(
+                {
+                    "event": "registration_wrong_type",
+                    "message": f"Expected 'register' message, got: {msg.get('type')}",
+                }
+            )
             await _send_error(writer, "Expected 'register' message")
             return
 
         protocol_version = msg.get("protocol_version")
         if protocol_version != PROTOCOL_VERSION:
             _logger.warning(
-                "Incompatible protocol version: %s (expected %s)",
-                protocol_version,
-                PROTOCOL_VERSION,
+                {
+                    "event": "registration_protocol_mismatch",
+                    "message": f"Incompatible protocol version: {protocol_version} (expected {PROTOCOL_VERSION})",
+                    "details": {
+                        "received_version": protocol_version,
+                        "expected_version": PROTOCOL_VERSION,
+                    },
+                }
             )
             await _send_error(
                 writer,
@@ -347,12 +380,24 @@ async def _handle_proxy_connection(
         socket_path = msg.get("socket_path", "")
 
         if not proxy_name or not instance_id:
-            _logger.warning("Missing proxy_name or instance_id in registration")
+            _logger.warning(
+                {
+                    "event": "registration_missing_fields",
+                    "message": "Missing proxy_name or instance_id in registration",
+                }
+            )
             await _send_error(writer, "Missing proxy_name or instance_id")
             return
 
         if not socket_path:
-            _logger.warning("Missing socket_path in registration")
+            _logger.warning(
+                {
+                    "event": "registration_missing_socket",
+                    "message": "Missing socket_path in registration",
+                    "proxy_name": proxy_name,
+                    "instance_id": instance_id,
+                }
+            )
             await _send_error(writer, "Missing socket_path")
             return
 
@@ -377,9 +422,21 @@ async def _handle_proxy_connection(
         await _handle_proxy_events(reader, proxy_name, registry)
 
     except asyncio.TimeoutError:
-        _logger.debug("Proxy connection timed out during registration")
+        _logger.warning(
+            {
+                "event": "registration_timeout",
+                "message": "Proxy connection timed out during registration",
+            }
+        )
     except (ConnectionResetError, BrokenPipeError, OSError) as e:
-        _logger.debug("Proxy connection error: %s", e)
+        _logger.warning(
+            {
+                "event": "proxy_connection_error",
+                "message": f"Proxy connection error: {e}",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
     finally:
         # Deregister on disconnect
         if proxy_name:
@@ -417,8 +474,8 @@ async def _broadcast_proxy_snapshot(
                         "snapshot",
                         {"approvals": pending},
                     )
-            except (httpx.HTTPError, httpx.TimeoutException) as e:
-                _logger.debug("Failed to fetch pending approvals: %s", e)
+            except (httpx.HTTPError, httpx.TimeoutException):
+                pass  # Expected during startup race
 
             # Fetch cached approvals
             try:
@@ -433,8 +490,8 @@ async def _broadcast_proxy_snapshot(
                             "count": cached.get("count", 0),
                         },
                     )
-            except (httpx.HTTPError, httpx.TimeoutException) as e:
-                _logger.debug("Failed to fetch cached approvals: %s", e)
+            except (httpx.HTTPError, httpx.TimeoutException):
+                pass  # Expected during startup race
 
             # Fetch stats (from /api/proxies, stats are included in proxy response)
             try:
@@ -448,11 +505,19 @@ async def _broadcast_proxy_snapshot(
                                 "stats_updated",
                                 {"stats": stats},
                             )
-            except (httpx.HTTPError, httpx.TimeoutException) as e:
-                _logger.debug("Failed to fetch stats: %s", e)
+            except (httpx.HTTPError, httpx.TimeoutException):
+                pass  # Expected during startup race
 
     except (httpx.ConnectError, OSError) as e:
-        _logger.warning("Failed to broadcast proxy snapshot: %s", e)
+        _logger.warning(
+            {
+                "event": "snapshot_broadcast_failed",
+                "message": "Failed to broadcast proxy snapshot",
+                "socket_path": socket_path,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
 
 
 async def _handle_proxy_events(
@@ -471,13 +536,17 @@ async def _handle_proxy_events(
         try:
             line = await reader.readline()
             if not line:
-                # Connection closed
-                _logger.debug("Proxy '%s' connection closed", proxy_name)
                 break
 
             msg = decode_ndjson(line)
             if msg is None:
-                _logger.warning("Invalid JSON from proxy '%s'", proxy_name)
+                _logger.warning(
+                    {
+                        "event": "proxy_invalid_json",
+                        "message": f"Invalid JSON from proxy '{proxy_name}'",
+                        "proxy_name": proxy_name,
+                    }
+                )
                 continue
 
             if msg.get("type") == "event":
@@ -485,10 +554,12 @@ async def _handle_proxy_events(
                 data = msg.get("data", {})
                 await registry.broadcast_proxy_event(proxy_name, event_type, data)
             else:
-                _logger.debug(
-                    "Unknown message type from proxy '%s': %s",
-                    proxy_name,
-                    msg.get("type"),
+                _logger.warning(
+                    {
+                        "event": "proxy_unknown_message",
+                        "message": f"Unknown message type from proxy '{proxy_name}': {msg.get('type')}",
+                        "proxy_name": proxy_name,
+                    }
                 )
 
         except (ConnectionResetError, BrokenPipeError, OSError):
@@ -555,10 +626,15 @@ async def run_manager(port: int | None = None) -> None:
     _write_pid_file()
 
     _logger.info(
-        "Manager starting: port=%d, socket=%s, pid=%d",
-        effective_port,
-        MANAGER_SOCKET_PATH,
-        os.getpid(),
+        {
+            "event": "manager_starting",
+            "message": f"Manager starting: port={effective_port}, socket={MANAGER_SOCKET_PATH}, pid={os.getpid()}",
+            "socket_path": str(MANAGER_SOCKET_PATH),
+            "details": {
+                "port": effective_port,
+                "pid": os.getpid(),
+            },
+        }
     )
 
     # Track shutdown state
@@ -566,7 +642,13 @@ async def run_manager(port: int | None = None) -> None:
 
     def signal_handler(signum: int, frame: object) -> None:
         """Handle shutdown signals (SIGTERM, SIGINT)."""
-        _logger.info("Received signal %d, initiating shutdown", signum)
+        _logger.info(
+            {
+                "event": "shutdown_signal_received",
+                "message": f"Received signal {signum}, initiating shutdown",
+                "details": {"signal": signum},
+            }
+        )
         shutdown_event.set()
 
     # Register signal handlers
@@ -629,16 +711,26 @@ async def run_manager(port: int | None = None) -> None:
 
     server_task = asyncio.create_task(run_servers())
 
-    _logger.info("Manager started successfully")
+    _logger.info(
+        {
+            "event": "manager_started",
+            "message": "Manager started successfully",
+        }
+    )
 
     # Auto-open browser to management UI
     ui_url = f"http://127.0.0.1:{effective_port}"
     try:
         webbrowser.open(ui_url)
-        _logger.info("Opened browser to %s", ui_url)
-    except OSError as e:
+        _logger.info(
+            {
+                "event": "browser_opened",
+                "message": f"Opened browser to {ui_url}",
+                "details": {"url": ui_url},
+            }
+        )
+    except OSError:
         # Browser didn't open - show macOS notification with URL
-        _logger.debug("Failed to open browser: %s", e)
         try:
             subprocess.run(
                 [
@@ -656,7 +748,12 @@ async def run_manager(port: int | None = None) -> None:
     try:
         await shutdown_event.wait()
     finally:
-        _logger.info("Manager shutting down")
+        _logger.info(
+            {
+                "event": "manager_shutting_down",
+                "message": "Manager shutting down",
+            }
+        )
 
         # Close all proxy connections
         await registry.close_all()
@@ -669,7 +766,12 @@ async def run_manager(port: int | None = None) -> None:
         try:
             await asyncio.wait_for(server_task, timeout=API_SERVER_SHUTDOWN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
-            _logger.warning("Server shutdown timed out, cancelling")
+            _logger.warning(
+                {
+                    "event": "shutdown_timeout",
+                    "message": "Server shutdown timed out, cancelling",
+                }
+            )
             server_task.cancel()
         except asyncio.CancelledError:
             pass
@@ -677,10 +779,15 @@ async def run_manager(port: int | None = None) -> None:
         # Cleanup
         try:
             http_socket.close()
-        except OSError as e:
-            _logger.debug("Error closing HTTP socket: %s", e)
+        except OSError:
+            pass  # Non-critical cleanup
 
         MANAGER_SOCKET_PATH.unlink(missing_ok=True)
         _remove_pid_file()
 
-        _logger.info("Manager shutdown complete")
+        _logger.info(
+            {
+                "event": "manager_stopped",
+                "message": "Manager shutdown complete",
+            }
+        )

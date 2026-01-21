@@ -23,7 +23,6 @@ __all__ = [
 
 import asyncio
 import fcntl
-import logging
 import shutil
 import subprocess
 import sys
@@ -38,11 +37,13 @@ from mcp_acp.constants import (
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
 from mcp_acp.manager.protocol import PROTOCOL_VERSION, decode_ndjson, encode_ndjson
+from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 # Timeout for registration handshake (seconds)
 REGISTRATION_TIMEOUT_SECONDS = 5.0
 
-_logger = logging.getLogger(f"{APP_NAME}.manager.client")
+# Use proxy's system logger since this code runs in the proxy process
+_logger = get_system_logger()
 
 
 class ManagerConnectionError(Exception):
@@ -123,7 +124,6 @@ class ManagerClient:
             return True
 
         if not self._socket_path.exists():
-            _logger.debug("Manager socket not found: %s", self._socket_path)
             return False
 
         try:
@@ -133,14 +133,25 @@ class ManagerClient:
                 timeout=SOCKET_CONNECT_TIMEOUT_SECONDS,
             )
             self._connected = True
-            _logger.info("Connected to manager at %s", self._socket_path)
+            _logger.info(
+                {
+                    "event": "manager_connected",
+                    "message": f"Connected to manager at {self._socket_path}",
+                    "socket_path": str(self._socket_path),
+                }
+            )
             return True
 
         except asyncio.TimeoutError:
-            _logger.warning("Timeout connecting to manager")
+            _logger.warning(
+                {
+                    "event": "manager_connect_timeout",
+                    "message": "Timeout connecting to manager",
+                    "socket_path": str(self._socket_path),
+                }
+            )
             return False
-        except (ConnectionRefusedError, FileNotFoundError, OSError) as e:
-            _logger.debug("Cannot connect to manager: %s", e)
+        except (ConnectionRefusedError, FileNotFoundError, OSError):
             return False
 
     async def register(self, config_summary: dict[str, Any] | None = None) -> bool:
@@ -181,25 +192,59 @@ class ManagerClient:
                     if response.get("ok"):
                         self._registered = True
                         _logger.info(
-                            "Registered with manager: proxy_name=%s, instance_id=%s",
-                            self._proxy_name,
-                            self._instance_id,
+                            {
+                                "event": "manager_registered",
+                                "message": f"Registered with manager: {self._proxy_name}",
+                                "proxy_name": self._proxy_name,
+                                "instance_id": self._instance_id,
+                            }
                         )
                         return True
                     else:
                         error = response.get("error", "Unknown error")
-                        _logger.warning("Registration rejected: %s", error)
+                        _logger.warning(
+                            {
+                                "event": "registration_rejected",
+                                "message": f"Registration rejected: {error}",
+                                "proxy_name": self._proxy_name,
+                                "instance_id": self._instance_id,
+                                "error_message": error,
+                            }
+                        )
                         return False
                 else:
-                    _logger.warning("Unexpected registration response: %s", response)
+                    _logger.warning(
+                        {
+                            "event": "registration_unexpected_response",
+                            "message": f"Unexpected registration response: {response}",
+                            "proxy_name": self._proxy_name,
+                            "instance_id": self._instance_id,
+                        }
+                    )
                     return False
 
             except asyncio.TimeoutError:
-                _logger.warning("Registration timed out")
+                _logger.warning(
+                    {
+                        "event": "registration_timeout",
+                        "message": "Registration timed out",
+                        "proxy_name": self._proxy_name,
+                        "instance_id": self._instance_id,
+                    }
+                )
                 await self._handle_disconnect()
                 return False
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                _logger.warning("Connection lost during registration: %s", e)
+                _logger.warning(
+                    {
+                        "event": "registration_connection_lost",
+                        "message": f"Connection lost during registration: {e}",
+                        "proxy_name": self._proxy_name,
+                        "instance_id": self._instance_id,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    }
+                )
                 await self._handle_disconnect()
                 return False
 
@@ -222,12 +267,15 @@ class ManagerClient:
                 "data": data,
             }
             await self._send_message(event_msg)
-        except (ConnectionResetError, BrokenPipeError, OSError) as e:
-            _logger.debug("Failed to push event (manager may have disconnected): %s", e)
+        except (ConnectionResetError, BrokenPipeError, OSError):
             await self._handle_disconnect()
 
     async def disconnect(self) -> None:
-        """Gracefully disconnect from manager."""
+        """Gracefully disconnect from manager.
+
+        Note: Does not log - callers log if needed. Unexpected disconnects
+        are logged in _handle_disconnect() before calling this method.
+        """
         if self._writer:
             try:
                 self._writer.close()
@@ -238,7 +286,6 @@ class ManagerClient:
         self._writer = None
         self._connected = False
         self._registered = False
-        _logger.debug("Disconnected from manager")
 
     async def _send_message(self, msg: dict[str, Any]) -> None:
         """Send a JSON message over the connection (NDJSON format)."""
@@ -256,14 +303,26 @@ class ManagerClient:
             return None
         msg = decode_ndjson(line)
         if msg is None:
-            _logger.warning("Invalid JSON from manager")
+            _logger.warning(
+                {
+                    "event": "invalid_json_from_manager",
+                    "message": "Invalid JSON from manager",
+                    "proxy_name": self._proxy_name,
+                    "instance_id": self._instance_id,
+                }
+            )
         return msg
 
     async def _handle_disconnect(self) -> None:
         """Handle unexpected disconnect from manager."""
         if self._connected:
             _logger.warning(
-                "Manager connection lost. UI may be unavailable. " "Run 'mcp-acp manager start' to restore."
+                {
+                    "event": "manager_connection_lost",
+                    "message": "Manager connection lost. UI may be unavailable. Run 'mcp-acp manager start' to restore.",
+                    "proxy_name": self._proxy_name,
+                    "instance_id": self._instance_id,
+                }
             )
             # TODO: Show osascript popup notification
         await self.disconnect()
@@ -297,7 +356,6 @@ def ensure_manager_running() -> bool:
     """
     # Quick check - if already running, no need for lock
     if is_manager_available():
-        _logger.debug("Manager already running")
         return True
 
     # Ensure runtime directory exists
@@ -311,25 +369,51 @@ def ensure_manager_running() -> bool:
 
         # Double-check after acquiring lock (another proxy may have started it)
         if is_manager_available():
-            _logger.debug("Manager started by another proxy while waiting for lock")
             return True
 
         # Start manager daemon
-        _logger.info("Starting manager daemon...")
+        _logger.info(
+            {
+                "event": "manager_starting",
+                "message": "Starting manager daemon...",
+            }
+        )
         if not _spawn_manager_daemon():
-            _logger.warning("Failed to spawn manager daemon")
+            _logger.warning(
+                {
+                    "event": "manager_spawn_failed",
+                    "message": "Failed to spawn manager daemon",
+                }
+            )
             return False
 
         # Wait for manager to become ready
         if _wait_for_manager_ready():
-            _logger.info("Manager daemon started successfully")
+            _logger.info(
+                {
+                    "event": "manager_started",
+                    "message": "Manager daemon started successfully",
+                }
+            )
             return True
         else:
-            _logger.warning("Manager daemon did not become ready in time")
+            _logger.warning(
+                {
+                    "event": "manager_not_ready",
+                    "message": "Manager daemon did not become ready in time",
+                }
+            )
             return False
 
     except OSError as e:
-        _logger.warning("Failed to acquire manager lock: %s", e)
+        _logger.warning(
+            {
+                "event": "manager_lock_failed",
+                "message": f"Failed to acquire manager lock: {e}",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
         return False
     finally:
         if lock_file is not None:
@@ -365,7 +449,14 @@ def _spawn_manager_daemon() -> bool:
         )
         return True
     except OSError as e:
-        _logger.warning("Failed to spawn manager: %s", e)
+        _logger.warning(
+            {
+                "event": "manager_spawn_error",
+                "message": f"Failed to spawn manager: {e}",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
         return False
 
 

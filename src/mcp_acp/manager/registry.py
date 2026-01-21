@@ -75,6 +75,11 @@ class ProxyRegistry:
         self._sse_subscribers: list[asyncio.Queue[dict[str, Any]]] = []
         self._sse_lock = asyncio.Lock()
 
+    @property
+    def sse_subscriber_count(self) -> int:
+        """Return the current number of SSE subscribers."""
+        return len(self._sse_subscribers)
+
     async def register(
         self,
         proxy_name: str,
@@ -102,11 +107,15 @@ class ProxyRegistry:
             if proxy_name in self._proxies:
                 existing = self._proxies[proxy_name]
                 _logger.warning(
-                    "Proxy '%s' already registered (instance_id=%s). "
-                    "Replacing with new connection (instance_id=%s)",
-                    proxy_name,
-                    existing.instance_id,
-                    instance_id,
+                    {
+                        "event": "proxy_replaced",
+                        "message": f"Proxy '{proxy_name}' already registered. Replacing with new connection",
+                        "proxy_name": proxy_name,
+                        "instance_id": instance_id,
+                        "details": {
+                            "old_instance_id": existing.instance_id,
+                        },
+                    }
                 )
                 # Close old connection
                 await self._close_connection(existing)
@@ -123,9 +132,13 @@ class ProxyRegistry:
             self._proxies[proxy_name] = conn
 
             _logger.info(
-                "Proxy registered: name=%s, instance_id=%s",
-                proxy_name,
-                instance_id,
+                {
+                    "event": "proxy_registered",
+                    "message": f"Proxy registered: {proxy_name}",
+                    "proxy_name": proxy_name,
+                    "instance_id": instance_id,
+                    "socket_path": socket_path,
+                }
             )
 
         # Broadcast registration event to browsers
@@ -157,9 +170,12 @@ class ProxyRegistry:
             await self._close_connection(conn)
 
             _logger.info(
-                "Proxy deregistered: name=%s, instance_id=%s",
-                proxy_name,
-                instance_id,
+                {
+                    "event": "proxy_disconnected",
+                    "message": f"Proxy deregistered: {proxy_name}",
+                    "proxy_name": proxy_name,
+                    "instance_id": instance_id,
+                }
             )
 
         # Broadcast disconnection event to browsers
@@ -258,7 +274,13 @@ class ProxyRegistry:
                 try:
                     queue.put_nowait(event)
                 except asyncio.QueueFull:
-                    _logger.warning("SSE subscriber queue full, dropping event")
+                    _logger.warning(
+                        {
+                            "event": "sse_queue_full",
+                            "message": "SSE subscriber queue full, dropping event",
+                            "subscriber_count": len(self._sse_subscribers),
+                        }
+                    )
 
     async def _close_connection(self, conn: ProxyConnection) -> None:
         """Close a proxy connection."""

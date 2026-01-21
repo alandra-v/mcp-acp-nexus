@@ -32,7 +32,7 @@ from pydantic import BaseModel, Field
 from mcp_acp.constants import APP_NAME, DEFAULT_API_PORT
 from mcp_acp.utils.file_helpers import get_app_dir, set_secure_permissions
 
-_logger = logging.getLogger(__name__)
+_logger = logging.getLogger(f"{APP_NAME}.manager.config")
 
 
 def _get_platform_log_dir() -> str:
@@ -134,7 +134,6 @@ def load_manager_config() -> ManagerConfig:
     config_path = get_manager_config_path()
 
     if not config_path.exists():
-        _logger.debug("Manager config not found, using defaults: %s", config_path)
         return ManagerConfig()
 
     try:
@@ -142,10 +141,26 @@ def load_manager_config() -> ManagerConfig:
             data = json.load(f)
         return ManagerConfig.model_validate(data)
     except json.JSONDecodeError as e:
-        _logger.warning("Invalid JSON in manager config, using defaults: %s", e)
+        _logger.warning(
+            {
+                "event": "config_invalid_json",
+                "message": f"Invalid JSON in manager config, using defaults: {e}",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "details": {"config_path": str(config_path)},
+            }
+        )
         return ManagerConfig()
     except Exception as e:
-        _logger.warning("Failed to load manager config, using defaults: %s", e)
+        _logger.warning(
+            {
+                "event": "config_load_failed",
+                "message": f"Failed to load manager config, using defaults: {e}",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "details": {"config_path": str(config_path)},
+            }
+        )
         return ManagerConfig()
 
 
@@ -173,5 +188,3 @@ def save_manager_config(config: ManagerConfig) -> None:
 
     # Set secure permissions (owner read/write only)
     set_secure_permissions(config_path)
-
-    _logger.debug("Saved manager config: %s", config_path)

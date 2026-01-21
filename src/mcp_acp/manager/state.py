@@ -61,7 +61,8 @@ def get_global_proxy_state() -> "ProxyState | None":
     return _global_proxy_state
 
 
-logger = get_system_logger()
+# Use proxy's system logger since this code runs in the proxy process
+_logger = get_system_logger()
 
 
 if TYPE_CHECKING:
@@ -576,9 +577,14 @@ class ProxyState:
                 queue.put_nowait(event)
             except asyncio.QueueFull:
                 # Queue full - subscriber is slow, skip this event
-                logger.warning(
-                    "SSE queue full, dropping event: type=%s",
-                    event.get("type", "unknown"),
+                _logger.warning(
+                    {
+                        "event": "sse_queue_full",
+                        "message": f"SSE queue full, dropping event: {event.get('type', 'unknown')}",
+                        "details": {
+                            "event_type": event.get("type", "unknown"),
+                        },
+                    }
                 )
 
         # Forward to manager for aggregation (if connected)
@@ -601,7 +607,14 @@ class ProxyState:
             return
         exc = task.exception()
         if exc is not None:
-            logger.debug("Failed to push event to manager: %s", exc)
+            _logger.debug(
+                {
+                    "event": "push_event_to_manager_failed",
+                    "message": f"Failed to push event to manager: {exc}",
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                }
+            )
 
     def emit_system_event(
         self,

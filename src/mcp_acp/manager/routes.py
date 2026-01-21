@@ -31,6 +31,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -109,16 +110,14 @@ async def create_uds_client(
 
 async def fetch_proxy_snapshots(
     client: httpx.AsyncClient,
-    logger: logging.Logger,
 ) -> dict[str, Any]:
     """Fetch all snapshots from proxy API.
 
     Fetches pending approvals, cached approvals, and stats from a proxy.
-    Errors are logged but don't propagate - returns None for failed fetches.
+    Errors don't propagate - returns None for failed fetches.
 
     Args:
         client: HTTP client configured for UDS communication.
-        logger: Logger for debug messages.
 
     Returns:
         Dict with keys: pending, cached, stats. Each may be None on error.
@@ -130,16 +129,16 @@ async def fetch_proxy_snapshots(
         resp = await client.get("/api/approvals/pending/list")
         if resp.status_code == 200:
             result["pending"] = resp.json()
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
-        logger.debug("Failed to fetch pending approvals: %s", e)
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError):
+        pass  # Expected during startup race
 
     # Fetch cached approvals
     try:
         resp = await client.get("/api/approvals/cached")
         if resp.status_code == 200:
             result["cached"] = resp.json()
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
-        logger.debug("Failed to fetch cached approvals: %s", e)
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError):
+        pass  # Expected during startup race
 
     # Fetch stats from /api/proxies (stats included in proxy response)
     try:
@@ -148,8 +147,8 @@ async def fetch_proxy_snapshots(
             proxies = resp.json()
             if proxies and len(proxies) > 0:
                 result["stats"] = proxies[0].get("stats")
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
-        logger.debug("Failed to fetch stats: %s", e)
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError):
+        pass  # Expected during startup race
 
     return result
 
@@ -226,6 +225,7 @@ async def _forward_request_to_proxy(
     Returns:
         Response from the proxy, or error JSONResponse on failure.
     """
+    start_time = time.monotonic()
     try:
         async with create_uds_client(socket_path) as client:
             # Read body for POST/PUT/PATCH
@@ -246,6 +246,21 @@ async def _forward_request_to_proxy(
                 headers=forward_headers,
             )
 
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+
+            # Log non-200 responses as warnings (persisted to file)
+            if response.status_code >= 400:
+                _logger.warning(
+                    {
+                        "event": "proxy_response_error",
+                        "message": f"Proxy '{proxy_name}' returned {response.status_code} for {request.method} {target_path}",
+                        "proxy_name": proxy_name,
+                        "path": target_path,
+                        "status_code": response.status_code,
+                        "duration_ms": duration_ms,
+                    }
+                )
+
             # Return proxy response
             return Response(
                 content=response.content,
@@ -255,13 +270,40 @@ async def _forward_request_to_proxy(
             )
 
     except httpx.ConnectError:
-        _logger.warning("Failed to connect to proxy '%s' at %s", proxy_name, socket_path)
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        _logger.warning(
+            {
+                "event": "proxy_connect_failed",
+                "message": f"Failed to connect to proxy '{proxy_name}' at {socket_path}",
+                "proxy_name": proxy_name,
+                "socket_path": socket_path,
+                "duration_ms": duration_ms,
+            }
+        )
         return error_response(503, f"Proxy '{proxy_name}' connection failed")
     except httpx.TimeoutException:
-        _logger.warning("Timeout connecting to proxy '%s'", proxy_name)
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        _logger.warning(
+            {
+                "event": "proxy_timeout",
+                "message": f"Timeout connecting to proxy '{proxy_name}'",
+                "proxy_name": proxy_name,
+                "duration_ms": duration_ms,
+            }
+        )
         return error_response(504, f"Proxy '{proxy_name}' request timed out")
     except OSError as e:
-        _logger.error("OS error routing to proxy '%s': %s", proxy_name, e)
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        _logger.error(
+            {
+                "event": "proxy_os_error",
+                "message": f"OS error routing to proxy '{proxy_name}'",
+                "proxy_name": proxy_name,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "duration_ms": duration_ms,
+            }
+        )
         return error_response(500, f"Internal error routing to proxy: {type(e).__name__}")
 
 
@@ -342,7 +384,7 @@ def create_manager_api_app(
                         proxy_conn.socket_path,
                         timeout=PROXY_SNAPSHOT_TIMEOUT_SECONDS,
                     ) as client:
-                        snapshots = await fetch_proxy_snapshots(client, _logger)
+                        snapshots = await fetch_proxy_snapshots(client)
 
                         # Send pending approvals
                         if snapshots["pending"] is not None:
@@ -369,8 +411,8 @@ def create_manager_api_app(
                         if snapshots["stats"] is not None:
                             yield {"data": json.dumps({"type": "stats_updated", "stats": snapshots["stats"]})}
 
-                except (httpx.ConnectError, OSError) as e:
-                    _logger.debug("Failed to connect to proxy: %s", e)
+                except (httpx.ConnectError, OSError):
+                    pass  # Expected if proxy not ready
 
             # Send empty snapshot only if we haven't sent one yet
             if not sent_pending_snapshot:
@@ -378,6 +420,14 @@ def create_manager_api_app(
 
             # Subscribe to ongoing events
             queue = await reg.subscribe_sse()
+            subscriber_count = reg.sse_subscriber_count
+            _logger.info(
+                {
+                    "event": "sse_subscriber_connected",
+                    "message": f"SSE subscriber connected (total: {subscriber_count})",
+                    "subscriber_count": subscriber_count,
+                }
+            )
             try:
                 while True:
                     # Check if client disconnected
@@ -397,6 +447,14 @@ def create_manager_api_app(
                         yield {"comment": "keepalive"}
             finally:
                 await reg.unsubscribe_sse(queue)
+                subscriber_count = reg.sse_subscriber_count
+                _logger.info(
+                    {
+                        "event": "sse_subscriber_disconnected",
+                        "message": f"SSE subscriber disconnected (total: {subscriber_count})",
+                        "subscriber_count": subscriber_count,
+                    }
+                )
 
         return EventSourceResponse(event_generator())
 
@@ -521,7 +579,13 @@ def create_manager_api_app(
                     static_file = STATIC_DIR / path
                     # Security: Prevent path traversal attacks
                     if not _is_safe_path(STATIC_DIR, static_file):
-                        _logger.warning("Path traversal attempt blocked: %s", path)
+                        _logger.warning(
+                            {
+                                "event": "path_traversal_blocked",
+                                "message": f"Path traversal attempt blocked: {path}",
+                                "path": path,
+                            }
+                        )
                         return HTMLResponse(
                             content="Not Found",
                             status_code=404,
