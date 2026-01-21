@@ -22,20 +22,20 @@ from mcp_acp.api.security import (
 class TestGenerateToken:
     """Tests for generate_token function."""
 
-    def test_generates_64_char_hex_string(self):
+    def test_generates_64_char_hex_string(self) -> None:
         """Token is 64 hex characters (32 bytes)."""
         token = generate_token()
 
         assert len(token) == 64
         assert all(c in "0123456789abcdef" for c in token)
 
-    def test_generates_unique_tokens(self):
+    def test_generates_unique_tokens(self) -> None:
         """Each call generates unique token."""
         tokens = {generate_token() for _ in range(100)}
 
         assert len(tokens) == 100  # All unique
 
-    def test_token_is_lowercase_hex(self):
+    def test_token_is_lowercase_hex(self) -> None:
         """Token uses lowercase hex characters."""
         token = generate_token()
 
@@ -45,47 +45,47 @@ class TestGenerateToken:
 class TestIsValidTokenFormat:
     """Tests for is_valid_token_format function."""
 
-    def test_valid_token(self):
+    def test_valid_token(self) -> None:
         """Given valid 64-char hex token, returns True."""
         token = "a" * 64
 
         assert is_valid_token_format(token) is True
 
-    def test_rejects_short_token(self):
+    def test_rejects_short_token(self) -> None:
         """Given token < 64 chars, returns False."""
         token = "a" * 63
 
         assert is_valid_token_format(token) is False
 
-    def test_rejects_long_token(self):
+    def test_rejects_long_token(self) -> None:
         """Given token > 64 chars, returns False."""
         token = "a" * 65
 
         assert is_valid_token_format(token) is False
 
-    def test_rejects_non_hex_characters(self):
+    def test_rejects_non_hex_characters(self) -> None:
         """Given token with non-hex chars, returns False."""
         token = "g" * 64  # 'g' is not hex
 
         assert is_valid_token_format(token) is False
 
-    def test_rejects_empty_string(self):
+    def test_rejects_empty_string(self) -> None:
         """Given empty string, returns False."""
         assert is_valid_token_format("") is False
 
-    def test_accepts_uppercase_hex(self):
+    def test_accepts_uppercase_hex(self) -> None:
         """Given uppercase hex, returns True (case-insensitive)."""
         token = "A" * 64
 
         assert is_valid_token_format(token) is True
 
-    def test_accepts_mixed_case(self):
+    def test_accepts_mixed_case(self) -> None:
         """Given mixed case hex, returns True."""
         token = "aAbBcCdDeEfF" + "0123456789" * 5 + "ab"
 
         assert is_valid_token_format(token) is True
 
-    def test_rejects_special_characters(self):
+    def test_rejects_special_characters(self) -> None:
         """Given token with special chars, returns False."""
         token = "a" * 32 + "<script>" + "a" * 24
 
@@ -95,24 +95,24 @@ class TestIsValidTokenFormat:
 class TestValidateToken:
     """Tests for validate_token function."""
 
-    def test_matching_tokens_return_true(self):
+    def test_matching_tokens_return_true(self) -> None:
         """Given matching tokens, returns True."""
         token = generate_token()
 
         assert validate_token(token, token) is True
 
-    def test_different_tokens_return_false(self):
+    def test_different_tokens_return_false(self) -> None:
         """Given different tokens, returns False."""
         token1 = generate_token()
         token2 = generate_token()
 
         assert validate_token(token1, token2) is False
 
-    def test_empty_tokens_match(self):
+    def test_empty_tokens_match(self) -> None:
         """Given both empty strings, returns True."""
         assert validate_token("", "") is True
 
-    def test_timing_safe_comparison(self):
+    def test_timing_safe_comparison(self) -> None:
         """Validates using hmac.compare_digest (constant time)."""
         # This is more of a behavioral test - the function should not
         # short-circuit on first difference
@@ -127,7 +127,7 @@ class TestSecurityMiddlewareHTTP:
     """Tests for SecurityMiddleware with HTTP connections."""
 
     @pytest.fixture
-    def app_with_middleware(self):
+    def app_with_middleware(self) -> tuple[FastAPI, str]:
         """Create app with security middleware (HTTP mode)."""
         app = FastAPI()
         token = "a" * 64
@@ -153,19 +153,19 @@ class TestSecurityMiddlewareHTTP:
         return app, token
 
     @pytest.fixture
-    def client(self, app_with_middleware):
+    def client(self, app_with_middleware: tuple[FastAPI, str]) -> TestClient:
         """Create test client."""
         app, _ = app_with_middleware
         return TestClient(app, raise_server_exceptions=False)
 
-    def test_rejects_invalid_host(self, client):
+    def test_rejects_invalid_host(self, client: TestClient) -> None:
         """Given invalid host header, returns 403."""
         response = client.get("/api/test", headers={"host": "evil.com"})
 
         assert response.status_code == 403
         assert "host" in response.json()["error"].lower()
 
-    def test_accepts_localhost(self, client, app_with_middleware):
+    def test_accepts_localhost(self, client: TestClient, app_with_middleware: tuple[FastAPI, str]) -> None:
         """Given localhost host header, accepts request."""
         _, token = app_with_middleware
 
@@ -176,7 +176,7 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_accepts_127_0_0_1(self, client, app_with_middleware):
+    def test_accepts_127_0_0_1(self, client: TestClient, app_with_middleware: tuple[FastAPI, str]) -> None:
         """Given 127.0.0.1 host header, accepts request."""
         _, token = app_with_middleware
 
@@ -187,7 +187,9 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_rejects_invalid_origin(self, client, app_with_middleware):
+    def test_rejects_invalid_origin(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given invalid origin header, returns 403."""
         _, token = app_with_middleware
 
@@ -203,7 +205,9 @@ class TestSecurityMiddlewareHTTP:
         assert response.status_code == 403
         assert "origin" in response.json()["error"].lower()
 
-    def test_accepts_allowed_origin(self, client, app_with_middleware):
+    def test_accepts_allowed_origin(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given allowed origin, accepts request."""
         _, token = app_with_middleware
 
@@ -218,13 +222,15 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_requires_auth_for_api_endpoints(self, client):
+    def test_requires_auth_for_api_endpoints(self, client: TestClient) -> None:
         """Given no auth header for /api/*, returns 401."""
         response = client.get("/api/test", headers={"host": "localhost:8765"})
 
         assert response.status_code == 401
 
-    def test_accepts_valid_bearer_token(self, client, app_with_middleware):
+    def test_accepts_valid_bearer_token(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given valid bearer token, accepts request."""
         _, token = app_with_middleware
 
@@ -235,7 +241,7 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_rejects_invalid_bearer_token(self, client):
+    def test_rejects_invalid_bearer_token(self, client: TestClient) -> None:
         """Given invalid bearer token, returns 401."""
         response = client.get(
             "/api/test",
@@ -244,7 +250,9 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 401
 
-    def test_accepts_valid_cookie_token(self, client, app_with_middleware):
+    def test_accepts_valid_cookie_token(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given valid token in HttpOnly cookie, accepts request."""
         _, token = app_with_middleware
 
@@ -256,7 +264,7 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_rejects_invalid_cookie_token(self, client):
+    def test_rejects_invalid_cookie_token(self, client: TestClient) -> None:
         """Given invalid token in cookie, returns 401."""
         response = client.get(
             "/api/test",
@@ -266,7 +274,9 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 401
 
-    def test_bearer_token_takes_precedence_over_cookie(self, client, app_with_middleware):
+    def test_bearer_token_takes_precedence_over_cookie(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given both bearer token and cookie, bearer token is used."""
         _, token = app_with_middleware
 
@@ -279,13 +289,15 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_requires_origin_for_mutations(self, client):
+    def test_requires_origin_for_mutations(self, client: TestClient) -> None:
         """Given POST without origin or token, returns 403."""
         response = client.post("/api/mutate", headers={"host": "localhost:8765"})
 
         assert response.status_code == 403
 
-    def test_allows_mutation_with_valid_token_no_origin(self, client, app_with_middleware):
+    def test_allows_mutation_with_valid_token_no_origin(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given POST with valid token but no origin, accepts (CLI access)."""
         _, token = app_with_middleware
 
@@ -296,7 +308,9 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_rejects_oversized_request(self, client, app_with_middleware):
+    def test_rejects_oversized_request(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given request exceeding size limit, returns 413."""
         _, token = app_with_middleware
 
@@ -313,7 +327,7 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 413
 
-    def test_sse_endpoint_same_origin_no_token(self, client):
+    def test_sse_endpoint_same_origin_no_token(self, client: TestClient) -> None:
         """Given SSE endpoint with same-origin (no origin header), accepts."""
         # Same-origin requests don't send Origin header
         response = client.get(
@@ -323,7 +337,9 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_sse_endpoint_cross_origin_with_token_param(self, client, app_with_middleware):
+    def test_sse_endpoint_cross_origin_with_token_param(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Given SSE endpoint with token query param, accepts."""
         _, token = app_with_middleware
 
@@ -334,7 +350,9 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 200
 
-    def test_adds_security_headers(self, client, app_with_middleware):
+    def test_adds_security_headers(
+        self, client: TestClient, app_with_middleware: tuple[FastAPI, str]
+    ) -> None:
         """Response includes security headers."""
         _, token = app_with_middleware
 
@@ -348,7 +366,7 @@ class TestSecurityMiddlewareHTTP:
         assert "Content-Security-Policy" in response.headers
         assert response.headers["Cache-Control"] == "no-store"
 
-    def test_non_api_endpoints_bypass_auth(self, client):
+    def test_non_api_endpoints_bypass_auth(self, client: TestClient) -> None:
         """Given non-API endpoint, does not require auth."""
         response = client.get("/public", headers={"host": "localhost:8765"})
 
@@ -363,7 +381,7 @@ class TestSecurityMiddlewareUDS:
     """
 
     @pytest.fixture
-    def uds_app_with_middleware(self):
+    def uds_app_with_middleware(self) -> FastAPI:
         """Create app with security middleware (UDS mode)."""
         app = FastAPI()
 
@@ -384,18 +402,18 @@ class TestSecurityMiddlewareUDS:
         return app
 
     @pytest.fixture
-    def uds_client(self, uds_app_with_middleware):
+    def uds_client(self, uds_app_with_middleware: FastAPI) -> TestClient:
         """Create test client for UDS app."""
         return TestClient(uds_app_with_middleware, raise_server_exceptions=False)
 
-    def test_uds_bypasses_host_validation(self, uds_client):
+    def test_uds_bypasses_host_validation(self, uds_client: TestClient) -> None:
         """UDS requests skip host header validation."""
         # Invalid host that would fail in HTTP mode
         response = uds_client.get("/api/test", headers={"host": "evil.com"})
 
         assert response.status_code == 200
 
-    def test_uds_bypasses_origin_validation(self, uds_client):
+    def test_uds_bypasses_origin_validation(self, uds_client: TestClient) -> None:
         """UDS requests skip origin header validation."""
         # Invalid origin that would fail in HTTP mode
         response = uds_client.get(
@@ -405,20 +423,20 @@ class TestSecurityMiddlewareUDS:
 
         assert response.status_code == 200
 
-    def test_uds_bypasses_token_validation(self, uds_client):
+    def test_uds_bypasses_token_validation(self, uds_client: TestClient) -> None:
         """UDS requests don't require bearer token."""
         # No Authorization header
         response = uds_client.get("/api/test", headers={"host": "localhost"})
 
         assert response.status_code == 200
 
-    def test_uds_allows_mutations_without_origin(self, uds_client):
+    def test_uds_allows_mutations_without_origin(self, uds_client: TestClient) -> None:
         """UDS POST requests don't require origin header."""
         response = uds_client.post("/api/mutate", headers={"host": "localhost"})
 
         assert response.status_code == 200
 
-    def test_uds_still_enforces_request_size_limit(self, uds_client):
+    def test_uds_still_enforces_request_size_limit(self, uds_client: TestClient) -> None:
         """UDS still checks request size limit."""
         response = uds_client.post(
             "/api/mutate",
@@ -431,7 +449,7 @@ class TestSecurityMiddlewareUDS:
 
         assert response.status_code == 413
 
-    def test_uds_still_adds_security_headers(self, uds_client):
+    def test_uds_still_adds_security_headers(self, uds_client: TestClient) -> None:
         """UDS responses still include security headers."""
         response = uds_client.get("/api/test", headers={"host": "localhost"})
 
@@ -439,7 +457,7 @@ class TestSecurityMiddlewareUDS:
         assert response.headers["X-Frame-Options"] == "DENY"
         assert "Content-Security-Policy" in response.headers
 
-    def test_uds_allows_any_host_header(self, uds_client):
+    def test_uds_allows_any_host_header(self, uds_client: TestClient) -> None:
         """UDS accepts any host header (or none)."""
         for host in ["localhost", "127.0.0.1", "evil.com", "", "anything:9999"]:
             response = uds_client.get("/api/test", headers={"host": host})
@@ -449,13 +467,13 @@ class TestSecurityMiddlewareUDS:
 class TestAllowedHostsAndOrigins:
     """Tests for security constants."""
 
-    def test_allowed_hosts_includes_localhost_variants(self):
+    def test_allowed_hosts_includes_localhost_variants(self) -> None:
         """ALLOWED_HOSTS includes common localhost names."""
         assert "localhost" in ALLOWED_HOSTS
         assert "127.0.0.1" in ALLOWED_HOSTS
         assert "[::1]" in ALLOWED_HOSTS
 
-    def test_allowed_origins_includes_production_and_dev(self):
+    def test_allowed_origins_includes_production_and_dev(self) -> None:
         """ALLOWED_ORIGINS includes production and dev origins."""
         # Production
         assert "http://localhost:8765" in ALLOWED_ORIGINS
@@ -464,7 +482,7 @@ class TestAllowedHostsAndOrigins:
         assert "http://localhost:3000" in ALLOWED_ORIGINS
         assert "http://127.0.0.1:3000" in ALLOWED_ORIGINS
 
-    def test_auth_bypass_endpoints_includes_dev_token(self):
+    def test_auth_bypass_endpoints_includes_dev_token(self) -> None:
         """AUTH_BYPASS_ENDPOINTS includes dev-token endpoint."""
         assert "/api/auth/dev-token" in AUTH_BYPASS_ENDPOINTS
 
@@ -473,7 +491,7 @@ class TestAuthBypassEndpoints:
     """Tests for auth bypass endpoints (dev-token)."""
 
     @pytest.fixture
-    def app_with_middleware(self):
+    def app_with_middleware(self) -> tuple[FastAPI, str]:
         """Create app with security middleware and dev-token bypass."""
         app = FastAPI()
         token = "a" * 64
@@ -490,12 +508,12 @@ class TestAuthBypassEndpoints:
         return app, token
 
     @pytest.fixture
-    def client(self, app_with_middleware):
+    def client(self, app_with_middleware: tuple[FastAPI, str]) -> TestClient:
         """Create test client."""
         app, _ = app_with_middleware
         return TestClient(app, raise_server_exceptions=False)
 
-    def test_dev_token_endpoint_bypasses_auth(self, client):
+    def test_dev_token_endpoint_bypasses_auth(self, client: TestClient) -> None:
         """Given dev-token endpoint without auth, accepts request."""
         response = client.get(
             "/api/auth/dev-token",
@@ -505,7 +523,7 @@ class TestAuthBypassEndpoints:
         assert response.status_code == 200
         assert "token" in response.json()
 
-    def test_other_api_endpoints_still_require_auth(self, client):
+    def test_other_api_endpoints_still_require_auth(self, client: TestClient) -> None:
         """Given other /api/* endpoint without auth, returns 401."""
         response = client.get(
             "/api/other",
@@ -514,7 +532,7 @@ class TestAuthBypassEndpoints:
 
         assert response.status_code == 401
 
-    def test_dev_token_still_validates_host(self, client):
+    def test_dev_token_still_validates_host(self, client: TestClient) -> None:
         """Given dev-token with invalid host, returns 403."""
         response = client.get(
             "/api/auth/dev-token",

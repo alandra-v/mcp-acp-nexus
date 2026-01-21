@@ -58,7 +58,7 @@ def mock_empty_cache_response() -> dict:
 class TestApprovalsCacheCommand:
     """Tests for approvals cache command."""
 
-    def test_cache_shows_cached_approvals(self, runner: CliRunner, mock_cache_response: dict):
+    def test_cache_shows_cached_approvals(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given cached approvals, shows them with details."""
         # Arrange
         with patch(
@@ -74,7 +74,7 @@ class TestApprovalsCacheCommand:
         assert "bash" in result.output
         assert "read_file" in result.output
 
-    def test_cache_shows_tool_paths(self, runner: CliRunner, mock_cache_response: dict):
+    def test_cache_shows_tool_paths(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given cached approvals with paths, shows path info."""
         # Arrange
         with patch(
@@ -89,7 +89,7 @@ class TestApprovalsCacheCommand:
         assert "Path:" in result.output
         assert "/usr/bin/ls" in result.output
 
-    def test_cache_shows_expiry_time(self, runner: CliRunner, mock_cache_response: dict):
+    def test_cache_shows_expiry_time(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given cached approvals, shows time until expiry."""
         # Arrange
         with patch(
@@ -105,7 +105,7 @@ class TestApprovalsCacheCommand:
         assert "5.0m" in result.output  # 300 seconds
         assert "2.0m" in result.output  # 120 seconds
 
-    def test_cache_shows_entry_numbers(self, runner: CliRunner, mock_cache_response: dict):
+    def test_cache_shows_entry_numbers(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given cached approvals, shows numbered entries."""
         # Arrange
         with patch(
@@ -120,7 +120,7 @@ class TestApprovalsCacheCommand:
         assert "[1]" in result.output
         assert "[2]" in result.output
 
-    def test_cache_empty(self, runner: CliRunner, mock_empty_cache_response: dict):
+    def test_cache_empty(self, runner: CliRunner, mock_empty_cache_response: dict) -> None:
         """Given empty cache, shows appropriate message."""
         # Arrange
         with patch(
@@ -134,7 +134,7 @@ class TestApprovalsCacheCommand:
         assert result.exit_code == 0
         assert "No cached approvals" in result.output
 
-    def test_cache_proxy_not_running(self, runner: CliRunner):
+    def test_cache_proxy_not_running(self, runner: CliRunner) -> None:
         """Given proxy not running, shows error."""
         # Arrange
         with patch(
@@ -152,7 +152,7 @@ class TestApprovalsCacheCommand:
 class TestApprovalsCacheJsonOutput:
     """Tests for approvals cache --json flag."""
 
-    def test_cache_json_output(self, runner: CliRunner, mock_cache_response: dict):
+    def test_cache_json_output(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --json flag, outputs valid JSON."""
         # Arrange
         with patch(
@@ -169,7 +169,7 @@ class TestApprovalsCacheJsonOutput:
         assert "approvals" in data
         assert data["count"] == 2
 
-    def test_cache_json_preserves_all_fields(self, runner: CliRunner, mock_cache_response: dict):
+    def test_cache_json_preserves_all_fields(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --json flag, preserves all approval fields."""
         # Arrange
         with patch(
@@ -191,7 +191,7 @@ class TestApprovalsCacheJsonOutput:
 class TestApprovalsClearCommand:
     """Tests for approvals clear command."""
 
-    def test_clear_requires_flag(self, runner: CliRunner):
+    def test_clear_requires_flag(self, runner: CliRunner) -> None:
         """Given no flags, shows error."""
         # Act
         result = runner.invoke(cli, ["approvals", "clear"])
@@ -200,7 +200,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 1
         assert "--all" in result.output or "--entry" in result.output
 
-    def test_clear_rejects_both_flags(self, runner: CliRunner):
+    def test_clear_rejects_both_flags(self, runner: CliRunner) -> None:
         """Given both --all and --entry, shows error."""
         # Act
         result = runner.invoke(cli, ["approvals", "clear", "--all", "--entry=1"])
@@ -209,7 +209,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 1
         assert "Cannot use both" in result.output
 
-    def test_clear_all_with_confirmation(self, runner: CliRunner, mock_cache_response: dict):
+    def test_clear_all_with_confirmation(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --all and confirmation, clears all approvals."""
         # Arrange
         with patch("mcp_acp.cli.commands.approvals.api_request") as mock_api:
@@ -225,7 +225,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 0
         assert "Cleared 2" in result.output
 
-    def test_clear_all_cancelled(self, runner: CliRunner, mock_cache_response: dict):
+    def test_clear_all_cancelled(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --all but declined confirmation, cancels."""
         # Arrange
         with patch(
@@ -239,7 +239,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 0
         assert "Cancelled" in result.output
 
-    def test_clear_all_with_default_yes(self, runner: CliRunner, mock_cache_response: dict):
+    def test_clear_all_with_default_yes(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --all and Enter (default yes), clears cache."""
         # Arrange
         with patch("mcp_acp.cli.commands.approvals.api_request") as mock_api:
@@ -255,7 +255,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 0
         assert "Cleared 2" in result.output
 
-    def test_clear_entry_valid_number(self, runner: CliRunner, mock_cache_response: dict):
+    def test_clear_entry_valid_number(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given valid --entry number and confirmation, clears that entry."""
         # Arrange
         with patch("mcp_acp.cli.commands.approvals.api_request") as mock_api:
@@ -271,7 +271,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 0
         assert "Cleared cached approval for 'bash'" in result.output
 
-    def test_clear_entry_invalid_number_too_high(self, runner: CliRunner, mock_cache_response: dict):
+    def test_clear_entry_invalid_number_too_high(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --entry number too high, shows error."""
         # Arrange
         with patch(
@@ -286,7 +286,7 @@ class TestApprovalsClearCommand:
         assert "Invalid entry" in result.output
         assert "1-2" in result.output
 
-    def test_clear_entry_invalid_number_zero(self, runner: CliRunner, mock_cache_response: dict):
+    def test_clear_entry_invalid_number_zero(self, runner: CliRunner, mock_cache_response: dict) -> None:
         """Given --entry=0, shows error."""
         # Arrange
         with patch(
@@ -300,7 +300,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 1
         assert "Invalid entry" in result.output
 
-    def test_clear_empty_cache(self, runner: CliRunner, mock_empty_cache_response: dict):
+    def test_clear_empty_cache(self, runner: CliRunner, mock_empty_cache_response: dict) -> None:
         """Given empty cache, shows appropriate message."""
         # Arrange
         with patch(
@@ -314,7 +314,7 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 0
         assert "No cached approvals to clear" in result.output
 
-    def test_clear_proxy_not_running(self, runner: CliRunner):
+    def test_clear_proxy_not_running(self, runner: CliRunner) -> None:
         """Given proxy not running, shows error."""
         # Arrange
         with patch(
@@ -332,7 +332,7 @@ class TestApprovalsClearCommand:
 class TestApprovalsHelp:
     """Tests for approvals command help."""
 
-    def test_approvals_help_shows_subcommands(self, runner: CliRunner):
+    def test_approvals_help_shows_subcommands(self, runner: CliRunner) -> None:
         """Given approvals --help, shows available subcommands."""
         # Act
         result = runner.invoke(cli, ["approvals", "--help"])
@@ -342,7 +342,7 @@ class TestApprovalsHelp:
         assert "cache" in result.output
         assert "clear" in result.output
 
-    def test_approvals_clear_help_shows_options(self, runner: CliRunner):
+    def test_approvals_clear_help_shows_options(self, runner: CliRunner) -> None:
         """Given approvals clear --help, shows options."""
         # Act
         result = runner.invoke(cli, ["approvals", "clear", "--help"])

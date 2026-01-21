@@ -31,7 +31,7 @@ from mcp_acp.api.schemas import (
 
 
 @pytest.fixture
-def mock_config():
+def mock_config() -> MagicMock:
     """Create a mock AppConfig with auth and transport configs."""
     config = MagicMock()
     config.backend.server_name = "test-server"
@@ -70,7 +70,7 @@ def mock_config():
 
 
 @pytest.fixture
-def mock_config_no_auth():
+def mock_config_no_auth() -> MagicMock:
     """Create a mock AppConfig without auth."""
     config = MagicMock()
     config.backend.server_name = "test-server"
@@ -96,7 +96,7 @@ def mock_config_no_auth():
 
 
 @pytest.fixture
-def app(mock_config):
+def app(mock_config: MagicMock) -> FastAPI:
     """Create a test FastAPI app with config router and mocked state."""
     app = FastAPI()
     app.include_router(router, prefix="/api/config")
@@ -106,7 +106,7 @@ def app(mock_config):
 
 
 @pytest.fixture
-def client(app):
+def client(app: FastAPI) -> TestClient:
     """Create a test client."""
     return TestClient(app)
 
@@ -119,7 +119,7 @@ def client(app):
 class TestGetConfig:
     """Tests for GET /api/config endpoint."""
 
-    def test_returns_config_with_auth(self, client, mock_config):
+    def test_returns_config_with_auth(self, client: TestClient, mock_config: MagicMock) -> None:
         """Given config with auth, returns full config details."""
         # Arrange
         with patch(
@@ -141,7 +141,7 @@ class TestGetConfig:
         assert data["auth"]["mtls"] is None
         assert data["requires_restart_for_changes"] is True
 
-    def test_returns_config_without_auth(self, mock_config_no_auth):
+    def test_returns_config_without_auth(self, mock_config_no_auth: MagicMock) -> None:
         """Given config without auth, returns null auth."""
         # Arrange
         app = FastAPI()
@@ -161,7 +161,7 @@ class TestGetConfig:
         data = response.json()
         assert data["auth"] is None
 
-    def test_returns_full_transport_details(self, client, mock_config):
+    def test_returns_full_transport_details(self, client: TestClient, mock_config: MagicMock) -> None:
         """Config response includes full transport configuration."""
         # Arrange
         with patch(
@@ -186,7 +186,7 @@ class TestGetConfig:
 class TestUpdateConfig:
     """Tests for PUT /api/config endpoint."""
 
-    def test_updates_logging_config(self, client, tmp_path):
+    def test_updates_logging_config(self, client: TestClient, tmp_path: Path) -> None:
         """Given logging updates, saves and returns updated config."""
         # Arrange
         mock_config = MagicMock()
@@ -242,7 +242,7 @@ class TestUpdateConfig:
         data = response.json()
         assert "Restart the client" in data["message"]
 
-    def test_returns_404_when_config_missing(self, client, tmp_path):
+    def test_returns_404_when_config_missing(self, client: TestClient, tmp_path: Path) -> None:
         """Given missing config file, returns 404."""
         # Arrange
         with patch(
@@ -259,7 +259,7 @@ class TestUpdateConfig:
         # Assert
         assert response.status_code == 404
 
-    def test_empty_update_is_valid(self, client, tmp_path):
+    def test_empty_update_is_valid(self, client: TestClient, tmp_path: Path) -> None:
         """Given empty update, returns current config."""
         # Arrange
         mock_config = MagicMock()
@@ -313,7 +313,7 @@ class TestUpdateConfig:
 class TestBuildConfigResponse:
     """Tests for _build_config_response helper."""
 
-    def test_builds_response_with_auth(self, mock_config):
+    def test_builds_response_with_auth(self, mock_config: MagicMock) -> None:
         """Given config with auth, builds complete response."""
         # Arrange
         with patch(
@@ -332,7 +332,7 @@ class TestBuildConfigResponse:
         assert response.auth.oidc.issuer == "https://auth.example.com"
         assert response.config_path == "/test/config.json"
 
-    def test_builds_response_without_auth(self, mock_config_no_auth):
+    def test_builds_response_without_auth(self, mock_config_no_auth: MagicMock) -> None:
         """Given config without auth, builds response with null auth."""
         # Arrange
         with patch(
@@ -345,7 +345,7 @@ class TestBuildConfigResponse:
         # Assert
         assert response.auth is None
 
-    def test_includes_mtls_when_present(self, mock_config):
+    def test_includes_mtls_when_present(self, mock_config: MagicMock) -> None:
         """Given config with mTLS, includes full mTLS details."""
         # Arrange
         mock_config.auth.mtls = MagicMock()
@@ -365,7 +365,7 @@ class TestBuildConfigResponse:
         assert response.auth.mtls is not None
         assert response.auth.mtls.client_cert_path == "/path/to/cert.pem"
 
-    def test_includes_http_transport_when_present(self, mock_config):
+    def test_includes_http_transport_when_present(self, mock_config: MagicMock) -> None:
         """Given config with HTTP transport, includes full HTTP details."""
         # Arrange
         mock_config.backend.http = MagicMock()
@@ -393,7 +393,7 @@ class TestBuildConfigResponse:
 class TestResponseModels:
     """Tests for response model serialization."""
 
-    def test_backend_config_response(self):
+    def test_backend_config_response(self) -> None:
         """BackendConfigResponse serializes correctly."""
         # Act
         response = BackendConfigResponse(
@@ -406,7 +406,7 @@ class TestResponseModels:
         assert data["server_name"] == "test-server"
         assert data["transport"] == "stdio"
 
-    def test_logging_config_response(self):
+    def test_logging_config_response(self) -> None:
         """LoggingConfigResponse serializes correctly."""
         # Act
         response = LoggingConfigResponse(
@@ -420,7 +420,7 @@ class TestResponseModels:
         assert data["log_dir"] == "/var/log"
         assert data["include_payloads"] is True
 
-    def test_auth_config_response_with_oidc(self):
+    def test_auth_config_response_with_oidc(self) -> None:
         """AuthConfigResponse serializes correctly with OIDC."""
         # Act
         oidc = OIDCConfigResponse(
@@ -437,7 +437,7 @@ class TestResponseModels:
         assert data["oidc"]["scopes"] == ["openid", "profile"]
         assert data["mtls"] is None
 
-    def test_auth_config_response_with_mtls(self):
+    def test_auth_config_response_with_mtls(self) -> None:
         """AuthConfigResponse serializes correctly with mTLS."""
         # Act
         mtls = MTLSConfigResponse(
@@ -452,7 +452,7 @@ class TestResponseModels:
         assert data["oidc"] is None
         assert data["mtls"]["client_cert_path"] == "/path/to/cert.pem"
 
-    def test_proxy_config_response(self):
+    def test_proxy_config_response(self) -> None:
         """ProxyConfigResponse serializes correctly."""
         # Act
         response = ProxyConfigResponse(name="my-proxy")
@@ -470,7 +470,7 @@ class TestResponseModels:
 class TestUpdateModels:
     """Tests for update model validation."""
 
-    def test_logging_update_partial(self):
+    def test_logging_update_partial(self) -> None:
         """LoggingConfigUpdate allows partial updates."""
         # Act
         update = LoggingConfigUpdate(log_level="DEBUG")
@@ -480,7 +480,7 @@ class TestUpdateModels:
         assert update.log_dir is None
         assert update.include_payloads is None
 
-    def test_config_update_request_empty(self):
+    def test_config_update_request_empty(self) -> None:
         """ConfigUpdateRequest allows empty update."""
         # Act
         update = ConfigUpdateRequest()
@@ -490,7 +490,7 @@ class TestUpdateModels:
         assert update.backend is None
         assert update.proxy is None
 
-    def test_config_update_request_with_logging(self):
+    def test_config_update_request_with_logging(self) -> None:
         """ConfigUpdateRequest with logging updates."""
         # Act
         update = ConfigUpdateRequest(logging=LoggingConfigUpdate(log_level="DEBUG", include_payloads=True))

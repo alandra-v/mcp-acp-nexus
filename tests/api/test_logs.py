@@ -23,7 +23,7 @@ from mcp_acp.api.utils.jsonl import read_jsonl_filtered
 
 
 @pytest.fixture
-def mock_config(tmp_path):
+def mock_config(tmp_path: Path) -> MagicMock:
     """Create a mock AppConfig with temp log directory."""
     config = MagicMock()
     config.logging.log_dir = str(tmp_path)
@@ -31,7 +31,7 @@ def mock_config(tmp_path):
 
 
 @pytest.fixture
-def app(mock_config):
+def app(mock_config: MagicMock) -> FastAPI:
     """Create a test FastAPI app with logs router and mocked state."""
     app = FastAPI()
     app.include_router(router, prefix="/api/logs")
@@ -41,7 +41,7 @@ def app(mock_config):
 
 
 @pytest.fixture
-def client(app):
+def client(app: FastAPI) -> TestClient:
     """Create a test client."""
     return TestClient(app)
 
@@ -54,7 +54,7 @@ def client(app):
 class TestReadJsonlFiltered:
     """Tests for read_jsonl_filtered helper function."""
 
-    def test_returns_empty_for_missing_file(self, tmp_path):
+    def test_returns_empty_for_missing_file(self, tmp_path: Path) -> None:
         """Given a non-existent file, returns empty list."""
         # Arrange
         path = tmp_path / "nonexistent.jsonl"
@@ -67,7 +67,7 @@ class TestReadJsonlFiltered:
         assert has_more is False
         assert scanned == 0
 
-    def test_returns_empty_for_empty_file(self, tmp_path):
+    def test_returns_empty_for_empty_file(self, tmp_path: Path) -> None:
         """Given an empty file, returns empty list."""
         # Arrange
         path = tmp_path / "empty.jsonl"
@@ -81,7 +81,7 @@ class TestReadJsonlFiltered:
         assert has_more is False
         assert scanned == 0
 
-    def test_reads_single_entry(self, tmp_path):
+    def test_reads_single_entry(self, tmp_path: Path) -> None:
         """Given a file with one entry, returns that entry."""
         # Arrange
         path = tmp_path / "single.jsonl"
@@ -96,7 +96,7 @@ class TestReadJsonlFiltered:
         assert entries[0] == entry
         assert has_more is False
 
-    def test_returns_newest_first(self, tmp_path):
+    def test_returns_newest_first(self, tmp_path: Path) -> None:
         """Given multiple entries, returns newest first."""
         # Arrange
         path = tmp_path / "multiple.jsonl"
@@ -117,7 +117,7 @@ class TestReadJsonlFiltered:
         assert entries[2]["id"] == 1
         assert has_more is False
 
-    def test_respects_limit(self, tmp_path):
+    def test_respects_limit(self, tmp_path: Path) -> None:
         """Given limit, returns only that many entries."""
         # Arrange
         path = tmp_path / "limit.jsonl"
@@ -131,7 +131,7 @@ class TestReadJsonlFiltered:
         assert len(entries) == 3
         assert has_more is True
 
-    def test_skips_malformed_lines(self, tmp_path):
+    def test_skips_malformed_lines(self, tmp_path: Path) -> None:
         """Given malformed JSON lines, skips them without error."""
         # Arrange
         path = tmp_path / "malformed.jsonl"
@@ -146,7 +146,7 @@ class TestReadJsonlFiltered:
         assert entries[0]["valid"] == 2
         assert entries[1]["valid"] == 1
 
-    def test_handles_empty_lines(self, tmp_path):
+    def test_handles_empty_lines(self, tmp_path: Path) -> None:
         """Given empty lines in file, filters them out."""
         # Arrange
         path = tmp_path / "empty_lines.jsonl"
@@ -159,7 +159,7 @@ class TestReadJsonlFiltered:
         # Assert
         assert len(entries) == 2
 
-    def test_handles_unicode_content(self, tmp_path):
+    def test_handles_unicode_content(self, tmp_path: Path) -> None:
         """Given unicode content, reads correctly."""
         # Arrange
         path = tmp_path / "unicode.jsonl"
@@ -181,7 +181,7 @@ class TestReadJsonlFiltered:
 class TestLogEndpoints:
     """Tests for log API endpoints."""
 
-    def test_get_decision_logs_success(self, client, tmp_path):
+    def test_get_decision_logs_success(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/decisions returns decision logs."""
         # Arrange
         log_dir = tmp_path / "mcp_acp_logs" / "audit"
@@ -198,7 +198,7 @@ class TestLogEndpoints:
         assert data["total_returned"] == 1
         assert data["entries"][0]["type"] == "decision"
 
-    def test_get_operation_logs_success(self, client, tmp_path):
+    def test_get_operation_logs_success(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/operations returns operation logs."""
         # Arrange
         log_dir = tmp_path / "mcp_acp_logs" / "audit"
@@ -214,7 +214,7 @@ class TestLogEndpoints:
         data = response.json()
         assert data["total_returned"] == 2
 
-    def test_get_auth_logs_empty(self, client, tmp_path):
+    def test_get_auth_logs_empty(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/auth returns empty list when no logs exist."""
         # Arrange - no log file created
 
@@ -227,7 +227,7 @@ class TestLogEndpoints:
         assert data["entries"] == []
         assert data["total_returned"] == 0
 
-    def test_get_system_logs_success(self, client, tmp_path):
+    def test_get_system_logs_success(self, client: TestClient, tmp_path: Path) -> None:
         """GET /api/logs/system returns system logs."""
         # Arrange
         log_dir = tmp_path / "mcp_acp_logs" / "system"
@@ -243,7 +243,7 @@ class TestLogEndpoints:
         data = response.json()
         assert data["entries"][0]["level"] == "INFO"
 
-    def test_limit_validation_min(self, client):
+    def test_limit_validation_min(self, client: TestClient) -> None:
         """Given limit < 1, returns 422 validation error."""
         # Act
         response = client.get("/api/logs/decisions?limit=0")
@@ -251,7 +251,7 @@ class TestLogEndpoints:
         # Assert
         assert response.status_code == 422
 
-    def test_limit_validation_max(self, client):
+    def test_limit_validation_max(self, client: TestClient) -> None:
         """Given limit > 1000, returns 422 validation error."""
         # Act
         response = client.get("/api/logs/decisions?limit=1001")
@@ -259,7 +259,7 @@ class TestLogEndpoints:
         # Assert
         assert response.status_code == 422
 
-    def test_pagination_returns_correct_count(self, client, tmp_path):
+    def test_pagination_returns_correct_count(self, client: TestClient, tmp_path: Path) -> None:
         """Given limit, returns correct entries."""
         # Arrange
         log_dir = tmp_path / "mcp_acp_logs" / "audit"
@@ -286,7 +286,7 @@ class TestLogEndpoints:
 class TestLogsResponse:
     """Tests for LogsResponse model."""
 
-    def test_model_serialization(self):
+    def test_model_serialization(self) -> None:
         """LogsResponse serializes correctly."""
         # Arrange & Act
         response = LogsResponse(

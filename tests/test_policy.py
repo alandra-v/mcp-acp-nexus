@@ -53,14 +53,18 @@ from mcp_acp.pdp.matcher import (
 # ============================================================================
 
 
+from pathlib import Path
+from typing import Callable
+
+
 @pytest.fixture
-def temp_policy_dir(tmp_path):
+def temp_policy_dir(tmp_path: Path) -> Path:
     """Create a temporary directory for policy files."""
     return tmp_path
 
 
 @pytest.fixture
-def sample_policy():
+def sample_policy() -> PolicyConfig:
     """Create a sample policy with typical rules for testing."""
     return PolicyConfig(
         version="1",
@@ -97,7 +101,7 @@ def sample_policy():
 
 
 @pytest.fixture
-def make_context():
+def make_context() -> Callable[..., DecisionContext]:
     """Factory fixture to create DecisionContext for testing.
 
     Returns a function that builds minimal contexts for policy evaluation tests.
@@ -142,7 +146,7 @@ def make_context():
 
 
 @pytest.fixture
-def deny_bash_policy():
+def deny_bash_policy() -> PolicyConfig:
     """Policy that denies bash but allows everything else."""
     return PolicyConfig(
         rules=[
@@ -153,7 +157,7 @@ def deny_bash_policy():
 
 
 @pytest.fixture
-def path_based_policy():
+def path_based_policy() -> PolicyConfig:
     """Policy with path-based rules."""
     return PolicyConfig(
         rules=[
@@ -171,7 +175,7 @@ def path_based_policy():
 class TestPolicyConfigModel:
     """Tests for PolicyConfig model validation."""
 
-    def test_default_version(self):
+    def test_default_version(self) -> None:
         """Given no version, defaults to '1'."""
         # Act
         policy = PolicyConfig()
@@ -179,7 +183,7 @@ class TestPolicyConfigModel:
         # Assert
         assert policy.version == "1"
 
-    def test_default_action_is_deny(self):
+    def test_default_action_is_deny(self) -> None:
         """Given no default_action, defaults to 'deny'."""
         # Act
         policy = PolicyConfig()
@@ -187,7 +191,7 @@ class TestPolicyConfigModel:
         # Assert
         assert policy.default_action == "deny"
 
-    def test_default_rules_is_empty_list(self):
+    def test_default_rules_is_empty_list(self) -> None:
         """Given no rules, defaults to empty list."""
         # Act
         policy = PolicyConfig()
@@ -195,7 +199,7 @@ class TestPolicyConfigModel:
         # Assert
         assert policy.rules == []
 
-    def test_is_immutable(self):
+    def test_is_immutable(self) -> None:
         """Given a PolicyConfig, it cannot be modified after creation."""
         # Arrange
         policy = PolicyConfig()
@@ -213,7 +217,7 @@ class TestPolicyConfigModel:
 class TestRuleIdGeneration:
     """Tests for automatic rule ID generation."""
 
-    def test_auto_generates_id_when_not_provided(self):
+    def test_auto_generates_id_when_not_provided(self) -> None:
         """Given rule without ID, auto-generates deterministic ID."""
         # Act
         policy = PolicyConfig(
@@ -225,7 +229,7 @@ class TestRuleIdGeneration:
         assert policy.rules[0].id.startswith("rule_")
         assert len(policy.rules[0].id) == 13  # "rule_" + 8 hex chars
 
-    def test_preserves_user_provided_id(self):
+    def test_preserves_user_provided_id(self) -> None:
         """Given rule with user ID, preserves it."""
         # Act
         policy = PolicyConfig(
@@ -241,7 +245,7 @@ class TestRuleIdGeneration:
         # Assert
         assert policy.rules[0].id == "my-custom-id"
 
-    def test_same_content_generates_same_id(self):
+    def test_same_content_generates_same_id(self) -> None:
         """Given same rule content, generates same ID (deterministic)."""
         # Act
         policy1 = PolicyConfig(
@@ -254,7 +258,7 @@ class TestRuleIdGeneration:
         # Assert
         assert policy1.rules[0].id == policy2.rules[0].id
 
-    def test_different_content_generates_different_id(self):
+    def test_different_content_generates_different_id(self) -> None:
         """Given different rule content, generates different IDs."""
         # Act
         policy1 = PolicyConfig(
@@ -267,7 +271,7 @@ class TestRuleIdGeneration:
         # Assert
         assert policy1.rules[0].id != policy2.rules[0].id
 
-    def test_mixed_user_and_auto_ids(self):
+    def test_mixed_user_and_auto_ids(self) -> None:
         """Given mix of user and auto IDs, handles both correctly."""
         # Act
         policy = PolicyConfig(
@@ -285,7 +289,7 @@ class TestRuleIdGeneration:
         assert policy.rules[0].id == "user-rule"
         assert policy.rules[1].id.startswith("rule_")
 
-    def test_rejects_duplicate_user_ids(self):
+    def test_rejects_duplicate_user_ids(self) -> None:
         """Given duplicate user IDs, raises ValidationError."""
         # Act & Assert
         with pytest.raises(ValidationError, match="Duplicate rule IDs"):
@@ -304,7 +308,7 @@ class TestRuleIdGeneration:
                 ]
             )
 
-    def test_rejects_collision_between_user_and_generated_id(self):
+    def test_rejects_collision_between_user_and_generated_id(self) -> None:
         """Given user ID matching auto-generated ID, raises ValidationError."""
         # First, get the auto-generated ID for a specific rule
         policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="test"))])
@@ -326,7 +330,7 @@ class TestRuleIdGeneration:
                 ]
             )
 
-    def test_id_survives_roundtrip(self, temp_policy_dir):
+    def test_id_survives_roundtrip(self, temp_policy_dir: Path) -> None:
         """Given policy with auto-generated ID, ID survives save/load."""
         # Arrange
         policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="test"))])
@@ -344,7 +348,7 @@ class TestRuleIdGeneration:
 class TestPolicyRuleModel:
     """Tests for PolicyRule model validation."""
 
-    def test_requires_effect_field(self):
+    def test_requires_effect_field(self) -> None:
         """Given no effect, raises ValidationError."""
         # Act & Assert
         with pytest.raises(ValidationError):
@@ -355,7 +359,7 @@ class TestPolicyRuleModel:
         ["allow", "deny", "hitl"],
         ids=["allow", "deny", "hitl"],
     )
-    def test_accepts_valid_effect(self, effect):
+    def test_accepts_valid_effect(self, effect: str) -> None:
         """Given valid effect value, creates rule successfully."""
         # Act
         rule = PolicyRule(effect=effect, conditions=RuleConditions(tool_name="*"))
@@ -363,7 +367,7 @@ class TestPolicyRuleModel:
         # Assert
         assert rule.effect == effect
 
-    def test_rejects_invalid_effect(self):
+    def test_rejects_invalid_effect(self) -> None:
         """Given invalid effect value, raises ValidationError."""
         # Act & Assert
         with pytest.raises(ValidationError):
@@ -383,7 +387,7 @@ class TestHITLConfigModel:
         [5, 30, 300],
         ids=["minimum", "default", "maximum"],
     )
-    def test_accepts_valid_timeout(self, timeout):
+    def test_accepts_valid_timeout(self, timeout: int) -> None:
         """Given timeout in valid range, creates config successfully."""
         # Act
         config = HITLConfig(timeout_seconds=timeout)
@@ -391,13 +395,13 @@ class TestHITLConfigModel:
         # Assert
         assert config.timeout_seconds == timeout
 
-    def test_rejects_timeout_below_minimum(self):
+    def test_rejects_timeout_below_minimum(self) -> None:
         """Given timeout below 5s, raises ValidationError."""
         # Act & Assert
         with pytest.raises(ValidationError):
             HITLConfig(timeout_seconds=4)
 
-    def test_rejects_timeout_above_maximum(self):
+    def test_rejects_timeout_above_maximum(self) -> None:
         """Given timeout above 300s, raises ValidationError."""
         # Act & Assert
         with pytest.raises(ValidationError):
@@ -412,13 +416,13 @@ class TestHITLConfigModel:
 class TestRuleConditionsModel:
     """Tests for RuleConditions model validation."""
 
-    def test_requires_at_least_one_condition(self):
+    def test_requires_at_least_one_condition(self) -> None:
         """Given no conditions, raises ValidationError (security risk)."""
         # Act & Assert
         with pytest.raises(ValidationError, match="At least one condition"):
             RuleConditions()
 
-    def test_accepts_single_tool_name_condition(self):
+    def test_accepts_single_tool_name_condition(self) -> None:
         """Given only tool_name, creates conditions successfully."""
         # Act
         conditions = RuleConditions(tool_name="bash")
@@ -427,7 +431,7 @@ class TestRuleConditionsModel:
         assert conditions.tool_name == "bash"
         assert conditions.path_pattern is None
 
-    def test_accepts_single_path_pattern_condition(self):
+    def test_accepts_single_path_pattern_condition(self) -> None:
         """Given only path_pattern, creates conditions successfully."""
         # Act
         conditions = RuleConditions(path_pattern="/project/**")
@@ -441,7 +445,7 @@ class TestRuleConditionsModel:
         [["read"], ["write"], ["delete"], ["read", "write", "delete"]],
         ids=["read-only", "write-only", "delete-only", "all-operations"],
     )
-    def test_accepts_valid_operations(self, operations):
+    def test_accepts_valid_operations(self, operations: list[str]) -> None:
         """Given valid operation values, creates conditions successfully."""
         # Act
         conditions = RuleConditions(operations=operations)
@@ -449,7 +453,7 @@ class TestRuleConditionsModel:
         # Assert
         assert conditions.operations == operations
 
-    def test_rejects_invalid_operation(self):
+    def test_rejects_invalid_operation(self) -> None:
         """Given invalid operation value, raises ValidationError."""
         # Act & Assert
         with pytest.raises(ValidationError):
@@ -464,7 +468,7 @@ class TestRuleConditionsModel:
 class TestCreateDefaultPolicy:
     """Tests for create_default_policy function."""
 
-    def test_returns_policy_with_deny_default(self):
+    def test_returns_policy_with_deny_default(self) -> None:
         """Given no args, returns policy with deny default action."""
         # Act
         policy = create_default_policy()
@@ -472,7 +476,7 @@ class TestCreateDefaultPolicy:
         # Assert
         assert policy.default_action == "deny"
 
-    def test_returns_policy_with_empty_rules(self):
+    def test_returns_policy_with_empty_rules(self) -> None:
         """Given no args, returns policy with no rules."""
         # Act
         policy = create_default_policy()
@@ -489,7 +493,7 @@ class TestCreateDefaultPolicy:
 class TestPolicySaveLoad:
     """Tests for policy save and load operations."""
 
-    def test_roundtrip_preserves_version(self, temp_policy_dir, sample_policy):
+    def test_roundtrip_preserves_version(self, temp_policy_dir: Path, sample_policy: PolicyConfig) -> None:
         """Given saved policy, loading preserves version."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -501,7 +505,7 @@ class TestPolicySaveLoad:
         # Assert
         assert loaded.version == sample_policy.version
 
-    def test_roundtrip_preserves_rule_count(self, temp_policy_dir, sample_policy):
+    def test_roundtrip_preserves_rule_count(self, temp_policy_dir: Path, sample_policy: PolicyConfig) -> None:
         """Given saved policy, loading preserves rule count."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -513,7 +517,7 @@ class TestPolicySaveLoad:
         # Assert
         assert len(loaded.rules) == len(sample_policy.rules)
 
-    def test_roundtrip_preserves_rule_ids(self, temp_policy_dir, sample_policy):
+    def test_roundtrip_preserves_rule_ids(self, temp_policy_dir: Path, sample_policy: PolicyConfig) -> None:
         """Given saved policy, loading preserves rule IDs."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -525,7 +529,7 @@ class TestPolicySaveLoad:
         # Assert
         assert loaded.rules[0].id == "allow-project-read"
 
-    def test_save_creates_parent_directories(self, temp_policy_dir):
+    def test_save_creates_parent_directories(self, temp_policy_dir: Path) -> None:
         """Given nested path, save creates parent directories."""
         # Arrange
         path = temp_policy_dir / "nested" / "dir" / "policy.json"
@@ -546,7 +550,7 @@ class TestPolicySaveLoad:
 class TestPolicyLoaderErrors:
     """Tests for policy loading error cases."""
 
-    def test_load_missing_file_raises(self, temp_policy_dir):
+    def test_load_missing_file_raises(self, temp_policy_dir: Path) -> None:
         """Given nonexistent file, raises FileNotFoundError."""
         # Arrange
         path = temp_policy_dir / "nonexistent.json"
@@ -555,7 +559,7 @@ class TestPolicyLoaderErrors:
         with pytest.raises(FileNotFoundError):
             load_policy(path)
 
-    def test_load_invalid_json_raises(self, temp_policy_dir):
+    def test_load_invalid_json_raises(self, temp_policy_dir: Path) -> None:
         """Given malformed JSON, raises ValueError."""
         # Arrange
         path = temp_policy_dir / "invalid.json"
@@ -565,7 +569,7 @@ class TestPolicyLoaderErrors:
         with pytest.raises(ValueError, match="Invalid JSON"):
             load_policy(path)
 
-    def test_load_invalid_schema_raises(self, temp_policy_dir):
+    def test_load_invalid_schema_raises(self, temp_policy_dir: Path) -> None:
         """Given invalid schema, raises ValueError."""
         # Arrange
         path = temp_policy_dir / "bad_schema.json"
@@ -584,7 +588,7 @@ class TestPolicyLoaderErrors:
 class TestPolicyFileHelpers:
     """Tests for policy file helper functions."""
 
-    def test_policy_exists_returns_false_for_missing(self, temp_policy_dir):
+    def test_policy_exists_returns_false_for_missing(self, temp_policy_dir: Path) -> None:
         """Given nonexistent file, returns False."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -592,7 +596,9 @@ class TestPolicyFileHelpers:
         # Act & Assert
         assert not policy_exists(path)
 
-    def test_policy_exists_returns_true_for_existing(self, temp_policy_dir, sample_policy):
+    def test_policy_exists_returns_true_for_existing(
+        self, temp_policy_dir: Path, sample_policy: PolicyConfig
+    ) -> None:
         """Given existing file, returns True."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -601,7 +607,7 @@ class TestPolicyFileHelpers:
         # Act & Assert
         assert policy_exists(path)
 
-    def test_create_default_policy_file_creates_file(self, temp_policy_dir):
+    def test_create_default_policy_file_creates_file(self, temp_policy_dir: Path) -> None:
         """Given valid path, creates file on disk."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -612,7 +618,7 @@ class TestPolicyFileHelpers:
         # Assert
         assert path.exists()
 
-    def test_create_default_policy_file_returns_policy(self, temp_policy_dir):
+    def test_create_default_policy_file_returns_policy(self, temp_policy_dir: Path) -> None:
         """Given valid path, returns created policy."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -624,7 +630,9 @@ class TestPolicyFileHelpers:
         assert policy.version == "1"
         assert policy.default_action == "deny"
 
-    def test_create_default_policy_file_raises_if_exists(self, temp_policy_dir, sample_policy):
+    def test_create_default_policy_file_raises_if_exists(
+        self, temp_policy_dir: Path, sample_policy: PolicyConfig
+    ) -> None:
         """Given existing file, raises FileExistsError."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -648,7 +656,7 @@ class TestPolicyAutoNormalization:
     2. Save the normalized policy back to disk (auto-normalization)
     """
 
-    def test_load_generates_missing_ids_in_memory(self, temp_policy_dir):
+    def test_load_generates_missing_ids_in_memory(self, temp_policy_dir: Path) -> None:
         """Given policy without rule IDs, loading generates IDs in memory."""
         # Arrange - write policy file without IDs
         path = temp_policy_dir / "policy.json"
@@ -669,7 +677,7 @@ class TestPolicyAutoNormalization:
         assert policy.rules[0].id is not None
         assert policy.rules[0].id.startswith("rule_")
 
-    def test_load_auto_saves_when_ids_generated(self, temp_policy_dir):
+    def test_load_auto_saves_when_ids_generated(self, temp_policy_dir: Path) -> None:
         """Given policy without rule IDs, loading auto-saves with generated IDs."""
         # Arrange - write policy file without IDs
         path = temp_policy_dir / "policy.json"
@@ -695,7 +703,7 @@ class TestPolicyAutoNormalization:
 
         assert saved_data["rules"][0]["id"] == generated_id
 
-    def test_load_does_not_save_when_ids_present(self, temp_policy_dir):
+    def test_load_does_not_save_when_ids_present(self, temp_policy_dir: Path) -> None:
         """Given policy with all rule IDs, loading does not modify file."""
         # Arrange - write policy file with IDs
         path = temp_policy_dir / "policy.json"
@@ -718,7 +726,7 @@ class TestPolicyAutoNormalization:
         # Assert - file was not modified
         assert path.stat().st_mtime == original_mtime
 
-    def test_load_normalize_false_skips_save(self, temp_policy_dir):
+    def test_load_normalize_false_skips_save(self, temp_policy_dir: Path) -> None:
         """Given normalize=False, loading does not save even if IDs generated."""
         # Arrange - write policy file without IDs
         path = temp_policy_dir / "policy.json"
@@ -743,7 +751,7 @@ class TestPolicyAutoNormalization:
         assert policy.rules[0].id is not None
         assert path.stat().st_mtime == original_mtime
 
-    def test_load_normalizes_multiple_rules(self, temp_policy_dir):
+    def test_load_normalizes_multiple_rules(self, temp_policy_dir: Path) -> None:
         """Given multiple rules without IDs, all get IDs and file is saved."""
         # Arrange
         path = temp_policy_dir / "policy.json"
@@ -779,7 +787,7 @@ class TestPolicyAutoNormalization:
         assert saved_data["rules"][1]["id"] == policy.rules[1].id
         assert saved_data["rules"][2]["id"] == "existing-id"
 
-    def test_load_normalization_is_idempotent(self, temp_policy_dir):
+    def test_load_normalization_is_idempotent(self, temp_policy_dir: Path) -> None:
         """Given normalized file, subsequent loads don't modify it."""
         # Arrange - create file without IDs
         path = temp_policy_dir / "policy.json"
@@ -807,7 +815,9 @@ class TestPolicyAutoNormalization:
         assert policy1.rules[0].id == policy2.rules[0].id
         assert path.stat().st_mtime == mtime_after_first
 
-    def test_load_normalization_failure_logs_warning(self, temp_policy_dir, caplog, monkeypatch):
+    def test_load_normalization_failure_logs_warning(
+        self, temp_policy_dir: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Given save failure during normalization, logs warning and returns policy."""
         import logging
 
@@ -906,12 +916,12 @@ class TestMatchPathPattern:
             "star-with-slash",
         ],
     )
-    def test_pattern_matching(self, pattern, path, expected):
+    def test_pattern_matching(self, pattern: str, path: str, expected: bool) -> None:
         """Given pattern and path, returns expected match result."""
         # Act & Assert
         assert match_path_pattern(pattern, path) == expected
 
-    def test_none_path_never_matches(self):
+    def test_none_path_never_matches(self) -> None:
         """Given None path, returns False regardless of pattern."""
         # Act & Assert
         assert match_path_pattern("/project/**", None) is False
@@ -925,7 +935,7 @@ class TestMatchPathPattern:
 class TestSourceDestPathConditions:
     """Tests for source_path and dest_path condition matching."""
 
-    def test_source_path_condition_matches(self):
+    def test_source_path_condition_matches(self) -> None:
         """Given source_path condition, matches source path in context."""
         # Arrange
         rule = PolicyRule(
@@ -946,7 +956,7 @@ class TestSourceDestPathConditions:
         # Assert
         assert decision == Decision.DENY
 
-    def test_dest_path_condition_matches(self):
+    def test_dest_path_condition_matches(self) -> None:
         """Given dest_path condition, matches destination path in context."""
         # Arrange
         rule = PolicyRule(
@@ -967,7 +977,7 @@ class TestSourceDestPathConditions:
         # Assert
         assert decision == Decision.DENY
 
-    def test_source_and_dest_both_must_match(self):
+    def test_source_and_dest_both_must_match(self) -> None:
         """Given both source_path and dest_path conditions, both must match (AND)."""
         # Arrange
         rule = PolicyRule(
@@ -996,7 +1006,7 @@ class TestSourceDestPathConditions:
         assert engine.evaluate(context_match) == Decision.ALLOW
         assert engine.evaluate(context_no_match) == Decision.DENY  # default
 
-    def test_source_path_none_does_not_match(self):
+    def test_source_path_none_does_not_match(self) -> None:
         """Given source_path condition but no source in context, no match."""
         # Arrange
         rule = PolicyRule(
@@ -1101,12 +1111,12 @@ class TestMatchToolName:
             "prefix-execute",
         ],
     )
-    def test_pattern_matching(self, pattern, name, expected):
+    def test_pattern_matching(self, pattern: str, name: str, expected: bool) -> None:
         """Given pattern and tool name, returns expected match result."""
         # Act & Assert
         assert match_tool_name(pattern, name) == expected
 
-    def test_none_name_never_matches(self):
+    def test_none_name_never_matches(self) -> None:
         """Given None name, returns False regardless of pattern."""
         # Act & Assert
         assert match_tool_name("bash", None) is False
@@ -1131,7 +1141,7 @@ class TestInferOperation:
         ],
         ids=["read", "get", "list", "fetch", "search"],
     )
-    def test_infers_read_operation(self, tool_name, expected):
+    def test_infers_read_operation(self, tool_name: str, expected: str) -> None:
         """Given read-like tool name, infers 'read' operation."""
         # Act & Assert
         assert infer_operation(tool_name) == expected
@@ -1147,7 +1157,7 @@ class TestInferOperation:
         ],
         ids=["write", "create", "edit", "update", "save"],
     )
-    def test_infers_write_operation(self, tool_name, expected):
+    def test_infers_write_operation(self, tool_name: str, expected: str) -> None:
         """Given write-like tool name, infers 'write' operation."""
         # Act & Assert
         assert infer_operation(tool_name) == expected
@@ -1162,7 +1172,7 @@ class TestInferOperation:
         ],
         ids=["delete", "remove", "drop", "clear"],
     )
-    def test_infers_delete_operation(self, tool_name, expected):
+    def test_infers_delete_operation(self, tool_name: str, expected: str) -> None:
         """Given delete-like tool name, infers 'delete' operation."""
         # Act & Assert
         assert infer_operation(tool_name) == expected
@@ -1172,7 +1182,7 @@ class TestInferOperation:
         ["bash", "execute_command", "process_data"],
         ids=["bash", "execute", "process"],
     )
-    def test_returns_none_for_unknown(self, tool_name):
+    def test_returns_none_for_unknown(self, tool_name: str) -> None:
         """Given ambiguous tool name, returns None (unknown operation)."""
         # Act & Assert
         assert infer_operation(tool_name) is None
@@ -1186,7 +1196,7 @@ class TestInferOperation:
 class TestMatchOperations:
     """Tests for operation constraint matching."""
 
-    def test_none_constraint_matches_any_operation(self):
+    def test_none_constraint_matches_any_operation(self) -> None:
         """Given no constraint, matches any operation."""
         # Act & Assert
         assert _match_operations(None, "read") is True
@@ -1203,12 +1213,12 @@ class TestMatchOperations:
         ],
         ids=["single-match", "single-no-match", "multi-match", "all-operations"],
     )
-    def test_constraint_matching(self, constraint, operation, expected):
+    def test_constraint_matching(self, constraint: list[str], operation: str, expected: bool) -> None:
         """Given operation constraint, returns expected match result."""
         # Act & Assert
         assert _match_operations(constraint, operation) == expected
 
-    def test_unknown_operation_fails_specific_constraint(self):
+    def test_unknown_operation_fails_specific_constraint(self) -> None:
         """Given specific constraint and unknown operation, returns False."""
         # Act & Assert
         assert _match_operations(["read"], None) is False
@@ -1222,7 +1232,9 @@ class TestMatchOperations:
 class TestPolicyEngineDiscovery:
     """Tests for discovery method handling."""
 
-    def test_discovery_methods_bypass_policy(self, sample_policy, make_context):
+    def test_discovery_methods_bypass_policy(
+        self, sample_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given discovery method, returns ALLOW without checking rules."""
         # Arrange
         engine = PolicyEngine(sample_policy)
@@ -1243,7 +1255,7 @@ class TestPolicyEngineDiscovery:
 class TestPolicyEngineDefaultAction:
     """Tests for default action when no rules match."""
 
-    def test_denies_when_no_match(self, make_context):
+    def test_denies_when_no_match(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given no matching rules, returns default DENY."""
         # Arrange
         policy = PolicyConfig(
@@ -1270,7 +1282,9 @@ class TestPolicyEngineDefaultAction:
 class TestPolicyEngineToolMatching:
     """Tests for tool name-based policy evaluation."""
 
-    def test_denies_matching_tool(self, deny_bash_policy, make_context):
+    def test_denies_matching_tool(
+        self, deny_bash_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given tool matching deny rule, returns DENY."""
         # Arrange
         engine = PolicyEngine(deny_bash_policy)
@@ -1282,7 +1296,9 @@ class TestPolicyEngineToolMatching:
         # Assert
         assert decision == Decision.DENY
 
-    def test_allows_non_matching_tool(self, deny_bash_policy, make_context):
+    def test_allows_non_matching_tool(
+        self, deny_bash_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given tool not matching deny rule, returns ALLOW."""
         # Arrange
         engine = PolicyEngine(deny_bash_policy)
@@ -1303,7 +1319,9 @@ class TestPolicyEngineToolMatching:
 class TestPolicyEnginePathMatching:
     """Tests for path pattern-based policy evaluation."""
 
-    def test_denies_matching_path(self, path_based_policy, make_context):
+    def test_denies_matching_path(
+        self, path_based_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given path matching deny rule, returns DENY."""
         # Arrange
         engine = PolicyEngine(path_based_policy)
@@ -1315,7 +1333,9 @@ class TestPolicyEnginePathMatching:
         # Assert
         assert decision == Decision.DENY
 
-    def test_allows_matching_path(self, path_based_policy, make_context):
+    def test_allows_matching_path(
+        self, path_based_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given path matching allow rule, returns ALLOW."""
         # Arrange
         engine = PolicyEngine(path_based_policy)
@@ -1327,7 +1347,9 @@ class TestPolicyEnginePathMatching:
         # Assert
         assert decision == Decision.ALLOW
 
-    def test_denies_unmatched_path(self, path_based_policy, make_context):
+    def test_denies_unmatched_path(
+        self, path_based_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given path matching no rule, returns default DENY."""
         # Arrange
         engine = PolicyEngine(path_based_policy)
@@ -1349,7 +1371,7 @@ class TestPolicyEngineCombinedConditions:
     """Tests for AND logic in rule conditions."""
 
     @pytest.fixture
-    def combined_conditions_policy(self):
+    def combined_conditions_policy(self) -> PolicyConfig:
         """Policy with combined tool + path conditions."""
         return PolicyConfig(
             rules=[
@@ -1363,7 +1385,9 @@ class TestPolicyEngineCombinedConditions:
             ]
         )
 
-    def test_allows_when_both_match(self, combined_conditions_policy, make_context):
+    def test_allows_when_both_match(
+        self, combined_conditions_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given both conditions match, returns ALLOW."""
         # Arrange
         engine = PolicyEngine(combined_conditions_policy)
@@ -1375,7 +1399,9 @@ class TestPolicyEngineCombinedConditions:
         # Assert
         assert decision == Decision.ALLOW
 
-    def test_denies_when_tool_matches_but_path_fails(self, combined_conditions_policy, make_context):
+    def test_denies_when_tool_matches_but_path_fails(
+        self, combined_conditions_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given tool matches but path doesn't, returns DENY."""
         # Arrange
         engine = PolicyEngine(combined_conditions_policy)
@@ -1387,7 +1413,9 @@ class TestPolicyEngineCombinedConditions:
         # Assert
         assert decision == Decision.DENY
 
-    def test_denies_when_path_matches_but_tool_fails(self, combined_conditions_policy, make_context):
+    def test_denies_when_path_matches_but_tool_fails(
+        self, combined_conditions_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given path matches but tool doesn't, returns DENY."""
         # Arrange
         engine = PolicyEngine(combined_conditions_policy)
@@ -1409,7 +1437,7 @@ class TestPolicyEngineOperationInference:
     """Tests for operation-based policy evaluation."""
 
     @pytest.fixture
-    def operation_policy(self):
+    def operation_policy(self) -> PolicyConfig:
         """Policy with operation-based rules."""
         return PolicyConfig(
             rules=[
@@ -1418,7 +1446,9 @@ class TestPolicyEngineOperationInference:
             ]
         )
 
-    def test_allows_read_operation(self, operation_policy, make_context):
+    def test_allows_read_operation(
+        self, operation_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given read-like tool, returns ALLOW."""
         # Arrange
         engine = PolicyEngine(operation_policy)
@@ -1430,7 +1460,9 @@ class TestPolicyEngineOperationInference:
         # Assert
         assert decision == Decision.ALLOW
 
-    def test_hitl_for_write_operation(self, operation_policy, make_context):
+    def test_hitl_for_write_operation(
+        self, operation_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given write-like tool, returns HITL."""
         # Arrange
         engine = PolicyEngine(operation_policy)
@@ -1442,7 +1474,9 @@ class TestPolicyEngineOperationInference:
         # Assert
         assert decision == Decision.HITL
 
-    def test_denies_unknown_operation(self, operation_policy, make_context):
+    def test_denies_unknown_operation(
+        self, operation_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given tool with unknown operation, returns DENY."""
         # Arrange
         engine = PolicyEngine(operation_policy)
@@ -1463,7 +1497,7 @@ class TestPolicyEngineOperationInference:
 class TestPolicyEngineWildcard:
     """Tests for wildcard condition matching."""
 
-    def test_wildcard_matches_all_tools(self, make_context):
+    def test_wildcard_matches_all_tools(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given wildcard tool_name, matches any tool."""
         # Arrange
         policy = PolicyConfig(
@@ -1486,7 +1520,7 @@ class TestPolicyEngineWildcard:
 class TestPolicyEngineCombiningAlgorithm:
     """Tests for decision combining algorithm: HITL > DENY > ALLOW."""
 
-    def test_deny_overrides_allow(self, make_context):
+    def test_deny_overrides_allow(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given matching ALLOW and DENY rules, DENY wins."""
         # Arrange
         policy = PolicyConfig(
@@ -1504,7 +1538,7 @@ class TestPolicyEngineCombiningAlgorithm:
         # Assert
         assert decision == Decision.DENY
 
-    def test_hitl_overrides_deny(self, make_context):
+    def test_hitl_overrides_deny(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given matching DENY and HITL rules, HITL wins."""
         # Arrange
         policy = PolicyConfig(
@@ -1522,7 +1556,7 @@ class TestPolicyEngineCombiningAlgorithm:
         # Assert
         assert decision == Decision.HITL
 
-    def test_hitl_overrides_allow(self, make_context):
+    def test_hitl_overrides_allow(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given matching ALLOW and HITL rules, HITL wins."""
         # Arrange
         policy = PolicyConfig(
@@ -1549,7 +1583,9 @@ class TestPolicyEngineCombiningAlgorithm:
 class TestPolicyEngineHITL:
     """Tests for HITL decision handling."""
 
-    def test_hitl_rule_returns_hitl_decision(self, sample_policy, make_context):
+    def test_hitl_rule_returns_hitl_decision(
+        self, sample_policy: PolicyConfig, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given matching HITL rule, returns HITL decision."""
         # Arrange
         engine = PolicyEngine(sample_policy)
@@ -1570,7 +1606,9 @@ class TestPolicyEngineHITL:
 class TestPolicyIntegration:
     """Integration tests for the full policy workflow."""
 
-    def test_create_save_load_evaluate(self, temp_policy_dir, make_context):
+    def test_create_save_load_evaluate(
+        self, temp_policy_dir: Path, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given complete workflow, policy correctly evaluates after save/load."""
         # Arrange - Create policy
         policy = PolicyConfig(
@@ -1610,7 +1648,9 @@ class TestPolicyIntegration:
 class TestPolicyEngineCriticalFailures:
     """Tests for PolicyEnforcementFailure on unexpected errors."""
 
-    def test_raises_policy_enforcement_failure_on_unexpected_error(self, make_context, monkeypatch):
+    def test_raises_policy_enforcement_failure_on_unexpected_error(
+        self, make_context: Callable[..., DecisionContext], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Given unexpected exception during evaluation, raises PolicyEnforcementFailure."""
         # Arrange
         policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="*"))])
@@ -1627,7 +1667,9 @@ class TestPolicyEngineCriticalFailures:
         with pytest.raises(PolicyEnforcementFailure, match="Policy evaluation failed unexpectedly"):
             engine.evaluate(ctx)
 
-    def test_policy_enforcement_failure_includes_original_error(self, make_context, monkeypatch):
+    def test_policy_enforcement_failure_includes_original_error(
+        self, make_context: Callable[..., DecisionContext], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Given unexpected exception, PolicyEnforcementFailure includes original error details."""
         # Arrange
         policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="*"))])
@@ -1656,23 +1698,23 @@ class TestPolicyEngineCriticalFailures:
 class TestMatchAny:
     """Tests for _match_any helper function."""
 
-    def test_none_pattern_matches_anything(self):
+    def test_none_pattern_matches_anything(self) -> None:
         """Given None pattern, matches any value."""
         assert _match_any(None, "anything", match_tool_name) is True
         assert _match_any(None, None, match_tool_name) is True
 
-    def test_single_string_pattern_uses_match_fn(self):
+    def test_single_string_pattern_uses_match_fn(self) -> None:
         """Given single string pattern, uses match function directly."""
         assert _match_any("bash", "bash", match_tool_name) is True
         assert _match_any("bash", "rm", match_tool_name) is False
         assert _match_any("write_*", "write_file", match_tool_name) is True
 
-    def test_empty_list_never_matches(self):
+    def test_empty_list_never_matches(self) -> None:
         """Given empty list, never matches (no valid values)."""
         assert _match_any([], "bash", match_tool_name) is False
         assert _match_any([], None, match_tool_name) is False
 
-    def test_list_matches_if_any_pattern_matches(self):
+    def test_list_matches_if_any_pattern_matches(self) -> None:
         """Given list of patterns, matches if ANY matches (OR logic)."""
         patterns = ["bash", "rm", "mv"]
         assert _match_any(patterns, "bash", match_tool_name) is True
@@ -1680,14 +1722,14 @@ class TestMatchAny:
         assert _match_any(patterns, "mv", match_tool_name) is True
         assert _match_any(patterns, "cp", match_tool_name) is False
 
-    def test_list_with_glob_patterns(self):
+    def test_list_with_glob_patterns(self) -> None:
         """Given list with glob patterns, matches if any pattern matches."""
         patterns = ["write_*", "edit_*", "save_*"]
         assert _match_any(patterns, "write_file", match_tool_name) is True
         assert _match_any(patterns, "edit_document", match_tool_name) is True
         assert _match_any(patterns, "read_file", match_tool_name) is False
 
-    def test_works_with_path_pattern_matcher(self):
+    def test_works_with_path_pattern_matcher(self) -> None:
         """Given path patterns, works with match_path_pattern."""
         patterns = ["/project/**", "/tmp/**"]
         assert _match_any(patterns, "/project/src/main.py", match_path_pattern) is True
@@ -1698,22 +1740,22 @@ class TestMatchAny:
 class TestListConditionsModel:
     """Tests for RuleConditions accepting list values."""
 
-    def test_tool_name_accepts_single_string(self):
+    def test_tool_name_accepts_single_string(self) -> None:
         """Given single string tool_name, creates conditions successfully."""
         conditions = RuleConditions(tool_name="bash")
         assert conditions.tool_name == "bash"
 
-    def test_tool_name_accepts_list(self):
+    def test_tool_name_accepts_list(self) -> None:
         """Given list of tool names, creates conditions successfully."""
         conditions = RuleConditions(tool_name=["bash", "rm", "mv"])
         assert conditions.tool_name == ["bash", "rm", "mv"]
 
-    def test_path_pattern_accepts_list(self):
+    def test_path_pattern_accepts_list(self) -> None:
         """Given list of path patterns, creates conditions successfully."""
         conditions = RuleConditions(path_pattern=["/project/**", "/tmp/**"])
         assert conditions.path_pattern == ["/project/**", "/tmp/**"]
 
-    def test_multiple_list_conditions(self):
+    def test_multiple_list_conditions(self) -> None:
         """Given multiple list conditions, creates conditions successfully."""
         conditions = RuleConditions(
             tool_name=["bash", "rm"],
@@ -1722,22 +1764,22 @@ class TestListConditionsModel:
         assert conditions.tool_name == ["bash", "rm"]
         assert conditions.path_pattern == ["/etc/**", "/var/**"]
 
-    def test_rejects_empty_string(self):
+    def test_rejects_empty_string(self) -> None:
         """Given empty string, raises ValidationError."""
         with pytest.raises(ValidationError, match="empty or whitespace"):
             RuleConditions(tool_name="")
 
-    def test_rejects_whitespace_only_string(self):
+    def test_rejects_whitespace_only_string(self) -> None:
         """Given whitespace-only string, raises ValidationError."""
         with pytest.raises(ValidationError, match="empty or whitespace"):
             RuleConditions(tool_name="   ")
 
-    def test_rejects_empty_string_in_list(self):
+    def test_rejects_empty_string_in_list(self) -> None:
         """Given list containing empty string, raises ValidationError."""
         with pytest.raises(ValidationError, match="empty or whitespace"):
             RuleConditions(tool_name=["bash", ""])
 
-    def test_rejects_whitespace_in_list(self):
+    def test_rejects_whitespace_in_list(self) -> None:
         """Given list containing whitespace-only string, raises ValidationError."""
         with pytest.raises(ValidationError, match="empty or whitespace"):
             RuleConditions(tool_name=["bash", "   "])
@@ -1746,7 +1788,7 @@ class TestListConditionsModel:
 class TestListConditionsEngine:
     """Tests for PolicyEngine with list conditions."""
 
-    def test_tool_name_list_matches_any(self, make_context):
+    def test_tool_name_list_matches_any(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given tool_name list, matches if tool is ANY in list."""
         policy = PolicyConfig(
             rules=[
@@ -1766,7 +1808,7 @@ class TestListConditionsEngine:
         # Should use default (deny) for other tools - no allow rule
         assert engine.evaluate(make_context(tool_name="cp")) == Decision.DENY
 
-    def test_tool_name_list_with_allow_rule(self, make_context):
+    def test_tool_name_list_with_allow_rule(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given tool_name list in allow rule, allows matching tools."""
         policy = PolicyConfig(
             rules=[
@@ -1785,7 +1827,7 @@ class TestListConditionsEngine:
         # Should deny other tools (default action)
         assert engine.evaluate(make_context(tool_name="write_file")) == Decision.DENY
 
-    def test_path_pattern_list_matches_any(self, make_context):
+    def test_path_pattern_list_matches_any(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given path_pattern list, matches if path matches ANY pattern."""
         policy = PolicyConfig(
             rules=[
@@ -1810,7 +1852,7 @@ class TestListConditionsEngine:
         # Should deny path not matching any pattern
         assert engine.evaluate(make_context(tool_name="read_file", path="/etc/passwd")) == Decision.DENY
 
-    def test_mixed_list_and_single_uses_and_logic(self, make_context):
+    def test_mixed_list_and_single_uses_and_logic(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given list in one field and single in another, uses AND across fields."""
         policy = PolicyConfig(
             rules=[
@@ -1839,7 +1881,7 @@ class TestListConditionsEngine:
         # Should allow: cp on /etc (doesn't match deny rule - tool not in list)
         assert engine.evaluate(make_context(tool_name="cp", path="/etc/passwd")) == Decision.ALLOW
 
-    def test_empty_list_never_matches(self, make_context):
+    def test_empty_list_never_matches(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given empty list, rule never matches."""
         policy = PolicyConfig(
             rules=[
@@ -1859,7 +1901,7 @@ class TestListConditionsEngine:
         assert engine.evaluate(make_context(tool_name="bash")) == Decision.ALLOW
         assert engine.evaluate(make_context(tool_name="anything")) == Decision.ALLOW
 
-    def test_glob_patterns_in_list(self, make_context):
+    def test_glob_patterns_in_list(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given list with glob patterns, each pattern is matched."""
         policy = PolicyConfig(
             rules=[
@@ -1883,7 +1925,9 @@ class TestListConditionsEngine:
         # Should allow read_* (doesn't match any deny pattern)
         assert engine.evaluate(make_context(tool_name="read_file")) == Decision.ALLOW
 
-    def test_backward_compat_single_string_still_works(self, make_context):
+    def test_backward_compat_single_string_still_works(
+        self, make_context: Callable[..., DecisionContext]
+    ) -> None:
         """Given single string values (old format), still works."""
         policy = PolicyConfig(
             rules=[
@@ -1915,7 +1959,7 @@ class TestSubjectBasedConditions:
     which is security-critical for multi-user deployments.
     """
 
-    def test_subject_id_exact_match_allows(self, make_context):
+    def test_subject_id_exact_match_allows(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given subject_id condition, allows matching user."""
         policy = PolicyConfig(
             rules=[
@@ -1933,7 +1977,7 @@ class TestSubjectBasedConditions:
         # Bob should be denied (default action)
         assert engine.evaluate(make_context(subject_id="bob")) == Decision.DENY
 
-    def test_subject_id_exact_match_denies(self, make_context):
+    def test_subject_id_exact_match_denies(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given subject_id deny rule, denies matching user."""
         policy = PolicyConfig(
             rules=[
@@ -1955,7 +1999,7 @@ class TestSubjectBasedConditions:
         # Alice should be allowed (falls through to allow rule)
         assert engine.evaluate(make_context(subject_id="alice")) == Decision.ALLOW
 
-    def test_subject_id_is_case_sensitive(self, make_context):
+    def test_subject_id_is_case_sensitive(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given subject_id condition, matching is case-sensitive."""
         policy = PolicyConfig(
             rules=[
@@ -1974,7 +2018,7 @@ class TestSubjectBasedConditions:
         assert engine.evaluate(make_context(subject_id="alice")) == Decision.DENY
         assert engine.evaluate(make_context(subject_id="ALICE")) == Decision.DENY
 
-    def test_subject_id_list_matches_any(self, make_context):
+    def test_subject_id_list_matches_any(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given subject_id list, allows any user in list."""
         policy = PolicyConfig(
             rules=[
@@ -1994,7 +2038,7 @@ class TestSubjectBasedConditions:
         # Unlisted user should be denied
         assert engine.evaluate(make_context(subject_id="mallory")) == Decision.DENY
 
-    def test_subject_id_combined_with_tool_name(self, make_context):
+    def test_subject_id_combined_with_tool_name(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given subject_id AND tool_name, both must match."""
         policy = PolicyConfig(
             rules=[
@@ -2019,7 +2063,7 @@ class TestSubjectBasedConditions:
         # Non-admin using bash - denied (subject doesn't match)
         assert engine.evaluate(make_context(subject_id="user", tool_name="bash")) == Decision.DENY
 
-    def test_subject_id_combined_with_path(self, make_context):
+    def test_subject_id_combined_with_path(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given subject_id AND path_pattern, both must match."""
         policy = PolicyConfig(
             rules=[
@@ -2054,7 +2098,7 @@ class TestSubjectBasedConditions:
         # Bob accessing his home - allowed
         assert engine.evaluate(make_context(subject_id="bob", path="/home/bob/file.txt")) == Decision.ALLOW
 
-    def test_subject_id_hitl_for_elevated_actions(self, make_context):
+    def test_subject_id_hitl_for_elevated_actions(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given HITL rule with subject_id, requires approval for user."""
         policy = PolicyConfig(
             rules=[
@@ -2083,7 +2127,7 @@ class TestSubjectBasedConditions:
         # Senior dev writing is allowed (subject doesn't match)
         assert engine.evaluate(make_context(subject_id="senior", tool_name="write_file")) == Decision.ALLOW
 
-    def test_subject_id_oidc_format(self, make_context):
+    def test_subject_id_oidc_format(self, make_context: Callable[..., DecisionContext]) -> None:
         """Given OIDC-style subject_id (issuer|id), matches correctly."""
         policy = PolicyConfig(
             rules=[

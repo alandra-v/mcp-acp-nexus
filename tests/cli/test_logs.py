@@ -72,7 +72,7 @@ def sample_system_log() -> str:
 
 
 @pytest.fixture
-def mock_config():
+def mock_config() -> MagicMock:
     """Create a mock config object."""
     config = MagicMock()
     config.logging.log_dir = "/tmp/test-logs"
@@ -82,7 +82,9 @@ def mock_config():
 class TestLogsShowCommand:
     """Tests for logs show command (JSON output)."""
 
-    def test_show_outputs_jsonl(self, runner: CliRunner, sample_decisions_log: str, mock_config: MagicMock):
+    def test_show_outputs_jsonl(
+        self, runner: CliRunner, sample_decisions_log: str, mock_config: MagicMock
+    ) -> None:
         """Given log file exists, outputs JSONL."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
@@ -90,7 +92,7 @@ class TestLogsShowCommand:
             log_path.write_text(sample_decisions_log)
 
             with patch(
-                "mcp_acp.cli.commands.logs._load_config",
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch(
@@ -109,7 +111,9 @@ class TestLogsShowCommand:
             data = json.loads(line)
             assert "decision" in data
 
-    def test_show_respects_limit(self, runner: CliRunner, sample_decisions_log: str, mock_config: MagicMock):
+    def test_show_respects_limit(
+        self, runner: CliRunner, sample_decisions_log: str, mock_config: MagicMock
+    ) -> None:
         """Given --limit flag, shows only that many entries."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
@@ -117,7 +121,7 @@ class TestLogsShowCommand:
             log_path.write_text(sample_decisions_log)
 
             with patch(
-                "mcp_acp.cli.commands.logs._load_config",
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch(
@@ -132,14 +136,14 @@ class TestLogsShowCommand:
         lines = [l for l in result.output.strip().split("\n") if l]
         assert len(lines) == 1
 
-    def test_show_missing_log_file(self, runner: CliRunner, mock_config: MagicMock):
+    def test_show_missing_log_file(self, runner: CliRunner, mock_config: MagicMock) -> None:
         """Given missing log file, shows JSON error."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
             log_path = Path(tmpdir) / "nonexistent.jsonl"
 
             with patch(
-                "mcp_acp.cli.commands.logs._load_config",
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch(
@@ -154,7 +158,7 @@ class TestLogsShowCommand:
         data = json.loads(result.output)
         assert "error" in data
 
-    def test_show_empty_log_file(self, runner: CliRunner, mock_config: MagicMock):
+    def test_show_empty_log_file(self, runner: CliRunner, mock_config: MagicMock) -> None:
         """Given empty log file, shows JSON with empty entries."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
@@ -162,7 +166,7 @@ class TestLogsShowCommand:
             log_path.write_text("")
 
             with patch(
-                "mcp_acp.cli.commands.logs._load_config",
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch(
@@ -177,13 +181,17 @@ class TestLogsShowCommand:
         data = json.loads(result.output)
         assert data["entries"] == []
 
-    def test_show_missing_config(self, runner: CliRunner):
+    def test_show_missing_config(self, runner: CliRunner) -> None:
         """Given missing config file, shows error."""
         # Arrange
+        import click
+
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.logs.get_config_path",
-                return_value=Path("nonexistent.json"),
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
+                side_effect=click.ClickException(
+                    "Configuration not found at nonexistent.json\nRun 'mcp-acp init' to create configuration."
+                ),
             ):
                 # Act
                 result = runner.invoke(cli, ["logs", "show", "--type=decisions"])
@@ -192,7 +200,7 @@ class TestLogsShowCommand:
         assert result.exit_code == 1
         assert "not found" in result.output.lower() or "Configuration" in result.output
 
-    def test_show_requires_type_flag(self, runner: CliRunner):
+    def test_show_requires_type_flag(self, runner: CliRunner) -> None:
         """Given no --type flag, shows error."""
         # Act
         result = runner.invoke(cli, ["logs", "show"])
@@ -205,12 +213,12 @@ class TestLogsShowCommand:
 class TestLogsListCommand:
     """Tests for logs list command."""
 
-    def test_list_shows_available_types(self, runner: CliRunner, mock_config: MagicMock):
+    def test_list_shows_available_types(self, runner: CliRunner, mock_config: MagicMock) -> None:
         """Given config, shows all log types."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
             with patch(
-                "mcp_acp.cli.commands.logs._load_config",
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch(
@@ -243,7 +251,7 @@ class TestLogsListCommand:
 class TestLogsTailCommand:
     """Tests for logs tail command."""
 
-    def test_tail_requires_type_flag(self, runner: CliRunner):
+    def test_tail_requires_type_flag(self, runner: CliRunner) -> None:
         """Given no --type flag, shows error."""
         # Act
         result = runner.invoke(cli, ["logs", "tail"])
@@ -252,7 +260,7 @@ class TestLogsTailCommand:
         assert result.exit_code == 2  # Click error for missing required option
         assert "--type" in result.output
 
-    def test_tail_help_shows_options(self, runner: CliRunner):
+    def test_tail_help_shows_options(self, runner: CliRunner) -> None:
         """Given logs tail --help, shows options."""
         # Act
         result = runner.invoke(cli, ["logs", "tail", "--help"])
@@ -265,7 +273,7 @@ class TestLogsTailCommand:
 class TestLogsHelp:
     """Tests for logs command help."""
 
-    def test_logs_help_shows_subcommands(self, runner: CliRunner):
+    def test_logs_help_shows_subcommands(self, runner: CliRunner) -> None:
         """Given logs --help, shows available subcommands."""
         # Act
         result = runner.invoke(cli, ["logs", "--help"])
@@ -276,7 +284,7 @@ class TestLogsHelp:
         assert "tail" in result.output
         assert "list" in result.output
 
-    def test_logs_show_help_shows_options(self, runner: CliRunner):
+    def test_logs_show_help_shows_options(self, runner: CliRunner) -> None:
         """Given logs show --help, shows options."""
         # Act
         result = runner.invoke(cli, ["logs", "show", "--help"])
@@ -290,7 +298,7 @@ class TestLogsHelp:
 class TestLogsTypeValidation:
     """Tests for log type validation."""
 
-    def test_show_invalid_type_shows_error(self, runner: CliRunner):
+    def test_show_invalid_type_shows_error(self, runner: CliRunner) -> None:
         """Given invalid log type, shows error."""
         # Act
         result = runner.invoke(cli, ["logs", "show", "--type=invalid"])
@@ -300,7 +308,9 @@ class TestLogsTypeValidation:
         assert "invalid" in result.output.lower()
 
     @pytest.mark.parametrize("log_type", ["decisions", "operations", "auth", "system"])
-    def test_show_valid_types_accepted(self, runner: CliRunner, log_type: str, mock_config: MagicMock):
+    def test_show_valid_types_accepted(
+        self, runner: CliRunner, log_type: str, mock_config: MagicMock
+    ) -> None:
         """Given valid log types, command proceeds."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
@@ -308,7 +318,7 @@ class TestLogsTypeValidation:
             log_path.write_text("")
 
             with patch(
-                "mcp_acp.cli.commands.logs._load_config",
+                "mcp_acp.cli.commands.logs.load_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch(

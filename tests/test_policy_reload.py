@@ -21,7 +21,7 @@ from mcp_acp.pep.reloader import PolicyReloader, ReloadResult
 
 
 @pytest.fixture
-def sample_policy():
+def sample_policy() -> PolicyConfig:
     """Create a sample policy for testing."""
     return PolicyConfig(
         version="1",
@@ -37,7 +37,7 @@ def sample_policy():
 
 
 @pytest.fixture
-def updated_policy():
+def updated_policy() -> PolicyConfig:
     """Create an updated policy for testing reload."""
     return PolicyConfig(
         version="1",
@@ -58,14 +58,14 @@ def updated_policy():
 
 
 @pytest.fixture
-def mock_logger():
+def mock_logger() -> MagicMock:
     """Create a mock logger."""
     logger = MagicMock(spec=logging.Logger)
     return logger
 
 
 @pytest.fixture
-def mock_middleware(sample_policy):
+def mock_middleware(sample_policy: PolicyConfig) -> MagicMock:
     """Create a mock PolicyEnforcementMiddleware."""
     middleware = MagicMock()
     middleware._engine = MagicMock()
@@ -87,7 +87,9 @@ def mock_middleware(sample_policy):
 class TestPolicyEngineReload:
     """Tests for PolicyEngine.reload_policy() method."""
 
-    def test_reload_swaps_policy_reference(self, sample_policy, updated_policy):
+    def test_reload_swaps_policy_reference(
+        self, sample_policy: PolicyConfig, updated_policy: PolicyConfig
+    ) -> None:
         """Given new policy, reload_policy swaps the reference."""
         # Arrange
         engine = PolicyEngine(sample_policy)
@@ -100,7 +102,7 @@ class TestPolicyEngineReload:
         assert engine.policy == updated_policy
         assert len(engine.policy.rules) == 2
 
-    def test_reload_is_atomic(self, sample_policy, updated_policy):
+    def test_reload_is_atomic(self, sample_policy: PolicyConfig, updated_policy: PolicyConfig) -> None:
         """Given reload, policy reference is atomically swapped."""
         # Arrange
         engine = PolicyEngine(sample_policy)
@@ -113,7 +115,9 @@ class TestPolicyEngineReload:
         assert engine.policy is not old_policy
         assert engine.policy is updated_policy
 
-    def test_reload_preserves_protected_dirs(self, sample_policy, updated_policy):
+    def test_reload_preserves_protected_dirs(
+        self, sample_policy: PolicyConfig, updated_policy: PolicyConfig
+    ) -> None:
         """Given reload, protected_dirs setting is preserved."""
         # Arrange
         protected = ("/etc", "/var")
@@ -134,7 +138,7 @@ class TestPolicyEngineReload:
 class TestPolicyReloader:
     """Tests for PolicyReloader class."""
 
-    def test_initial_state(self, mock_middleware, mock_logger):
+    def test_initial_state(self, mock_middleware: MagicMock, mock_logger: MagicMock) -> None:
         """Given new reloader, initial state is correct."""
         # Arrange & Act
         reloader = PolicyReloader(
@@ -149,7 +153,9 @@ class TestPolicyReloader:
         assert reloader.last_reload_at is None
         assert reloader.uptime_seconds >= 0
 
-    def test_current_rules_count(self, mock_middleware, mock_logger, sample_policy):
+    def test_current_rules_count(
+        self, mock_middleware: MagicMock, mock_logger: MagicMock, sample_policy: PolicyConfig
+    ) -> None:
         """Given reloader, current_rules_count returns correct count."""
         # Arrange
         reloader = PolicyReloader(
@@ -161,7 +167,9 @@ class TestPolicyReloader:
         assert reloader.current_rules_count == len(sample_policy.rules)
 
     @pytest.mark.asyncio
-    async def test_reload_success(self, mock_middleware, mock_logger, updated_policy, tmp_path):
+    async def test_reload_success(
+        self, mock_middleware: MagicMock, mock_logger: MagicMock, updated_policy: PolicyConfig, tmp_path: Path
+    ) -> None:
         """Given valid policy file, reload succeeds."""
         # Arrange
         from mcp_acp.utils.policy import save_policy
@@ -188,7 +196,9 @@ class TestPolicyReloader:
         # Note: logger.info() is not called on success - only SSE events are emitted
 
     @pytest.mark.asyncio
-    async def test_reload_file_not_found(self, mock_middleware, mock_logger, tmp_path):
+    async def test_reload_file_not_found(
+        self, mock_middleware: MagicMock, mock_logger: MagicMock, tmp_path: Path
+    ) -> None:
         """Given missing policy file, reload returns file_error."""
         # Arrange
         policy_path = tmp_path / "nonexistent.json"
@@ -209,7 +219,9 @@ class TestPolicyReloader:
         mock_logger.error.assert_called()
 
     @pytest.mark.asyncio
-    async def test_reload_validation_error(self, mock_middleware, mock_logger, tmp_path):
+    async def test_reload_validation_error(
+        self, mock_middleware: MagicMock, mock_logger: MagicMock, tmp_path: Path
+    ) -> None:
         """Given invalid policy file, reload returns validation_error."""
         # Arrange
         policy_path = tmp_path / "invalid.json"
@@ -231,7 +243,9 @@ class TestPolicyReloader:
         mock_logger.error.assert_called()
 
     @pytest.mark.asyncio
-    async def test_reload_updates_version(self, mock_middleware, mock_logger, updated_policy, tmp_path):
+    async def test_reload_updates_version(
+        self, mock_middleware: MagicMock, mock_logger: MagicMock, updated_policy: PolicyConfig, tmp_path: Path
+    ) -> None:
         """Given successful reload, version is updated."""
         # Arrange
         from mcp_acp.utils.policy import save_policy
@@ -263,7 +277,7 @@ class TestPolicyReloader:
 class TestReloadResult:
     """Tests for ReloadResult dataclass."""
 
-    def test_success_result(self):
+    def test_success_result(self) -> None:
         """Given success parameters, creates correct result."""
         # Act
         result = ReloadResult(
@@ -282,7 +296,7 @@ class TestReloadResult:
         assert result.policy_version == "v2"
         assert result.error is None
 
-    def test_error_result(self):
+    def test_error_result(self) -> None:
         """Given error parameters, creates correct result."""
         # Act
         result = ReloadResult(
@@ -306,7 +320,7 @@ class TestReloadResult:
 class TestCLIPolicyReload:
     """Tests for CLI 'policy reload' command."""
 
-    def test_reload_proxy_not_running(self):
+    def test_reload_proxy_not_running(self) -> None:
         """Given proxy not running, shows error message."""
         # Arrange
         from mcp_acp.cli.commands.policy import policy
@@ -326,7 +340,7 @@ class TestCLIPolicyReload:
         assert result.exit_code == 1
         assert "Proxy not running" in result.output or "Error" in result.output
 
-    def test_reload_success(self):
+    def test_reload_success(self) -> None:
         """Given running proxy, shows success message."""
         # Arrange
         from mcp_acp.cli.commands.policy import policy
@@ -355,7 +369,7 @@ class TestCLIPolicyReload:
         assert "3" in result.output
         assert "5" in result.output
 
-    def test_reload_validation_failure(self):
+    def test_reload_validation_failure(self) -> None:
         """Given validation error, shows error message."""
         # Arrange
         from mcp_acp.cli.commands.policy import policy

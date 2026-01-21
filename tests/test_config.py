@@ -74,21 +74,21 @@ def config_file(tmp_path: Path, valid_config_dict: dict) -> Path:
 class TestLoggingConfig:
     """LoggingConfig validation tests."""
 
-    def test_accepts_debug_level(self):
+    def test_accepts_debug_level(self) -> None:
         # Act
         config = LoggingConfig(log_dir="/tmp", log_level="DEBUG")
 
         # Assert
         assert config.log_level == "DEBUG"
 
-    def test_accepts_info_level(self):
+    def test_accepts_info_level(self) -> None:
         # Act
         config = LoggingConfig(log_dir="/tmp", log_level="INFO")
 
         # Assert
         assert config.log_level == "INFO"
 
-    def test_defaults_to_info_level(self):
+    def test_defaults_to_info_level(self) -> None:
         # Act
         config = LoggingConfig(log_dir="/tmp")
 
@@ -96,12 +96,12 @@ class TestLoggingConfig:
         assert config.log_level == "INFO"
 
     @pytest.mark.parametrize("invalid_level", ["WARNING", "ERROR", "TRACE", "warn", ""])
-    def test_rejects_invalid_log_level(self, invalid_level: str):
+    def test_rejects_invalid_log_level(self, invalid_level: str) -> None:
         # Act & Assert
         with pytest.raises(ValidationError):
             LoggingConfig(log_dir="/tmp", log_level=invalid_level)
 
-    def test_requires_log_dir(self):
+    def test_requires_log_dir(self) -> None:
         # Act & Assert
         with pytest.raises(ValidationError):
             LoggingConfig()
@@ -115,28 +115,28 @@ class TestLoggingConfig:
 class TestHttpTransportConfig:
     """HttpTransportConfig validation tests."""
 
-    def test_accepts_valid_timeout(self):
+    def test_accepts_valid_timeout(self) -> None:
         # Act
         config = HttpTransportConfig(url="http://localhost:3000/mcp", timeout=60)
 
         # Assert
         assert config.timeout == 60
 
-    def test_defaults_timeout_to_30(self):
+    def test_defaults_timeout_to_30(self) -> None:
         # Act
         config = HttpTransportConfig(url="http://localhost:3000/mcp")
 
         # Assert
         assert config.timeout == 30
 
-    def test_accepts_minimum_timeout(self):
+    def test_accepts_minimum_timeout(self) -> None:
         # Act
         config = HttpTransportConfig(url="http://localhost:3000/mcp", timeout=1)
 
         # Assert
         assert config.timeout == 1
 
-    def test_accepts_maximum_timeout(self):
+    def test_accepts_maximum_timeout(self) -> None:
         # Act
         config = HttpTransportConfig(url="http://localhost:3000/mcp", timeout=300)
 
@@ -144,7 +144,7 @@ class TestHttpTransportConfig:
         assert config.timeout == 300
 
     @pytest.mark.parametrize("invalid_timeout", [0, -1, -100, 301, 1000])
-    def test_rejects_invalid_timeout(self, invalid_timeout: int):
+    def test_rejects_invalid_timeout(self, invalid_timeout: int) -> None:
         # Act & Assert
         with pytest.raises(ValidationError):
             HttpTransportConfig(url="http://localhost:3000/mcp", timeout=invalid_timeout)
@@ -158,7 +158,7 @@ class TestHttpTransportConfig:
 class TestBackendConfig:
     """BackendConfig validation tests."""
 
-    def test_accepts_stdio_transport(self):
+    def test_accepts_stdio_transport(self) -> None:
         # Act
         config = BackendConfig(
             server_name="test",
@@ -169,7 +169,7 @@ class TestBackendConfig:
         # Assert
         assert config.transport == "stdio"
 
-    def test_accepts_streamablehttp_transport(self):
+    def test_accepts_streamablehttp_transport(self) -> None:
         # Act
         config = BackendConfig(
             server_name="test",
@@ -180,7 +180,7 @@ class TestBackendConfig:
         # Assert
         assert config.transport == "streamablehttp"
 
-    def test_accepts_auto_detect_transport(self):
+    def test_accepts_auto_detect_transport(self) -> None:
         # Act - transport="auto" means auto-detect at runtime
         config = BackendConfig(
             server_name="test",
@@ -194,7 +194,7 @@ class TestBackendConfig:
         assert config.stdio is not None
         assert config.http is not None
 
-    def test_defaults_to_auto_transport(self):
+    def test_defaults_to_auto_transport(self) -> None:
         # Act - transport defaults to "auto" if not specified
         config = BackendConfig(
             server_name="test",
@@ -205,7 +205,7 @@ class TestBackendConfig:
         assert config.transport == "auto"
 
     @pytest.mark.parametrize("invalid_transport", ["http", "sse", "grpc", ""])
-    def test_rejects_invalid_transport(self, invalid_transport: str):
+    def test_rejects_invalid_transport(self, invalid_transport: str) -> None:
         # Act & Assert
         with pytest.raises(ValidationError):
             BackendConfig(
@@ -214,7 +214,7 @@ class TestBackendConfig:
                 stdio=StdioTransportConfig(command="echo"),
             )
 
-    def test_allows_optional_transport_configs(self):
+    def test_allows_optional_transport_configs(self) -> None:
         # Transport configs are optional at model level
         # (runtime validation happens in validate_transport_config)
         config = BackendConfig(server_name="test", transport="stdio")
@@ -232,14 +232,14 @@ class TestBackendConfig:
 class TestAppConfig:
     """AppConfig validation tests."""
 
-    def test_validates_from_dict(self, valid_config_dict: dict):
+    def test_validates_from_dict(self, valid_config_dict: dict) -> None:
         # Act
         config = AppConfig.model_validate(valid_config_dict)
 
         # Assert
         assert config.backend.server_name == "test-server"
 
-    def test_requires_logging_section(self, valid_auth_config: AuthConfig):
+    def test_requires_logging_section(self, valid_auth_config: AuthConfig) -> None:
         # Act & Assert
         with pytest.raises(ValidationError):
             AppConfig(
@@ -251,7 +251,7 @@ class TestAppConfig:
                 auth=valid_auth_config,
             )
 
-    def test_requires_backend_section(self, valid_auth_config: AuthConfig):
+    def test_requires_backend_section(self, valid_auth_config: AuthConfig) -> None:
         # Act & Assert
         with pytest.raises(ValidationError):
             AppConfig(
@@ -259,7 +259,7 @@ class TestAppConfig:
                 auth=valid_auth_config,
             )
 
-    def test_auth_is_optional_for_development(self):
+    def test_auth_is_optional_for_development(self) -> None:
         # Auth is optional for development (falls back to LocalIdentityProvider)
         # Production deployments should always have auth configured
         config = AppConfig(
@@ -273,7 +273,7 @@ class TestAppConfig:
         # Assert auth defaults to None
         assert config.auth is None
 
-    def test_defaults_proxy_name(self, valid_auth_config: AuthConfig):
+    def test_defaults_proxy_name(self, valid_auth_config: AuthConfig) -> None:
         # Act
         config = AppConfig(
             logging=LoggingConfig(log_dir="/tmp"),
@@ -297,14 +297,14 @@ class TestAppConfig:
 class TestLoadFromFiles:
     """AppConfig.load_from_files() tests."""
 
-    def test_loads_valid_config(self, config_file: Path):
+    def test_loads_valid_config(self, config_file: Path) -> None:
         # Act
         config = AppConfig.load_from_files(config_file)
 
         # Assert
         assert config.backend.server_name == "test-server"
 
-    def test_raises_file_not_found(self, tmp_path: Path):
+    def test_raises_file_not_found(self, tmp_path: Path) -> None:
         # Arrange
         missing_path = tmp_path / "missing.json"
 
@@ -312,7 +312,7 @@ class TestLoadFromFiles:
         with pytest.raises(FileNotFoundError):
             AppConfig.load_from_files(missing_path)
 
-    def test_raises_value_error_for_invalid_json(self, tmp_path: Path):
+    def test_raises_value_error_for_invalid_json(self, tmp_path: Path) -> None:
         # Arrange
         bad_json = tmp_path / "bad.json"
         bad_json.write_text("{not valid json")
@@ -321,7 +321,7 @@ class TestLoadFromFiles:
         with pytest.raises(ValueError, match="Invalid JSON"):
             AppConfig.load_from_files(bad_json)
 
-    def test_raises_value_error_for_missing_field(self, tmp_path: Path):
+    def test_raises_value_error_for_missing_field(self, tmp_path: Path) -> None:
         # Arrange
         incomplete = tmp_path / "incomplete.json"
         incomplete.write_text('{"logging": {"log_dir": "/tmp"}}')
@@ -330,7 +330,7 @@ class TestLoadFromFiles:
         with pytest.raises(ValueError, match="backend"):
             AppConfig.load_from_files(incomplete)
 
-    def test_raises_value_error_for_invalid_field(self, tmp_path: Path):
+    def test_raises_value_error_for_invalid_field(self, tmp_path: Path) -> None:
         # Arrange
         bad_value = tmp_path / "bad_value.json"
         bad_value.write_text(
@@ -359,7 +359,7 @@ class TestLoadFromFiles:
 class TestSaveToFile:
     """AppConfig.save_to_file() tests."""
 
-    def test_creates_parent_directories(self, tmp_path: Path, valid_config_dict: dict):
+    def test_creates_parent_directories(self, tmp_path: Path, valid_config_dict: dict) -> None:
         # Arrange
         config = AppConfig.model_validate(valid_config_dict)
         nested_path = tmp_path / "a" / "b" / "config.json"
@@ -370,7 +370,7 @@ class TestSaveToFile:
         # Assert
         assert nested_path.exists()
 
-    def test_writes_loadable_json(self, tmp_path: Path, valid_config_dict: dict):
+    def test_writes_loadable_json(self, tmp_path: Path, valid_config_dict: dict) -> None:
         # Arrange
         config = AppConfig.model_validate(valid_config_dict)
         path = tmp_path / "config.json"
@@ -391,7 +391,7 @@ class TestSaveToFile:
 class TestConfigHelpers:
     """Config helper function tests."""
 
-    def test_get_log_dir_appends_mcp_acp_logs(self, valid_config_dict: dict):
+    def test_get_log_dir_appends_mcp_acp_logs(self, valid_config_dict: dict) -> None:
         # Arrange
         from mcp_acp.utils.config import get_log_dir
 
@@ -415,7 +415,7 @@ class TestConfigHelpers:
     )
     def test_log_path_helpers_return_correct_filename(
         self, valid_config_dict: dict, helper_name: str, expected_file: str
-    ):
+    ) -> None:
         # Arrange
         from mcp_acp.utils import config as config_module
 
@@ -428,7 +428,7 @@ class TestConfigHelpers:
         # Assert
         assert result.name == expected_file
 
-    def test_checksum_is_deterministic(self, tmp_path: Path):
+    def test_checksum_is_deterministic(self, tmp_path: Path) -> None:
         # Arrange
         from mcp_acp.utils.config import compute_config_checksum
 
@@ -442,7 +442,7 @@ class TestConfigHelpers:
         # Assert
         assert checksum1 == checksum2
 
-    def test_checksum_changes_with_content(self, tmp_path: Path):
+    def test_checksum_changes_with_content(self, tmp_path: Path) -> None:
         # Arrange
         from mcp_acp.utils.config import compute_config_checksum
 
@@ -459,7 +459,7 @@ class TestConfigHelpers:
 
     def test_ensure_directories_creates_log_structure_info_level(
         self, tmp_path: Path, valid_config_dict: dict
-    ):
+    ) -> None:
         """INFO level creates audit and system dirs, but NOT debug dir."""
         from mcp_acp.utils.config import ensure_directories
 
@@ -475,7 +475,7 @@ class TestConfigHelpers:
 
     def test_ensure_directories_creates_debug_dir_when_debug_level(
         self, tmp_path: Path, valid_config_dict: dict
-    ):
+    ) -> None:
         """DEBUG level creates all dirs including debug."""
         from mcp_acp.utils.config import ensure_directories
 

@@ -95,7 +95,7 @@ class TestStatusCommand:
         assert "Sessions" in result.output
         assert "Active: 2" in result.output
 
-    def test_status_proxy_not_running(self, runner: CliRunner):
+    def test_status_proxy_not_running(self, runner: CliRunner) -> None:
         """Given proxy not running, shows error."""
         # Arrange
         with patch(
@@ -109,7 +109,7 @@ class TestStatusCommand:
         assert result.exit_code == 1
         assert "not running" in result.output.lower()
 
-    def test_status_api_error(self, runner: CliRunner):
+    def test_status_api_error(self, runner: CliRunner) -> None:
         """Given API error, shows error message."""
         # Arrange
         with patch(
@@ -218,7 +218,9 @@ class TestStatusUptimeFormatting:
 class TestStatusSessionsErrorHandling:
     """Tests for graceful handling of sessions endpoint errors."""
 
-    def test_status_continues_when_sessions_fails(self, runner: CliRunner, mock_status_response: dict):
+    def test_status_continues_when_sessions_fails(
+        self, runner: CliRunner, mock_status_response: dict
+    ) -> None:
         """Given sessions endpoint error, still shows status."""
 
         # Arrange

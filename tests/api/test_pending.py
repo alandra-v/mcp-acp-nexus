@@ -23,7 +23,7 @@ from mcp_acp.api.schemas import ApprovalActionResponse, PendingApprovalResponse
 
 
 @pytest.fixture
-def mock_pending_approval():
+def mock_pending_approval() -> MagicMock:
     """Create a mock pending approval object."""
     approval = MagicMock()
     approval.id = "approval-123"
@@ -48,7 +48,7 @@ def mock_pending_approval():
 
 
 @pytest.fixture
-def mock_state(mock_pending_approval):
+def mock_state(mock_pending_approval: MagicMock) -> MagicMock:
     """Create a mock proxy state."""
     state = MagicMock()
     state.get_pending_approvals.return_value = [mock_pending_approval]
@@ -58,7 +58,7 @@ def mock_state(mock_pending_approval):
 
 
 @pytest.fixture
-def mock_identity_provider():
+def mock_identity_provider() -> MagicMock:
     """Create a mock identity provider that returns authenticated user."""
     provider = MagicMock()
     identity = MagicMock()
@@ -68,7 +68,7 @@ def mock_identity_provider():
 
 
 @pytest.fixture
-def app(mock_state, mock_identity_provider):
+def app(mock_state: MagicMock, mock_identity_provider: MagicMock) -> FastAPI:
     """Create a test FastAPI app with pending router and mocked dependencies."""
     app = FastAPI()
     app.include_router(router, prefix="/api/approvals/pending")
@@ -79,7 +79,7 @@ def app(mock_state, mock_identity_provider):
 
 
 @pytest.fixture
-def client(app):
+def client(app: FastAPI) -> TestClient:
     """Create a test client."""
     return TestClient(app)
 
@@ -92,7 +92,7 @@ def client(app):
 class TestListPendingApprovals:
     """Tests for GET /api/approvals/pending/list endpoint."""
 
-    def test_returns_pending_approvals(self, client, mock_pending_approval):
+    def test_returns_pending_approvals(self, client: TestClient, mock_pending_approval: MagicMock) -> None:
         """Given pending approvals, returns them as list."""
         # Act
         response = client.get("/api/approvals/pending/list")
@@ -105,7 +105,7 @@ class TestListPendingApprovals:
         assert data[0]["tool_name"] == "read_file"
         assert data[0]["path"] == "/project/file.txt"
 
-    def test_returns_empty_list_when_none_pending(self):
+    def test_returns_empty_list_when_none_pending(self) -> None:
         """Given no pending approvals, returns empty list."""
         # Arrange
         mock_state = MagicMock()
@@ -122,7 +122,7 @@ class TestListPendingApprovals:
         assert response.status_code == 200
         assert response.json() == []
 
-    def test_handles_null_path(self):
+    def test_handles_null_path(self) -> None:
         """Given approval with null path, serializes correctly."""
         # Arrange
         approval = MagicMock()
@@ -159,7 +159,7 @@ class TestListPendingApprovals:
 class TestApproveEndpoint:
     """Tests for POST /api/approvals/pending/{id}/approve endpoint."""
 
-    def test_approve_success(self, client, mock_state):
+    def test_approve_success(self, client: TestClient, mock_state: MagicMock) -> None:
         """Given valid approval ID and authenticated user, approves and returns success."""
         # Act
         response = client.post("/api/approvals/pending/approval-123/approve")
@@ -172,7 +172,7 @@ class TestApproveEndpoint:
         # Now includes approver_id
         mock_state.resolve_pending.assert_called_once_with("approval-123", "allow", "user@example.com")
 
-    def test_approve_not_found(self, mock_identity_provider):
+    def test_approve_not_found(self, mock_identity_provider: MagicMock) -> None:
         """Given invalid approval ID, returns 404."""
         # Arrange
         mock_state = MagicMock()
@@ -196,7 +196,7 @@ class TestApproveEndpoint:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]["message"].lower()
 
-    def test_approve_requires_auth(self):
+    def test_approve_requires_auth(self) -> None:
         """Given unauthenticated user, returns 401."""
         from mcp_acp.exceptions import AuthenticationError
 
@@ -218,7 +218,7 @@ class TestApproveEndpoint:
         assert response.status_code == 401
         assert "authentication required" in response.json()["detail"]["message"].lower()
 
-    def test_approve_requires_matching_identity(self, mock_identity_provider):
+    def test_approve_requires_matching_identity(self, mock_identity_provider: MagicMock) -> None:
         """Given approver != requester, returns 403."""
         # Arrange
         mock_pending = MagicMock()
@@ -249,7 +249,7 @@ class TestApproveEndpoint:
 class TestAllowOnceEndpoint:
     """Tests for POST /api/approvals/pending/{id}/allow-once endpoint."""
 
-    def test_allow_once_success(self, client, mock_state):
+    def test_allow_once_success(self, client: TestClient, mock_state: MagicMock) -> None:
         """Given valid approval ID and authenticated user, allows once without caching."""
         # Act
         response = client.post("/api/approvals/pending/approval-123/allow-once")
@@ -261,7 +261,7 @@ class TestAllowOnceEndpoint:
         # Now includes approver_id
         mock_state.resolve_pending.assert_called_once_with("approval-123", "allow_once", "user@example.com")
 
-    def test_allow_once_not_found(self, mock_identity_provider):
+    def test_allow_once_not_found(self, mock_identity_provider: MagicMock) -> None:
         """Given invalid approval ID, returns 404."""
         # Arrange
         mock_state = MagicMock()
@@ -293,7 +293,7 @@ class TestAllowOnceEndpoint:
 class TestDenyEndpoint:
     """Tests for POST /api/approvals/pending/{id}/deny endpoint."""
 
-    def test_deny_success(self, client, mock_state):
+    def test_deny_success(self, client: TestClient, mock_state: MagicMock) -> None:
         """Given valid approval ID and authenticated user, denies and returns success."""
         # Act
         response = client.post("/api/approvals/pending/approval-123/deny")
@@ -305,7 +305,7 @@ class TestDenyEndpoint:
         # Now includes approver_id
         mock_state.resolve_pending.assert_called_once_with("approval-123", "deny", "user@example.com")
 
-    def test_deny_not_found(self, mock_identity_provider):
+    def test_deny_not_found(self, mock_identity_provider: MagicMock) -> None:
         """Given invalid approval ID, returns 404."""
         # Arrange
         mock_state = MagicMock()
@@ -337,7 +337,7 @@ class TestDenyEndpoint:
 class TestResolveApprovalHelper:
     """Tests for _resolve_approval helper function."""
 
-    def test_resolve_success_returns_response(self):
+    def test_resolve_success_returns_response(self) -> None:
         """Given successful resolution, returns ApprovalActionResponse."""
         # Arrange
         mock_state = MagicMock()
@@ -352,7 +352,7 @@ class TestResolveApprovalHelper:
         assert result.approval_id == "test-id"
         mock_state.resolve_pending.assert_called_once_with("test-id", "allow", "user@example.com")
 
-    def test_resolve_failure_raises_404(self):
+    def test_resolve_failure_raises_404(self) -> None:
         """Given failed resolution, raises APIError 404."""
         # Arrange
         mock_state = MagicMock()
@@ -366,7 +366,7 @@ class TestResolveApprovalHelper:
         assert exc_info.value.status_code == 404
         assert "test-id" in exc_info.value.detail["message"]
 
-    def test_resolve_emits_event_on_failure(self):
+    def test_resolve_emits_event_on_failure(self) -> None:
         """Given failed resolution, emits system event."""
         # Arrange
         mock_state = MagicMock()
@@ -389,7 +389,7 @@ class TestResolveApprovalHelper:
 class TestPendingApprovalResponse:
     """Tests for PendingApprovalResponse model."""
 
-    def test_model_serialization(self):
+    def test_model_serialization(self) -> None:
         """PendingApprovalResponse serializes correctly."""
         # Arrange & Act
         response = PendingApprovalResponse(
@@ -409,7 +409,7 @@ class TestPendingApprovalResponse:
         assert data["tool_name"] == "read_file"
         assert data["path"] == "/project/file.txt"
 
-    def test_model_with_null_path(self):
+    def test_model_with_null_path(self) -> None:
         """PendingApprovalResponse handles null path."""
         # Arrange & Act
         response = PendingApprovalResponse(
@@ -430,7 +430,7 @@ class TestPendingApprovalResponse:
 class TestApprovalActionResponse:
     """Tests for ApprovalActionResponse model."""
 
-    def test_model_serialization(self):
+    def test_model_serialization(self) -> None:
         """ApprovalActionResponse serializes correctly."""
         # Arrange & Act
         response = ApprovalActionResponse(

@@ -5,6 +5,7 @@ Tests the UDS client used by CLI commands to communicate with the proxy.
 
 import json
 from pathlib import Path
+from typing import Generator
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -20,14 +21,14 @@ from mcp_acp.cli.api_client import (
 class TestProxyNotRunningError:
     """Tests for ProxyNotRunningError exception."""
 
-    def test_has_helpful_message(self):
+    def test_has_helpful_message(self) -> None:
         """Error message suggests how to start proxy."""
         error = ProxyNotRunningError()
 
         assert "not running" in str(error).lower()
         assert "start" in str(error).lower()
 
-    def test_is_click_exception(self):
+    def test_is_click_exception(self) -> None:
         """Exception inherits from ClickException."""
         import click
 
@@ -39,27 +40,27 @@ class TestProxyNotRunningError:
 class TestAPIError:
     """Tests for APIError exception."""
 
-    def test_includes_status_code_in_message(self):
+    def test_includes_status_code_in_message(self) -> None:
         """Error message includes status code."""
         error = APIError("Not found", status_code=404)
 
         assert "404" in str(error)
         assert "Not found" in str(error)
 
-    def test_stores_status_code(self):
+    def test_stores_status_code(self) -> None:
         """Status code is accessible as attribute."""
         error = APIError("Error", status_code=500)
 
         assert error.status_code == 500
 
-    def test_without_status_code(self):
+    def test_without_status_code(self) -> None:
         """Works without status code."""
         error = APIError("Connection failed")
 
         assert error.status_code is None
         assert "Connection failed" in str(error)
 
-    def test_is_click_exception(self):
+    def test_is_click_exception(self) -> None:
         """Exception inherits from ClickException."""
         import click
 
@@ -72,7 +73,7 @@ class TestApiRequest:
     """Tests for api_request function using UDS."""
 
     @pytest.fixture
-    def mock_socket_exists(self, tmp_path):
+    def mock_socket_exists(self, tmp_path: Path) -> Generator[Path, None, None]:
         """Mock socket path to exist."""
         socket_path = tmp_path / "api.sock"
         socket_path.touch()  # Create a file to simulate socket existence
@@ -80,7 +81,7 @@ class TestApiRequest:
             yield socket_path
 
     @pytest.fixture
-    def mock_uds_client(self):
+    def mock_uds_client(self) -> Generator[dict, None, None]:
         """Mock the httpx.Client for UDS connections."""
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -100,7 +101,7 @@ class TestApiRequest:
                     "response": mock_response,
                 }
 
-    def test_raises_when_socket_missing(self, tmp_path):
+    def test_raises_when_socket_missing(self, tmp_path: Path) -> None:
         """Given no socket file, raises ProxyNotRunningError."""
         socket_path = tmp_path / "nonexistent.sock"
 
@@ -108,7 +109,7 @@ class TestApiRequest:
             with pytest.raises(ProxyNotRunningError):
                 api_request("GET", "/api/status")
 
-    def test_get_request_success(self, mock_socket_exists, mock_uds_client):
+    def test_get_request_success(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given successful GET request, returns parsed JSON."""
         mock_uds_client["response"].json.return_value = {"status": "ok", "data": [1, 2, 3]}
 
@@ -116,7 +117,7 @@ class TestApiRequest:
 
         assert result == {"status": "ok", "data": [1, 2, 3]}
 
-    def test_post_request_with_json_body(self, mock_socket_exists, mock_uds_client):
+    def test_post_request_with_json_body(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given POST with JSON body, sends correct request."""
         mock_uds_client["response"].json.return_value = {"created": True}
 
@@ -126,7 +127,7 @@ class TestApiRequest:
         call_args = mock_uds_client["client_instance"].request.call_args
         assert call_args[1]["json"] == {"name": "test"}
 
-    def test_handles_204_no_content(self, mock_socket_exists, mock_uds_client):
+    def test_handles_204_no_content(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given 204 response, returns empty dict."""
         mock_uds_client["response"].status_code = 204
 
@@ -134,7 +135,7 @@ class TestApiRequest:
 
         assert result == {}
 
-    def test_raises_proxy_not_running_on_connection_error(self, mock_socket_exists):
+    def test_raises_proxy_not_running_on_connection_error(self, mock_socket_exists: Path) -> None:
         """Given connection error on existing socket, raises ProxyNotRunningError."""
         with patch("mcp_acp.cli.api_client.httpx.HTTPTransport"):
             with patch("mcp_acp.cli.api_client.httpx.Client") as mock_client:
@@ -145,7 +146,7 @@ class TestApiRequest:
                 with pytest.raises(ProxyNotRunningError):
                     api_request("GET", "/api/test")
 
-    def test_raises_api_error_on_http_error(self, mock_socket_exists, mock_uds_client):
+    def test_raises_api_error_on_http_error(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given HTTP error status, raises APIError with status code."""
         mock_uds_client["response"].status_code = 404
         mock_uds_client["response"].json.return_value = {"detail": "Resource not found"}
@@ -163,7 +164,7 @@ class TestApiRequest:
         assert exc_info.value.status_code == 404
         assert "Resource not found" in str(exc_info.value)
 
-    def test_no_auth_header_sent(self, mock_socket_exists, mock_uds_client):
+    def test_no_auth_header_sent(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """UDS requests don't include Authorization header (OS permissions = auth)."""
         api_request("GET", "/api/test")
 
@@ -172,7 +173,7 @@ class TestApiRequest:
         headers = call_args[1].get("headers", {})
         assert "Authorization" not in headers
 
-    def test_uses_uds_transport(self, mock_socket_exists, mock_uds_client):
+    def test_uses_uds_transport(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Request uses UDS transport with correct socket path."""
         api_request("GET", "/api/test")
 
@@ -182,7 +183,7 @@ class TestApiRequest:
         assert "uds" in call_kwargs
         assert str(mock_socket_exists) in call_kwargs["uds"]
 
-    def test_passes_query_params(self, mock_socket_exists, mock_uds_client):
+    def test_passes_query_params(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given params dict, passes as query parameters."""
         mock_uds_client["response"].json.return_value = {"entries": []}
 
@@ -191,7 +192,7 @@ class TestApiRequest:
         call_args = mock_uds_client["client_instance"].request.call_args
         assert call_args[1]["params"] == {"limit": 50, "offset": 10}
 
-    def test_respects_custom_timeout(self, mock_socket_exists, mock_uds_client):
+    def test_respects_custom_timeout(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given custom timeout, uses it for client."""
         api_request("GET", "/api/test", timeout=60.0)
 
@@ -200,7 +201,9 @@ class TestApiRequest:
         call_kwargs = mock_uds_client["client"].call_args[1]
         assert call_kwargs["timeout"] == 60.0
 
-    def test_extracts_detail_from_error_response(self, mock_socket_exists, mock_uds_client):
+    def test_extracts_detail_from_error_response(
+        self, mock_socket_exists: Path, mock_uds_client: dict
+    ) -> None:
         """Given error with detail field, extracts it for message."""
         mock_uds_client["response"].status_code = 400
         mock_uds_client["response"].json.return_value = {"detail": "Invalid input data"}
@@ -217,7 +220,7 @@ class TestApiRequest:
 
         assert "Invalid input data" in str(exc_info.value)
 
-    def test_handles_non_json_error_response(self, mock_socket_exists, mock_uds_client):
+    def test_handles_non_json_error_response(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given error without JSON body, uses status text."""
         mock_uds_client["response"].status_code = 500
         mock_uds_client["response"].json.side_effect = json.JSONDecodeError("", "", 0)
@@ -234,7 +237,7 @@ class TestApiRequest:
 
         assert exc_info.value.status_code == 500
 
-    def test_supports_all_http_methods(self, mock_socket_exists, mock_uds_client):
+    def test_supports_all_http_methods(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Supports GET, POST, PUT, DELETE methods."""
         for method in ["GET", "POST", "PUT", "DELETE"]:
             api_request(method, "/api/test")
@@ -246,7 +249,7 @@ class TestApiRequest:
 class TestConnectionRetry:
     """Tests for connection retry logic."""
 
-    def test_gives_up_after_max_retries(self, tmp_path):
+    def test_gives_up_after_max_retries(self, tmp_path: Path) -> None:
         """Given socket never appears, raises ProxyNotRunningError."""
         socket_path = tmp_path / "never_exists.sock"
 
@@ -255,7 +258,7 @@ class TestConnectionRetry:
                 with pytest.raises(ProxyNotRunningError):
                     api_request("GET", "/api/test")
 
-    def test_retry_backoff_is_used(self, tmp_path):
+    def test_retry_backoff_is_used(self, tmp_path: Path) -> None:
         """Retry uses exponential backoff."""
         socket_path = tmp_path / "never_exists.sock"
 

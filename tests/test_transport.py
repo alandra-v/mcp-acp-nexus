@@ -67,7 +67,7 @@ def backend_both(stdio_config: StdioTransportConfig, http_config: HttpTransportC
 class TestExplicitTransport:
     """Tests for explicit transport selection."""
 
-    def test_explicit_stdio_returns_stdio(self, stdio_config: StdioTransportConfig):
+    def test_explicit_stdio_returns_stdio(self, stdio_config: StdioTransportConfig) -> None:
         # Arrange
         config = BackendConfig(server_name="test", transport="stdio", stdio=stdio_config)
 
@@ -78,7 +78,7 @@ class TestExplicitTransport:
         assert isinstance(transport, StdioTransport)
         assert transport_type == "stdio"
 
-    def test_explicit_stdio_without_config_raises(self):
+    def test_explicit_stdio_without_config_raises(self) -> None:
         # Arrange
         config = BackendConfig(server_name="test", transport="stdio", stdio=None)
 
@@ -86,7 +86,7 @@ class TestExplicitTransport:
         with pytest.raises(ValueError, match="stdio configuration is missing"):
             create_backend_transport(config)
 
-    def test_explicit_http_returns_http_when_reachable(self, http_config: HttpTransportConfig):
+    def test_explicit_http_returns_http_when_reachable(self, http_config: HttpTransportConfig) -> None:
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
 
@@ -98,7 +98,7 @@ class TestExplicitTransport:
         assert isinstance(transport, StreamableHttpTransport)
         assert transport_type == "streamablehttp"
 
-    def test_explicit_http_without_config_raises(self):
+    def test_explicit_http_without_config_raises(self) -> None:
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=None)
 
@@ -106,7 +106,7 @@ class TestExplicitTransport:
         with pytest.raises(ValueError, match="http configuration is missing"):
             create_backend_transport(config)
 
-    def test_explicit_http_raises_when_unreachable(self, http_config: HttpTransportConfig):
+    def test_explicit_http_raises_when_unreachable(self, http_config: HttpTransportConfig) -> None:
         """Explicit HTTP selection fails after retries when unreachable."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
@@ -119,7 +119,7 @@ class TestExplicitTransport:
             with pytest.raises(TimeoutError, match="not reachable after"):
                 create_backend_transport(config)
 
-    def test_explicit_http_raises_on_timeout(self, http_config: HttpTransportConfig):
+    def test_explicit_http_raises_on_timeout(self, http_config: HttpTransportConfig) -> None:
         """Explicit HTTP selection fails on timeout (no fallback)."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
@@ -132,7 +132,7 @@ class TestExplicitTransport:
             with pytest.raises(TimeoutError):
                 create_backend_transport(config)
 
-    def test_explicit_https_without_mtls_suggests_mtls(self, https_config: HttpTransportConfig):
+    def test_explicit_https_without_mtls_suggests_mtls(self, https_config: HttpTransportConfig) -> None:
         """HTTPS without mTLS config suggests mTLS when connection fails."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
@@ -145,7 +145,7 @@ class TestExplicitTransport:
             with pytest.raises(ConnectionError, match="mTLS"):
                 create_backend_transport(config)
 
-    def test_ssl_handshake_error_not_retried(self, https_config: HttpTransportConfig):
+    def test_ssl_handshake_error_not_retried(self, https_config: HttpTransportConfig) -> None:
         """SSL handshake errors fail immediately without retry."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
@@ -159,7 +159,7 @@ class TestExplicitTransport:
         # Verify no retries (only 1 call)
         assert mock.call_count == 1
 
-    def test_ssl_certificate_error_not_retried(self, https_config: HttpTransportConfig):
+    def test_ssl_certificate_error_not_retried(self, https_config: HttpTransportConfig) -> None:
         """SSL certificate errors fail immediately without retry."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
@@ -182,7 +182,7 @@ class TestExplicitTransport:
 class TestAutoDetect:
     """Tests for auto-detect transport selection."""
 
-    def test_stdio_only_returns_stdio(self, backend_stdio_only: BackendConfig):
+    def test_stdio_only_returns_stdio(self, backend_stdio_only: BackendConfig) -> None:
         # Act
         transport, transport_type = create_backend_transport(backend_stdio_only)
 
@@ -190,7 +190,7 @@ class TestAutoDetect:
         assert isinstance(transport, StdioTransport)
         assert transport_type == "stdio"
 
-    def test_http_only_returns_http_when_reachable(self, backend_http_only: BackendConfig):
+    def test_http_only_returns_http_when_reachable(self, backend_http_only: BackendConfig) -> None:
         # Act
         with patch("mcp_acp.utils.transport.check_http_health"):
             transport, transport_type = create_backend_transport(backend_http_only)
@@ -199,7 +199,7 @@ class TestAutoDetect:
         assert isinstance(transport, StreamableHttpTransport)
         assert transport_type == "streamablehttp"
 
-    def test_http_only_raises_when_unreachable(self, backend_http_only: BackendConfig):
+    def test_http_only_raises_when_unreachable(self, backend_http_only: BackendConfig) -> None:
         """HTTP-only config fails after retries when unreachable."""
         # Act & Assert - raises TimeoutError after exhausting retries
         with patch(
@@ -209,7 +209,7 @@ class TestAutoDetect:
             with pytest.raises(TimeoutError, match="not reachable after"):
                 create_backend_transport(backend_http_only)
 
-    def test_http_only_raises_on_timeout(self, backend_http_only: BackendConfig):
+    def test_http_only_raises_on_timeout(self, backend_http_only: BackendConfig) -> None:
         # Act & Assert
         with patch(
             "mcp_acp.utils.transport.check_http_health",
@@ -218,7 +218,7 @@ class TestAutoDetect:
             with pytest.raises(TimeoutError):
                 create_backend_transport(backend_http_only)
 
-    def test_both_prefers_http_when_reachable(self, backend_both: BackendConfig):
+    def test_both_prefers_http_when_reachable(self, backend_both: BackendConfig) -> None:
         # Act
         with patch("mcp_acp.utils.transport.check_http_health"):
             transport, transport_type = create_backend_transport(backend_both)
@@ -227,7 +227,7 @@ class TestAutoDetect:
         assert isinstance(transport, StreamableHttpTransport)
         assert transport_type == "streamablehttp"
 
-    def test_both_falls_back_to_stdio_when_http_unreachable(self, backend_both: BackendConfig):
+    def test_both_falls_back_to_stdio_when_http_unreachable(self, backend_both: BackendConfig) -> None:
         # Act
         with patch(
             "mcp_acp.utils.transport.check_http_health",
@@ -239,7 +239,7 @@ class TestAutoDetect:
         assert isinstance(transport, StdioTransport)
         assert transport_type == "stdio"
 
-    def test_neither_configured_raises(self):
+    def test_neither_configured_raises(self) -> None:
         # Arrange - transport="auto" but no stdio or http config
         config = BackendConfig(server_name="test", transport="auto")
 
@@ -247,7 +247,7 @@ class TestAutoDetect:
         with pytest.raises(ValueError, match="No transport configured"):
             create_backend_transport(config)
 
-    def test_both_falls_back_to_stdio_on_timeout(self, backend_both: BackendConfig):
+    def test_both_falls_back_to_stdio_on_timeout(self, backend_both: BackendConfig) -> None:
         """Auto-detect falls back to STDIO when HTTP times out."""
         # Act
         with patch(
@@ -269,7 +269,7 @@ class TestAutoDetect:
 class TestTransportCreation:
     """Tests for transport object creation."""
 
-    def test_stdio_transport_has_correct_command(self, stdio_config: StdioTransportConfig):
+    def test_stdio_transport_has_correct_command(self, stdio_config: StdioTransportConfig) -> None:
         # Arrange
         config = BackendConfig(server_name="test", transport="stdio", stdio=stdio_config)
 
@@ -280,7 +280,7 @@ class TestTransportCreation:
         assert transport.command == "echo"
         assert transport.args == ["hello"]
 
-    def test_http_transport_has_correct_url(self, http_config: HttpTransportConfig):
+    def test_http_transport_has_correct_url(self, http_config: HttpTransportConfig) -> None:
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
 
@@ -323,7 +323,9 @@ class TestMTLSClientFactory:
             ca_bundle_path=str(cert_files["ca"]),
         )
 
-    def test_create_factory_returns_callable(self, mtls_config: MTLSConfig, cert_files: dict[str, Path]):
+    def test_create_factory_returns_callable(
+        self, mtls_config: MTLSConfig, cert_files: dict[str, Path]
+    ) -> None:
         """Factory creation succeeds with valid certificate paths."""
         # Act - skip actual SSL validation since test certs are not real
         with patch("mcp_acp.security.mtls._validate_certificates"):
@@ -332,7 +334,7 @@ class TestMTLSClientFactory:
         # Assert
         assert callable(factory)
 
-    def test_factory_creates_httpx_client(self, mtls_config: MTLSConfig, cert_files: dict[str, Path]):
+    def test_factory_creates_httpx_client(self, mtls_config: MTLSConfig, cert_files: dict[str, Path]) -> None:
         """Factory returns httpx.AsyncClient with correct configuration."""
         # Act - mock validation, ssl context, and httpx client creation
         mock_ssl_ctx = MagicMock()
@@ -353,7 +355,7 @@ class TestMTLSClientFactory:
         # Verify ssl context had cert chain loaded
         mock_ssl_ctx.load_cert_chain.assert_called_once()
 
-    def test_create_factory_missing_cert_raises(self, tmp_path: Path):
+    def test_create_factory_missing_cert_raises(self, tmp_path: Path) -> None:
         """FileNotFoundError when client certificate doesn't exist."""
         # Arrange
         key_path = tmp_path / "client-key.pem"
@@ -371,7 +373,7 @@ class TestMTLSClientFactory:
         with pytest.raises(FileNotFoundError, match="client certificate not found"):
             create_mtls_client_factory(config)
 
-    def test_create_factory_missing_key_raises(self, tmp_path: Path):
+    def test_create_factory_missing_key_raises(self, tmp_path: Path) -> None:
         """FileNotFoundError when client key doesn't exist."""
         # Arrange
         cert_path = tmp_path / "client.pem"
@@ -389,7 +391,7 @@ class TestMTLSClientFactory:
         with pytest.raises(FileNotFoundError, match="client key not found"):
             create_mtls_client_factory(config)
 
-    def test_create_factory_missing_ca_raises(self, tmp_path: Path):
+    def test_create_factory_missing_ca_raises(self, tmp_path: Path) -> None:
         """FileNotFoundError when CA bundle doesn't exist."""
         # Arrange
         cert_path = tmp_path / "client.pem"
@@ -407,7 +409,9 @@ class TestMTLSClientFactory:
         with pytest.raises(FileNotFoundError, match="CA bundle not found"):
             create_mtls_client_factory(config)
 
-    def test_create_factory_expands_tilde_paths(self, tmp_path: Path, monkeypatch):
+    def test_create_factory_expands_tilde_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Factory expands ~ in certificate paths."""
         # Arrange - mock home directory
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -459,7 +463,7 @@ class TestTransportWithMTLS:
 
     def test_http_transport_with_mtls_has_factory(
         self, https_config: HttpTransportConfig, mtls_config: MTLSConfig
-    ):
+    ) -> None:
         """StreamableHttpTransport created with client factory when mTLS configured."""
         # Arrange - must use https:// for mTLS to be applied
         config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
@@ -477,7 +481,9 @@ class TestTransportWithMTLS:
         # Verify factory was set
         assert transport.httpx_client_factory is not None
 
-    def test_http_transport_without_mtls_has_user_agent_factory(self, http_config: HttpTransportConfig):
+    def test_http_transport_without_mtls_has_user_agent_factory(
+        self, http_config: HttpTransportConfig
+    ) -> None:
         """StreamableHttpTransport always has factory for User-Agent header."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
@@ -490,7 +496,9 @@ class TestTransportWithMTLS:
         assert isinstance(transport, StreamableHttpTransport)
         assert transport.httpx_client_factory is not None
 
-    def test_stdio_transport_ignores_mtls(self, stdio_config: StdioTransportConfig, mtls_config: MTLSConfig):
+    def test_stdio_transport_ignores_mtls(
+        self, stdio_config: StdioTransportConfig, mtls_config: MTLSConfig
+    ) -> None:
         """STDIO transport ignores mTLS configuration."""
         # Arrange
         config = BackendConfig(server_name="test", transport="stdio", stdio=stdio_config)
@@ -504,7 +512,7 @@ class TestTransportWithMTLS:
 
     def test_health_check_receives_mtls_config(
         self, http_config: HttpTransportConfig, mtls_config: MTLSConfig
-    ):
+    ) -> None:
         """Health check is called with mTLS config."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
@@ -531,7 +539,7 @@ class TestTransportWithMTLS:
 class TestUserAgentHeader:
     """Tests for User-Agent header in HTTP client factory."""
 
-    def test_user_agent_format(self):
+    def test_user_agent_format(self) -> None:
         """User-Agent follows expected format."""
         # Assert - format is "mcp-acp/{version}"
         assert USER_AGENT.startswith("mcp-acp/")
@@ -540,7 +548,7 @@ class TestUserAgentHeader:
         assert len(version_part) > 0
 
     @pytest.mark.asyncio
-    async def test_factory_without_mtls_includes_user_agent(self):
+    async def test_factory_without_mtls_includes_user_agent(self) -> None:
         """Factory without mTLS includes User-Agent header."""
         # Arrange
         factory = create_httpx_client_factory(mtls_config=None, url="http://localhost:3000")
@@ -553,7 +561,7 @@ class TestUserAgentHeader:
         await client.aclose()
 
     @pytest.mark.asyncio
-    async def test_factory_with_mtls_includes_user_agent(self, tmp_path: Path):
+    async def test_factory_with_mtls_includes_user_agent(self, tmp_path: Path) -> None:
         """Factory with mTLS includes User-Agent header."""
         # Arrange - create mTLS config with valid paths
         cert_path = tmp_path / "client.pem"
@@ -586,7 +594,7 @@ class TestUserAgentHeader:
         await client.aclose()
 
     @pytest.mark.asyncio
-    async def test_factory_merges_custom_headers_with_user_agent(self):
+    async def test_factory_merges_custom_headers_with_user_agent(self) -> None:
         """Factory merges custom headers with User-Agent."""
         # Arrange
         factory = create_httpx_client_factory(mtls_config=None, url="http://localhost:3000")
@@ -601,7 +609,7 @@ class TestUserAgentHeader:
         await client.aclose()
 
     @pytest.mark.asyncio
-    async def test_custom_user_agent_overrides_default(self):
+    async def test_custom_user_agent_overrides_default(self) -> None:
         """Custom User-Agent in headers overrides default."""
         # Arrange
         factory = create_httpx_client_factory(mtls_config=None, url="http://localhost:3000")

@@ -97,7 +97,7 @@ class MockExceptionWithCode(Exception):
 
 
 @pytest.fixture
-def temp_log_file():
+def temp_log_file() -> Path:
     """Create a temporary log file in a subdirectory for testing.
 
     We use a subdirectory because the logger setup tries to chmod the parent
@@ -121,8 +121,11 @@ def shutdown_coordinator(temp_log_file: Path) -> ShutdownCoordinator:
     return ShutdownCoordinator(temp_log_file.parent, get_system_logger())
 
 
+from typing import Callable, Generator
+
+
 @pytest.fixture
-def shutdown_callback() -> callable:
+def shutdown_callback() -> Callable[[str], None]:
     """Create a no-op shutdown callback for testing."""
 
     def noop_callback(reason: str) -> None:
@@ -190,7 +193,7 @@ class TestProcessRequestSuccess:
 
     async def test_logs_successful_operation(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given a successful operation, logs event with status Success."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-123", session_id="sess-456")
@@ -222,7 +225,7 @@ class TestProcessRequestSuccess:
 
     async def test_logs_tools_call_with_tool_name(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given tools/call request with tool context set, logs tool_name and file metadata."""
         # Arrange
         params = MockParams(name="read_file", arguments={"path": "/tmp/test.txt"})
@@ -258,7 +261,7 @@ class TestProcessRequestSuccess:
 
     async def test_measures_positive_duration(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given an operation that takes time, logs positive duration_ms."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-dur", session_id="sess-dur")
@@ -279,7 +282,7 @@ class TestProcessRequestSuccess:
 
     async def test_logs_response_summary_for_dict_response(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given a dict response, logs response_summary with size and hash."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-resp", session_id="sess-resp")
@@ -301,7 +304,7 @@ class TestProcessRequestSuccess:
 
     async def test_logs_response_summary_for_list_response(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given a list response, logs response_summary."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-list", session_id="sess-list")
@@ -321,7 +324,7 @@ class TestProcessRequestSuccess:
 
     async def test_no_response_summary_for_none_response(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given None response, response_summary is excluded."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-none-resp", session_id="sess-none-resp")
@@ -340,7 +343,7 @@ class TestProcessRequestSuccess:
 
     async def test_same_response_produces_same_hash(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given identical responses, produces identical hash."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-hash1", session_id="sess-hash")
@@ -367,7 +370,7 @@ class TestProcessRequestFailure:
 
     async def test_logs_failure_status_on_exception(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given an exception, logs status Failure and re-raises."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-fail", session_id="sess-fail")
@@ -388,7 +391,7 @@ class TestProcessRequestFailure:
 
     async def test_extracts_error_code_from_exception(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given exception with .code attribute, logs error_code."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-code", session_id="sess-code")
@@ -408,7 +411,7 @@ class TestProcessRequestFailure:
 
     async def test_no_error_code_for_regular_exception(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given exception without .code, error_code is not in output."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-nocode", session_id="sess-nocode")
@@ -430,7 +433,9 @@ class TestProcessRequestFailure:
 class TestProcessRequestEdgeCases:
     """Tests for edge cases in request processing."""
 
-    async def test_handles_none_method(self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path):
+    async def test_handles_none_method(
+        self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
+    ) -> None:
         """Given None method, logs 'unknown'."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-none", session_id="sess-none")
@@ -448,7 +453,7 @@ class TestProcessRequestEdgeCases:
 
     async def test_handles_missing_correlation_ids(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given no fastmcp_context, logs 'unknown' for correlation IDs."""
         # Arrange
         context = MockMiddlewareContext(method="ping", fastmcp_context=None)
@@ -473,7 +478,7 @@ class TestProcessRequestEdgeCases:
 class TestLocalIdentityProvider:
     """Tests for LocalIdentityProvider identity extraction."""
 
-    async def test_returns_current_user(self):
+    async def test_returns_current_user(self) -> None:
         """Given normal environment, returns getpass.getuser() username."""
         import getpass
 
@@ -485,7 +490,7 @@ class TestLocalIdentityProvider:
         assert identity.subject_id == getpass.getuser()
         assert identity.subject_claims == {"auth_type": "local"}
 
-    async def test_caches_identity(self):
+    async def test_caches_identity(self) -> None:
         """Given provider, get_identity() returns same cached instance."""
         # Arrange
         provider = LocalIdentityProvider()
@@ -499,7 +504,7 @@ class TestLocalIdentityProvider:
 
     async def test_middleware_uses_identity_provider(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given middleware with provider, subject comes from provider after first request."""
         import getpass
 
@@ -550,7 +555,7 @@ class TestExtractClientId:
 
     def test_extracts_client_id_from_initialize(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given initialize request with clientInfo, extracts client_id."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -567,7 +572,7 @@ class TestExtractClientId:
 
     def test_caches_client_id_for_subsequent_requests(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given client_id already cached, doesn't overwrite."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -585,7 +590,9 @@ class TestExtractClientId:
         # Assert - should still be first client
         assert middleware._client_id == "First Client"
 
-    def test_ignores_non_initialize_methods(self, temp_log_file: Path, identity_provider: IdentityProvider):
+    def test_ignores_non_initialize_methods(
+        self, temp_log_file: Path, identity_provider: IdentityProvider
+    ) -> None:
         """Given non-initialize method, doesn't extract client_id."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -599,7 +606,7 @@ class TestExtractClientId:
 
     async def test_client_id_included_in_log_output(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given initialize request, client_id appears in log."""
         # Arrange
         client_info = MockClientInfo(name="MCP Inspector")
@@ -621,7 +628,7 @@ class TestExtractClientId:
 
     async def test_client_id_persists_to_subsequent_requests(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given initialize followed by tools/call, both have client_id."""
         # Arrange - initialize first
         client_info = MockClientInfo(name="Claude Desktop")
@@ -661,7 +668,7 @@ class TestExtractToolCallMetadata:
 
     def test_extracts_tool_name_from_context_var(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given tool context set, extracts tool name."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -680,7 +687,7 @@ class TestExtractToolCallMetadata:
 
     def test_returns_empty_dict_when_no_context(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given no tool context, returns empty dict."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -694,7 +701,7 @@ class TestExtractToolCallMetadata:
 
     def test_extracts_file_metadata_for_file_operations(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given tool context with file path argument, extracts file metadata."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -716,7 +723,7 @@ class TestExtractToolCallMetadata:
 
     def test_extracts_file_extension_for_write_tools(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given write tool context, extracts file extension."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -743,7 +750,9 @@ class TestExtractToolCallMetadata:
 class TestCreateArgumentsSummary:
     """Tests for arguments summary creation."""
 
-    def test_creates_summary_with_hash(self, temp_log_file: Path, identity_provider: IdentityProvider):
+    def test_creates_summary_with_hash(
+        self, temp_log_file: Path, identity_provider: IdentityProvider
+    ) -> None:
         """Given params, creates summary with hash and length."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -761,7 +770,9 @@ class TestCreateArgumentsSummary:
         assert len(result.body_hash) == 64  # SHA256 hex length
         assert result.payload_length > 0
 
-    def test_returns_none_without_params(self, temp_log_file: Path, identity_provider: IdentityProvider):
+    def test_returns_none_without_params(
+        self, temp_log_file: Path, identity_provider: IdentityProvider
+    ) -> None:
         """Given no params, returns None."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -774,7 +785,9 @@ class TestCreateArgumentsSummary:
         # Assert
         assert result is None
 
-    def test_same_params_produce_same_hash(self, temp_log_file: Path, identity_provider: IdentityProvider):
+    def test_same_params_produce_same_hash(
+        self, temp_log_file: Path, identity_provider: IdentityProvider
+    ) -> None:
         """Given identical params, produces identical hash."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -792,7 +805,7 @@ class TestCreateArgumentsSummary:
 
     def test_different_params_produce_different_hash(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given different params, produces different hash."""
         # Arrange
         middleware = create_test_audit_middleware(log_path=temp_log_file, identity_provider=identity_provider)
@@ -817,7 +830,9 @@ class TestCreateArgumentsSummary:
 class TestJSONLOutput:
     """Tests for JSONL log file format and validity."""
 
-    async def test_output_is_valid_jsonl(self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path):
+    async def test_output_is_valid_jsonl(
+        self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
+    ) -> None:
         """Given multiple operations, each line is valid JSON."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-1", session_id="sess-1")
@@ -837,7 +852,9 @@ class TestJSONLOutput:
         for line in lines:
             json.loads(line)  # Should not raise
 
-    async def test_output_has_timestamp(self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path):
+    async def test_output_has_timestamp(
+        self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
+    ) -> None:
         """Given an operation, output includes ISO 8601 timestamp."""
         # Arrange
         fastmcp_ctx = MockFastMCPContext(request_id="req-ts", session_id="sess-ts")
@@ -859,7 +876,7 @@ class TestJSONLOutput:
 
     async def test_output_excludes_none_values(
         self, audit_middleware: AuditLoggingMiddleware, temp_log_file: Path
-    ):
+    ) -> None:
         """Given optional None fields, they are excluded from output."""
         # Arrange
         clear_context()  # Ensure no leftover tool context from previous tests
@@ -891,7 +908,7 @@ class TestCreateAuditLoggingMiddleware:
 
     def test_creates_middleware_with_correct_config(
         self, temp_log_file: Path, identity_provider: IdentityProvider
-    ):
+    ) -> None:
         """Given config params, creates middleware with those values."""
         # Act
         middleware = create_test_audit_middleware(
@@ -907,7 +924,7 @@ class TestCreateAuditLoggingMiddleware:
         # Subject is fetched lazily on first request (async)
         assert middleware._identity_provider is identity_provider
 
-    def test_creates_log_directory_if_missing(self, identity_provider: IdentityProvider):
+    def test_creates_log_directory_if_missing(self, identity_provider: IdentityProvider) -> None:
         """Given non-existent directory, creates it."""
         # Arrange
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -923,7 +940,7 @@ class TestCreateAuditLoggingMiddleware:
             # (logger setup creates parent dirs)
             assert middleware is not None
 
-    def test_config_version_optional(self, temp_log_file: Path, identity_provider: IdentityProvider):
+    def test_config_version_optional(self, temp_log_file: Path, identity_provider: IdentityProvider) -> None:
         """Given no config_version, middleware still works."""
         # Act
         middleware = create_test_audit_middleware(
@@ -944,17 +961,17 @@ class TestCreateAuditLoggingMiddleware:
 class TestDurationInfo:
     """Tests for DurationInfo model."""
 
-    def test_requires_duration_ms(self):
+    def test_requires_duration_ms(self) -> None:
         """Given no duration_ms, raises validation error."""
         with pytest.raises(Exception):  # Pydantic ValidationError
             DurationInfo()
 
-    def test_accepts_positive_duration(self):
+    def test_accepts_positive_duration(self) -> None:
         """Given positive duration, creates model."""
         info = DurationInfo(duration_ms=123.45)
         assert info.duration_ms == 123.45
 
-    def test_accepts_zero_duration(self):
+    def test_accepts_zero_duration(self) -> None:
         """Given zero duration, creates model."""
         info = DurationInfo(duration_ms=0.0)
         assert info.duration_ms == 0.0
@@ -963,17 +980,17 @@ class TestDurationInfo:
 class TestSubjectIdentity:
     """Tests for SubjectIdentity model."""
 
-    def test_requires_subject_id(self):
+    def test_requires_subject_id(self) -> None:
         """Given no subject_id, raises validation error."""
         with pytest.raises(Exception):
             SubjectIdentity()
 
-    def test_claims_optional(self):
+    def test_claims_optional(self) -> None:
         """Given no claims, defaults to None."""
         subject = SubjectIdentity(subject_id="user123")
         assert subject.subject_claims is None
 
-    def test_accepts_claims(self):
+    def test_accepts_claims(self) -> None:
         """Given claims dict, stores it."""
         subject = SubjectIdentity(
             subject_id="user123",
@@ -985,12 +1002,12 @@ class TestSubjectIdentity:
 class TestArgumentsSummary:
     """Tests for ArgumentsSummary model."""
 
-    def test_defaults_to_redacted(self):
+    def test_defaults_to_redacted(self) -> None:
         """Given no redacted value, defaults to True."""
         summary = ArgumentsSummary()
         assert summary.redacted is True
 
-    def test_hash_and_length_optional(self):
+    def test_hash_and_length_optional(self) -> None:
         """Given no hash/length, defaults to None."""
         summary = ArgumentsSummary()
         assert summary.body_hash is None
@@ -1005,7 +1022,7 @@ class TestArgumentsSummary:
 class TestAuditHealthMonitorCheckIntegrity:
     """Tests for AuditHealthMonitor._check_integrity()."""
 
-    def test_returns_none_when_file_intact(self):
+    def test_returns_none_when_file_intact(self) -> None:
         """Given unchanged file, returns None (no error)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1025,7 +1042,7 @@ class TestAuditHealthMonitorCheckIntegrity:
             # Assert
             assert result is None
 
-    def test_returns_error_when_file_missing(self):
+    def test_returns_error_when_file_missing(self) -> None:
         """Given deleted file, returns error message."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1047,7 +1064,7 @@ class TestAuditHealthMonitorCheckIntegrity:
             assert result is not None
             assert "missing" in result
 
-    def test_returns_error_when_file_replaced(self):
+    def test_returns_error_when_file_replaced(self) -> None:
         """Given replaced file (different inode), returns error message."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1072,7 +1089,7 @@ class TestAuditHealthMonitorCheckIntegrity:
             assert result is not None
             assert "replaced" in result
 
-    def test_returns_error_when_path_not_registered(self):
+    def test_returns_error_when_path_not_registered(self) -> None:
         """Given unregistered path, returns error message."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1090,7 +1107,7 @@ class TestAuditHealthMonitorCheckIntegrity:
             assert result is not None
             assert "not registered" in result
 
-    def test_returns_error_when_permission_denied(self):
+    def test_returns_error_when_permission_denied(self) -> None:
         """Given unreadable file, returns permission error."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1118,7 +1135,7 @@ class TestAuditHealthMonitorCheckIntegrity:
                 # Restore permissions for cleanup
                 audit_path.chmod(0o644)
 
-    def test_verifies_write_capability(self):
+    def test_verifies_write_capability(self) -> None:
         """Given file that exists, verifies we can write and fsync."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1144,7 +1161,7 @@ class TestAuditHealthMonitorCheckIntegrity:
 class TestAuditHealthMonitorLifecycle:
     """Tests for AuditHealthMonitor start/stop lifecycle."""
 
-    async def test_start_records_file_identities(self):
+    async def test_start_records_file_identities(self) -> None:
         """Given paths, start() records their dev/ino."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1168,7 +1185,7 @@ class TestAuditHealthMonitorLifecycle:
             finally:
                 await monitor.stop()
 
-    async def test_stop_cancels_task(self):
+    async def test_stop_cancels_task(self) -> None:
         """Given running monitor, stop() cancels the task."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1187,7 +1204,7 @@ class TestAuditHealthMonitorLifecycle:
             # Assert
             assert monitor._running is False
 
-    async def test_start_is_idempotent(self):
+    async def test_start_is_idempotent(self) -> None:
         """Given already started monitor, start() is a no-op."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1209,7 +1226,7 @@ class TestAuditHealthMonitorLifecycle:
             finally:
                 await monitor.stop()
 
-    async def test_is_healthy_true_when_running(self):
+    async def test_is_healthy_true_when_running(self) -> None:
         """Given running monitor, is_healthy returns True."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1228,7 +1245,7 @@ class TestAuditHealthMonitorLifecycle:
             finally:
                 await monitor.stop()
 
-    async def test_is_healthy_false_when_stopped(self):
+    async def test_is_healthy_false_when_stopped(self) -> None:
         """Given stopped monitor, is_healthy returns False."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1244,7 +1261,7 @@ class TestAuditHealthMonitorLifecycle:
             # Assert
             assert monitor.is_healthy is False
 
-    async def test_is_healthy_false_before_start(self):
+    async def test_is_healthy_false_before_start(self) -> None:
         """Given unstarted monitor, is_healthy returns False."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1257,7 +1274,7 @@ class TestAuditHealthMonitorLifecycle:
             # Assert
             assert monitor.is_healthy is False
 
-    async def test_task_has_name(self):
+    async def test_task_has_name(self) -> None:
         """Given started monitor, task has descriptive name."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1279,7 +1296,7 @@ class TestAuditHealthMonitorLifecycle:
 class TestAuditHealthMonitorLoop:
     """Tests for AuditHealthMonitor periodic checking."""
 
-    async def test_detects_file_deletion_during_idle(self):
+    async def test_detects_file_deletion_during_idle(self) -> None:
         """Given file deleted while monitoring, triggers shutdown."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Arrange
@@ -1315,7 +1332,7 @@ class TestAuditHealthMonitorLoop:
 class TestHashSensitiveId:
     """Tests for hash_sensitive_id() function."""
 
-    def test_returns_correct_format(self):
+    def test_returns_correct_format(self) -> None:
         """Given a value, returns sha256:<prefix> format."""
         # Act
         result = hash_sensitive_id("test_value")
@@ -1324,7 +1341,7 @@ class TestHashSensitiveId:
         assert result.startswith("sha256:")
         assert len(result) == len("sha256:") + 8  # Default prefix_length is 8
 
-    def test_prefix_length_parameter(self):
+    def test_prefix_length_parameter(self) -> None:
         """Given custom prefix_length, returns hash with that length."""
         # Act
         result = hash_sensitive_id("test_value", prefix_length=4)
@@ -1333,7 +1350,7 @@ class TestHashSensitiveId:
         prefix = result.split(":")[1]
         assert len(prefix) == 4
 
-    def test_consistent_hashing(self):
+    def test_consistent_hashing(self) -> None:
         """Given same input, always returns same output."""
         # Arrange
         value = "auth0|user123"
@@ -1345,7 +1362,7 @@ class TestHashSensitiveId:
         # Assert
         assert result1 == result2
 
-    def test_different_inputs_different_hashes(self):
+    def test_different_inputs_different_hashes(self) -> None:
         """Given different inputs, returns different hashes."""
         # Act
         result1 = hash_sensitive_id("user1")
@@ -1354,7 +1371,7 @@ class TestHashSensitiveId:
         # Assert
         assert result1 != result2
 
-    def test_empty_value_returns_empty_marker(self):
+    def test_empty_value_returns_empty_marker(self) -> None:
         """Given empty string, returns sha256:empty."""
         # Act
         result = hash_sensitive_id("")
@@ -1362,7 +1379,7 @@ class TestHashSensitiveId:
         # Assert
         assert result == "sha256:empty"
 
-    def test_none_value_returns_empty_marker(self):
+    def test_none_value_returns_empty_marker(self) -> None:
         """Given None (falsy), returns sha256:empty."""
         # Act
         result = hash_sensitive_id(None)
@@ -1370,7 +1387,7 @@ class TestHashSensitiveId:
         # Assert
         assert result == "sha256:empty"
 
-    def test_prefix_is_valid_hex(self):
+    def test_prefix_is_valid_hex(self) -> None:
         """Given any input, prefix is valid hexadecimal."""
         # Act
         result = hash_sensitive_id("test@example.com")
@@ -1379,7 +1396,7 @@ class TestHashSensitiveId:
         # Assert - should not raise
         int(prefix, 16)
 
-    def test_long_prefix_length(self):
+    def test_long_prefix_length(self) -> None:
         """Given prefix_length of 64, returns full SHA256 hash."""
         # Act
         result = hash_sensitive_id("test_value", prefix_length=64)

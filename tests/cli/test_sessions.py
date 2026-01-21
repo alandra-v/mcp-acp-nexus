@@ -42,7 +42,9 @@ def mock_sessions_response() -> list:
 class TestSessionsListCommand:
     """Tests for sessions list command."""
 
-    def test_sessions_list_shows_active_sessions(self, runner: CliRunner, mock_sessions_response: list):
+    def test_sessions_list_shows_active_sessions(
+        self, runner: CliRunner, mock_sessions_response: list
+    ) -> None:
         """Given active sessions, shows session list."""
         # Arrange
         with patch(
@@ -58,7 +60,7 @@ class TestSessionsListCommand:
         assert "alice@example.com" in result.output
         assert "bob@example.com" in result.output
 
-    def test_sessions_list_shows_timestamps(self, runner: CliRunner, mock_sessions_response: list):
+    def test_sessions_list_shows_timestamps(self, runner: CliRunner, mock_sessions_response: list) -> None:
         """Given sessions with timestamps, formats them nicely."""
         # Arrange
         with patch(
@@ -74,7 +76,7 @@ class TestSessionsListCommand:
         # Should format as readable date
         assert "2024-01-15" in result.output
 
-    def test_sessions_list_truncates_long_ids(self, runner: CliRunner, mock_sessions_response: list):
+    def test_sessions_list_truncates_long_ids(self, runner: CliRunner, mock_sessions_response: list) -> None:
         """Given long session IDs, truncates for display."""
         # Arrange
         with patch(
@@ -89,7 +91,7 @@ class TestSessionsListCommand:
         # Long ID should be truncated with ...
         assert "sess-abc123d..." in result.output
 
-    def test_sessions_list_empty(self, runner: CliRunner):
+    def test_sessions_list_empty(self, runner: CliRunner) -> None:
         """Given no active sessions, shows appropriate message."""
         # Arrange
         with patch(
@@ -103,7 +105,7 @@ class TestSessionsListCommand:
         assert result.exit_code == 0
         assert "No active sessions" in result.output
 
-    def test_sessions_list_proxy_not_running(self, runner: CliRunner):
+    def test_sessions_list_proxy_not_running(self, runner: CliRunner) -> None:
         """Given proxy not running, shows error."""
         # Arrange
         with patch(
@@ -117,7 +119,7 @@ class TestSessionsListCommand:
         assert result.exit_code == 1
         assert "not running" in result.output.lower()
 
-    def test_sessions_list_api_error(self, runner: CliRunner):
+    def test_sessions_list_api_error(self, runner: CliRunner) -> None:
         """Given API error, shows error message."""
         # Arrange
         with patch(
@@ -135,7 +137,7 @@ class TestSessionsListCommand:
 class TestSessionsListJsonOutput:
     """Tests for sessions list --json flag."""
 
-    def test_sessions_list_json_output(self, runner: CliRunner, mock_sessions_response: list):
+    def test_sessions_list_json_output(self, runner: CliRunner, mock_sessions_response: list) -> None:
         """Given --json flag, outputs valid JSON array."""
         # Arrange
         with patch(
@@ -151,7 +153,9 @@ class TestSessionsListJsonOutput:
         assert isinstance(data, list)
         assert len(data) == 2
 
-    def test_sessions_list_json_preserves_all_fields(self, runner: CliRunner, mock_sessions_response: list):
+    def test_sessions_list_json_preserves_all_fields(
+        self, runner: CliRunner, mock_sessions_response: list
+    ) -> None:
         """Given --json flag, preserves all session fields."""
         # Arrange
         with patch(
@@ -170,7 +174,7 @@ class TestSessionsListJsonOutput:
         # Full ID, not truncated
         assert session["session_id"] == "sess-abc123def456"
 
-    def test_sessions_list_json_empty_array(self, runner: CliRunner):
+    def test_sessions_list_json_empty_array(self, runner: CliRunner) -> None:
         """Given no sessions and --json flag, outputs empty array."""
         # Arrange
         with patch(
@@ -189,7 +193,7 @@ class TestSessionsListJsonOutput:
 class TestSessionsHelp:
     """Tests for sessions command help."""
 
-    def test_sessions_help_shows_subcommands(self, runner: CliRunner):
+    def test_sessions_help_shows_subcommands(self, runner: CliRunner) -> None:
         """Given sessions --help, shows available subcommands."""
         # Act
         result = runner.invoke(cli, ["sessions", "--help"])
@@ -198,7 +202,7 @@ class TestSessionsHelp:
         assert result.exit_code == 0
         assert "list" in result.output
 
-    def test_sessions_list_help_shows_options(self, runner: CliRunner):
+    def test_sessions_list_help_shows_options(self, runner: CliRunner) -> None:
         """Given sessions list --help, shows options."""
         # Act
         result = runner.invoke(cli, ["sessions", "list", "--help"])
