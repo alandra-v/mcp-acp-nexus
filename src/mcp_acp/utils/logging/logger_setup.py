@@ -83,7 +83,9 @@ def setup_jsonl_logger(
     logger.setLevel(log_level)
     logger.propagate = False  # Don't propagate to root logger
 
-    # Remove any existing handlers to avoid duplicates
+    # Close and remove any existing handlers to avoid duplicates and resource leaks
+    for handler in logger.handlers:
+        handler.close()
     logger.handlers.clear()
 
     # Create file handler that writes to the log file
@@ -147,6 +149,9 @@ def setup_failclosed_audit_logger(
     logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
     logger.propagate = False
+    # Close existing handlers before clearing to avoid resource leaks
+    for handler in logger.handlers:
+        handler.close()
     logger.handlers.clear()
 
     # Create fail-closed file handler

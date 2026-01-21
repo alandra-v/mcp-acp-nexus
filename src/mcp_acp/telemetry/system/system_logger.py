@@ -113,7 +113,9 @@ def get_system_logger() -> logging.Logger:
     _system_logger.setLevel(logging.INFO)
     _system_logger.propagate = False  # Don't propagate to root logger
 
-    # Remove any existing handlers to avoid duplicates
+    # Close and remove any existing handlers to avoid duplicates and resource leaks
+    for handler in _system_logger.handlers:
+        handler.close()
     _system_logger.handlers.clear()
 
     # Handler: stderr - INFO and above (operator sees everything)

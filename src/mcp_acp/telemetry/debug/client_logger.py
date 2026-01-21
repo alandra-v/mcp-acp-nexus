@@ -249,6 +249,8 @@ def create_client_logging_middleware(
     else:
         # Create a logger that discards all messages
         logger = logging.getLogger(f"{APP_NAME}.debug.client.null")
+        for handler in logger.handlers:
+            handler.close()
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False

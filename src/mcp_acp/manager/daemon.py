@@ -109,7 +109,9 @@ def _configure_manager_logging(config: ManagerConfig) -> None:
     if _file_handler_configured:
         return
 
-    # Clear any existing handlers
+    # Close and clear any existing handlers to avoid resource leaks
+    for handler in _logger.handlers:
+        handler.close()
     _logger.handlers.clear()
 
     # Add stderr handler (INFO+)

@@ -509,6 +509,8 @@ def create_logging_proxy_client(
     else:
         # Create a logger that discards all messages
         logger = logging.getLogger(f"{APP_NAME}.debug.backend.null")
+        for handler in logger.handlers:
+            handler.close()
         logger.handlers.clear()
         logger.addHandler(logging.NullHandler())
         logger.propagate = False
