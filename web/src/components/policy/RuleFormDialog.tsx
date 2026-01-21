@@ -508,7 +508,7 @@ export function RuleFormDialog({
 
           {/* HITL Options - Only shown when effect is 'hitl' */}
           {formState.effect === 'hitl' && (
-            <div className="pt-4 border-t border-base-800">
+            <div className="pt-4 border-t border-base-800 space-y-2">
               <label className="flex items-center gap-3 cursor-pointer">
                 <button
                   type="button"
@@ -529,13 +529,14 @@ export function RuleFormDialog({
                     )}
                   />
                 </button>
-                <div>
-                  <span className="text-sm font-medium">Allow approval caching</span>
-                  <p className="text-xs text-muted-foreground">
-                    When enabled, you can cache your approval for repeated tool calls
-                  </p>
-                </div>
+                <span className="text-sm font-medium">Allow approval caching</span>
               </label>
+              <p className="text-xs text-muted-foreground">
+                Cached approvals let you approve a tool once for a specific resource path, and it
+                will remain approved for the configured TTL duration. The cache is keyed by user,
+                tool, and path — so approving &apos;read_file&apos; on &apos;/data/config.json&apos; won&apos;t
+                auto-approve it on other files.
+              </p>
             </div>
           )}
         </div>

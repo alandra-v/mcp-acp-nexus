@@ -513,6 +513,9 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
         <FormSection title="Human-in-the-Loop (HITL)">
           <p className="text-sm text-muted-foreground -mt-2 mb-4">
             Requests matching HITL rules require manual approval before proceeding.
+            When approval caching is enabled for a rule, you can approve a tool once for a
+            specific resource path and it will remain approved until the TTL expires.
+            The cache is keyed by user, tool, and path.
           </p>
           <FormRow label="Timeout" hint="Seconds to wait for user approval (5-300)">
             <Input
