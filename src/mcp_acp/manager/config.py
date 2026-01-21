@@ -29,30 +29,38 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from mcp_acp.constants import DEFAULT_API_PORT
+from mcp_acp.constants import APP_NAME, DEFAULT_API_PORT
 from mcp_acp.utils.file_helpers import get_app_dir, set_secure_permissions
 
 _logger = logging.getLogger(__name__)
 
 
-def _get_default_log_dir() -> str:
-    """Get platform-appropriate default log directory.
+def _get_platform_log_dir() -> str:
+    """Get platform-appropriate base log directory following OS conventions.
 
     Returns:
-        Default log directory path (unexpanded).
+        Platform-specific base log directory path (unexpanded).
+        mcp-acp logs go in <base>/mcp-acp/manager/ and <base>/mcp-acp/proxies/.
+
+    Platform conventions:
+        - macOS: ~/Library/Logs (Apple standard, integrates with Console.app)
+        - Linux: ~/.local/state (XDG Base Directory Specification for logs/state)
+        - Windows: ~/AppData/Local (standard for app data)
     """
     if sys.platform == "darwin":
         return "~/Library/Logs"
     elif sys.platform == "win32":
-        # Windows: use AppData/Local
         return "~/AppData/Local"
     else:
-        # Linux/Unix: use ~/.local/share
-        return "~/.local/share"
+        # Linux/Unix: XDG_STATE_HOME is for logs, history, state
+        # Falls back to ~/.local/state per XDG spec
+        import os
+
+        return os.environ.get("XDG_STATE_HOME", "~/.local/state")
 
 
-# Default log directory for manager (platform-specific)
-DEFAULT_MANAGER_LOG_DIR = _get_default_log_dir()
+# Default base log directory (platform-specific, follows OS conventions)
+DEFAULT_MANAGER_LOG_DIR = _get_platform_log_dir()
 
 
 class ManagerConfig(BaseModel):
@@ -60,8 +68,10 @@ class ManagerConfig(BaseModel):
 
     Attributes:
         ui_port: HTTP port for web UI (default: 8765).
-        log_dir: Directory for manager logs. Defaults to ~/Library/Logs.
-            Manager logs are stored in <log_dir>/mcp_acp_logs/manager/.
+        log_dir: Base directory for logs. Platform-specific default:
+            - macOS: ~/Library/Logs
+            - Linux: $XDG_STATE_HOME (~/.local/state)
+            Manager logs stored in <log_dir>/mcp-acp/manager/.
     """
 
     ui_port: int = Field(
@@ -95,9 +105,9 @@ def get_manager_log_dir(config: ManagerConfig) -> Path:
         config: Manager configuration.
 
     Returns:
-        Path: Log directory path (<log_dir>/mcp_acp_logs/manager/).
+        Path: Log directory path (<log_dir>/mcp-acp/manager/).
     """
-    return Path(config.log_dir).expanduser() / "mcp_acp_logs" / "manager"
+    return Path(config.log_dir).expanduser() / APP_NAME / "manager"
 
 
 def get_manager_system_log_path(config: ManagerConfig) -> Path:

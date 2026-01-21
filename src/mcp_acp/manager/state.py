@@ -836,7 +836,24 @@ class ProxyState:
         # Forward to manager for aggregation (if connected)
         if self._manager_client is not None and self._manager_client.registered:
             event_type = event.get("type", "unknown")
-            asyncio.create_task(self._manager_client.push_event(event_type, event))
+            task = asyncio.create_task(self._manager_client.push_event(event_type, event))
+            # Log any exceptions from the fire-and-forget task
+            task.add_done_callback(self._handle_push_event_result)
+
+    def _handle_push_event_result(self, task: asyncio.Task[None]) -> None:
+        """Handle result of fire-and-forget push_event task.
+
+        Logs any exceptions that occurred during event forwarding to manager.
+        This prevents exceptions from being silently swallowed.
+
+        Args:
+            task: Completed asyncio Task from push_event.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.debug("Failed to push event to manager: %s", exc)
 
     def emit_system_event(
         self,

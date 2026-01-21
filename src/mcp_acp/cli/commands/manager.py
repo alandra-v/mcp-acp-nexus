@@ -20,6 +20,7 @@ from typing import Any
 import click
 
 from mcp_acp.constants import (
+    APP_NAME,
     DEFAULT_API_PORT,
     MANAGER_SOCKET_PATH,
     RUNTIME_DIR,
@@ -113,7 +114,7 @@ def start(port: int | None, foreground: bool) -> None:
         # Find the mcp-acp executable
         # First try to find it via shutil.which (in PATH)
         # Then fall back to python -m mcp_acp.cli
-        mcp_acp_path = shutil.which("mcp-acp")
+        mcp_acp_path = shutil.which(APP_NAME)
         if mcp_acp_path is None:
             # Use python -m mcp_acp.cli (works with __main__.py)
             mcp_acp_cmd = [sys.executable, "-m", "mcp_acp.cli"]

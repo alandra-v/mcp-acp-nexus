@@ -15,13 +15,14 @@ __all__ = [
 ]
 
 import asyncio
-import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-_logger = logging.getLogger("mcp-acp.manager.registry")
+from mcp_acp.constants import APP_NAME
+
+_logger = logging.getLogger(f"{APP_NAME}.manager.registry")
 
 
 @dataclass
@@ -206,6 +207,22 @@ class ProxyRegistry:
             event_type,
             {**data, "proxy_name": proxy_name},
         )
+
+    async def broadcast_snapshot(
+        self,
+        event_type: str,
+        data: dict[str, Any],
+    ) -> None:
+        """Broadcast a snapshot event to all SSE subscribers.
+
+        Used by manager to send initial state snapshots (pending approvals,
+        cached approvals, stats) when a proxy registers.
+
+        Args:
+            event_type: Type of snapshot (e.g., "snapshot", "cached_snapshot").
+            data: Snapshot payload.
+        """
+        await self._broadcast_sse_event(event_type, data)
 
     async def subscribe_sse(self) -> asyncio.Queue[dict[str, Any]]:
         """Subscribe to SSE events.
