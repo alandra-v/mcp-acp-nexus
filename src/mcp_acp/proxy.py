@@ -509,6 +509,7 @@ def create_proxy(
                     uds_app,
                     uds=str(SOCKET_PATH),
                     log_config=None,
+                    ws="wsproto",
                 )
                 uds_server = uvicorn.Server(uds_config)
 
@@ -544,6 +545,7 @@ def create_proxy(
                         http_app,
                         fd=http_socket.fileno(),
                         log_config=None,
+                        ws="wsproto",
                     )
                     http_server = uvicorn.Server(http_config)
                 else:

@@ -34,6 +34,7 @@ dependencies = [
     # API server
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
+    "wsproto>=1.2.0",  # Modern websocket implementation for uvicorn (avoids websockets.legacy deprecation)
 ]
 
 [project.optional-dependencies]
