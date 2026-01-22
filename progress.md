@@ -110,266 +110,91 @@ No new dependencies needed - just wire up existing library.
 
 ## Phase 3: Manager Introduction
 
-**Status: Not Started**
+**Status: In Progress (Implementation Complete, Tests + UI Polish Pending)**
 
 Manager daemon that serves UI and observes STDIO proxies (does not own lifecycle).
 
-### Architecture Overview
+See [docs/design/multi.md](docs/design/multi.md#phase-3-implementation-details) for architecture and implementation details.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Browser                                                        │
-└─────────────┬───────────────────────────────────────────────────┘
-              │ HTTP :8765
-              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Manager                                                        │
-│  ├── HTTP server (:8765) - serves UI, browser API               │
-│  ├── UDS server (manager.sock) - proxy registration             │
-│  └── Logs to logs/manager/system.jsonl                          │
-└─────────────┬───────────────────────────────────────────────────┘
-              │ UDS (registration + events)
-              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Proxy A                                                        │
-│  ├── UDS server (proxy_{name}.sock) - CLI + manager routing     │
-│  ├── NO HTTP server (manager handles browser)                   │
-│  └── Connects to manager.sock on startup                        │
-└─────────────────────────────────────────────────────────────────┘
+### Step 3.1: Manager Daemon Skeleton — Complete
 
-CLI → connects to proxy_{name}.sock directly (unchanged)
-```
+- [x] Manager process (daemon, PID file, graceful shutdown)
+- [x] HTTP server (port 8765, static UI)
+- [x] UDS server (manager.sock)
+- [x] Auto-start logic (file lock, double-check)
+- [x] Manager configuration (manager.json)
+- [x] CLI commands (start/stop/status)
+- [x] Manager logging (system.jsonl)
+- [x] Tests (covered by routes tests: status endpoint, static serving)
 
-**Manager role**: Thin routing/aggregation layer. NOT a controller.
+### Step 3.2: Proxy Registration — Complete
 
-| Component | Responsibility |
-|-----------|----------------|
-| Manager | Serves UI, routes API requests, aggregates SSE events, system logging |
-| Proxy | Policy enforcement, HITL handling, audit logging, backend connection (unchanged) |
+- [x] Registration protocol (NDJSON over UDS)
+- [x] Manager tracks proxies (in-memory dict)
+- [x] Proxy graceful degradation (works without manager)
+- [x] SSE events (proxy_registered, proxy_disconnected)
+- [x] API endpoints (/api/proxies, /api/manager/proxies)
+- [x] Tests (test_protocol.py, test_registry.py, test_client.py)
 
-### Key Decisions
+### Step 3.3: Event Forwarding — Complete
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Manager socket | `RUNTIME_DIR / "manager.sock"` | Single well-known path for proxy registration |
-| Proxy socket (Phase 3) | Keep existing `api.sock` | Single proxy, minimize changes |
-| Proxy socket (Phase 4+) | `RUNTIME_DIR / "proxy_{name}.sock"` | Per-proxy for CLI and manager routing |
-| Proxy name (Phase 3) | Hardcode `"default"` | TODO: Proper naming in Phase 4 |
-| Proxy↔Manager transport | UDS | Secure, no network exposure |
-| Event direction | Proxy pushes to manager | Manager is passive aggregator |
-| Proxy HTTP server | Remove (keep UDS only) | Hard switch, no transition period |
-| Browser auto-open | First entity to start opens | Avoids duplicate browser tabs |
-| Manager auto-restart | OS-level (LaunchAgent/systemd) | Keep codebase simple |
-| Browser auth (Phase 3) | Manager generates token | TODO: Centralize auth in Phase 4 |
-| Manager crash notification | Proxy shows osascript popup | "Run 'mcp-acp manager start' to restore" |
+- [x] Event protocol (NDJSON, fire-and-forget)
+- [x] Manager event aggregation (adds proxy_name, broadcasts)
+- [x] Browser SSE endpoint (/api/events)
+- [x] Proxy state snapshot on registration
+- [x] Tests (test_registry.py: SSE broadcasting, test_client.py: push_event)
 
-### Manager Logging
+### Step 3.4: API Routing — Complete
 
-```
-logs/manager/
-└── system.jsonl    # Manager lifecycle, proxy registrations, errors
-```
-
-Note: `auth.jsonl` moves to manager in Phase 4 when auth is centralized.
-
-### New SSE Event Types
-
-Add to `SSEEventType` enum for manager-level events:
-- `PROXY_REGISTERED` - Proxy connected and registered
-- `PROXY_DISCONNECTED` - Proxy connection closed
-
----
-
-### Step 3.1: Manager Daemon Skeleton
-
-Manager process that starts/stops and serves static UI.
-
-- [ ] **Manager process**
-  - Separate daemon process (not child of proxy)
-  - PID file at `RUNTIME_DIR / "manager.pid"`
-  - Graceful shutdown on SIGTERM/SIGINT
-
-- [ ] **HTTP server**
-  - Serves static UI files (same React app, copied from proxy)
-  - Listens on port 8765 (configurable)
-  - Port conflict: clear error message with fix instructions
-
-- [ ] **UDS server**
-  - Listens on `RUNTIME_DIR / "manager.sock"`
-  - Ready to accept proxy connections (handled in Step 3.2)
-
-- [ ] **Auto-start logic**
-  - Proxy checks if manager running (connect to manager.sock)
-  - If not running, acquire file lock (`RUNTIME_DIR / "manager.lock"`)
-  - Double-check after lock (another proxy may have started it)
-  - Start manager as daemon process
-  - Wait for manager.sock to be ready
-
-- [ ] **Manager configuration**
-  - `manager.json` for manager-level settings
-  - `ui_port`: HTTP port (default 8765)
-  - Separate from per-proxy config
-
-- [ ] **CLI commands**
-  - `mcp-acp manager start [--port]` - Start manager daemon
-  - `mcp-acp manager stop` - Stop manager daemon
-  - `mcp-acp manager status` - Show manager status
-
-- [ ] **Manager logging**
-  - System logger writes to `logs/manager/system.jsonl`
-  - Events: manager_started, manager_stopping, errors
-
-- [ ] **Tests**
-  - Manager start/stop lifecycle
-  - Auto-start with file lock
-  - Port conflict handling
-  - PID file management
-
----
-
-### Step 3.2: Proxy Registration
-
-Proxies register with manager on startup.
-
-- [ ] **Registration protocol**
-  ```
-  Proxy connects to manager.sock
-  Proxy sends: {"type": "register", "protocol_version": 1, "proxy_name": "default", "instance_id": "...", "config_summary": {...}}
-  Manager sends: {"type": "registered", "ok": true}
-  Manager rejects incompatible protocol versions with clear error
-  Connection stays open for events
-  ```
-
-- [ ] **Manager tracks proxies**
-  - In-memory dict: `{proxy_name: ProxyConnection}`
-  - `ProxyConnection`: socket, instance_id, config_summary, connected_at
-  - Detect disconnect when socket closes
-
-- [ ] **Proxy changes**
-  - On startup: connect to manager.sock, send registration
-  - Keep connection open for event pushing
-  - Graceful handling if manager not available (proxy still works)
-  - On manager connection loss: show osascript popup
-    ```
-    "Manager connection lost. UI unavailable.
-    Run 'mcp-acp manager start' to restore."
-    ```
-
-- [ ] **SSE events to browser**
-  - `PROXY_REGISTERED`: when proxy registers
-  - `PROXY_DISCONNECTED`: when proxy connection closes
-
-- [ ] **API endpoint**
-  - `GET /api/proxies` - list all registered proxies with status
-
-- [ ] **Tests**
-  - Registration handshake
-  - Multiple proxy registration
-  - Disconnect detection
-  - Proxy works without manager (graceful degradation)
-
----
-
-### Step 3.3: Event Forwarding
-
-Proxy pushes SSE events to manager, manager broadcasts to browser.
-
-- [ ] **Event protocol over UDS**
-  ```
-  Proxy sends: {"type": "event", "event_type": "pending_created", "data": {...}}
-  (No response - fire and forget)
-  ```
-  Newline-delimited JSON (NDJSON) for simplicity.
-
-- [ ] **Manager event aggregation**
-  - Receive events from all proxy connections
-  - Add `proxy_name` field to each event
-  - Broadcast to all browser SSE subscribers
-
-- [ ] **Browser SSE endpoint**
-  - `GET /api/events` - aggregated SSE stream
-  - Single stream for all proxies
-  - UI filters by `proxy_name` client-side
-
-- [ ] **Proxy changes**
-  - Existing `ProxyState._broadcast_event()` also writes to manager connection
-  - Graceful handling if manager connection lost (events just don't aggregate)
-
-- [ ] **Tests**
-  - Event flow: proxy → manager → browser
-  - Multiple proxies sending events
-  - Connection loss handling
-
----
-
-### Step 3.4: API Routing
-
-Manager routes `/api/proxy/{name}/*` requests to proxies.
-
-- [ ] **Routing logic**
-  - Manager receives `/api/proxy/{name}/...` request
-  - Looks up proxy by name in registered proxies
-  - Forwards request to proxy's UDS socket (`proxy_{name}.sock`)
-  - Returns proxy's response to browser
-
-- [ ] **Proxy API server changes**
-  - Remove HTTP server (manager handles browser)
-  - Keep UDS server for CLI and manager routing
-  - Same API endpoints, just UDS-only
-
-- [ ] **Manager-level endpoints** (no routing)
-  ```
-  GET  /api/proxies           → list all proxies + status
-  GET  /api/events            → aggregated SSE stream
-  GET  /api/manager/status    → manager health
-  ```
-
-- [ ] **Proxy-routed endpoints**
-  ```
-  GET  /api/proxy/{name}/approvals
-  POST /api/proxy/{name}/approvals/{id}/approve
-  POST /api/proxy/{name}/approvals/{id}/deny
-  GET  /api/proxy/{name}/policy
-  POST /api/proxy/{name}/policy/reload
-  GET  /api/proxy/{name}/config
-  GET  /api/proxy/{name}/incidents
-  GET  /api/proxy/{name}/stats
-  ```
-
-- [ ] **Error handling**
-  - Proxy not found: 404
-  - Proxy disconnected: 503 with message
-  - Proxy request timeout: 504
-
-- [ ] **Tests**
-  - Request routing to correct proxy
-  - Error cases (not found, disconnected)
-  - CLI still works via direct UDS
-
----
+- [x] Routing logic (httpx UDS transport)
+- [x] Fallback routing (/api/* → default proxy)
+- [x] Manager-level endpoints (/api/manager/*)
+- [x] Error handling (404, 503, 504)
+- [x] Tests (test_routes.py: routing errors, prefixes, path safety)
 
 ### Step 3.5: UI Polish
 
+**Status: In Progress**
+
 Final UI integration for manager-served UI.
 
-- [ ] **Browser auto-open**
-  - First entity to start (manager or proxy) opens browser
-  - Proxy: only open if manager not running AND proxy is starting manager
-  - Manager: open on explicit `manager start` command
-  - Avoid duplicate tabs
+- [x] **Browser auto-open**
+  - Manager opens browser on `manager start` command
+  - URL: `http://127.0.0.1:{port}`
+  - macOS fallback: displays notification with URL if browser open fails
+
+- [x] **UI SSE integration**
+  - UI connects to `/api/events` (manager's aggregated endpoint)
+  - Added `proxy_registered` / `proxy_disconnected` event handlers
+  - Auto-refresh proxy list when proxies connect/disconnect
+  - Added TypeScript types for new SSE events
+
+- [x] **Pending approvals on reload**
+  - Manager fetches initial snapshot on SSE connect
+  - Properly sent before subscribing to live events
+
+- [x] **Browser connectivity tracking**
+  - Manager sends `ui_status` messages to proxies when browser connects/disconnects
+  - Proxy tracks `browser_connected` state (accurate, not just manager registration)
+  - `is_ui_connected` now reflects actual browser connectivity
+  - HITL correctly falls back to osascript when no browser connected
+  - HITL immediately falls back to osascript if manager disconnects mid-wait
+  - Heartbeat mechanism (30s interval, 45s timeout) detects stale connections
+  - Periodic reconnection (10s interval) after manager restart
+  - System log events: `browser_status_changed`, `manager_connection_closed`, `manager_reconnected`
+  - See [docs/demo-testing-guide/manager-ui-coupling-tests.md](docs/demo-testing-guide/manager-ui-coupling-tests.md)
 
 - [ ] **UI updates**
-  - Show "No proxies connected" when manager has no registrations
-  - Proxy status indicators (connected/disconnected)
-  - "Restart Claude Desktop to reconnect" message for disconnected proxies
-
-- [ ] **Config change messaging**
-  - Config changes show "Restart client to apply"
-  - No restart button (client owns lifecycle in STDIO mode)
+  - [x] Basic proxy status indicator (running/inactive) in detail view
+  - [ ] "No proxies connected" message when manager has no registrations
+  - [ ] Enhanced proxy status indicators (connected/disconnected)
+  - [ ] "Restart Claude Desktop to reconnect" message
 
 - [ ] **Tests**
   - UI shows correct proxy states
   - Browser open logic
+
+- **Known issue (deferred to Phase 4)**: Auth status in navbar doesn't update live on SSE reconnect—shows "not logged in" until page reload. Stats update correctly because they're stored directly in AppStateContext, but auth uses window events which have timing issues. This will be resolved naturally when auth moves to manager in Phase 4 (manager will own auth state and push updates natively).
 
 ---
 
@@ -399,10 +224,10 @@ Proxies receive identity token from manager and validate per-request, but don't 
   ├── proxies/
   │   ├── filesystem/
   │   │   ├── config.json
-  │   │   └── policy.yaml
+  │   │   └── policy.json
   │   └── github/
   │       ├── config.json
-  │       └── policy.yaml
+  │       └── policy.json
   └── logs/proxies/{name}/
   ```
 
@@ -600,59 +425,163 @@ Toast notifications and crash handling.
 
 **Status: Not Started**
 
-Basic latency measurement for evaluation (extended testing out of scope).
+Latency measurement for UI display and thesis evaluation. Tracks three metrics:
+1. **Policy decision latency** - Time added by per-request policy evaluation
+2. **HITL overhead** - Additional delay when human approval is required
+3. **Total proxy overhead** - End-to-end time through proxy (feasibility indicator)
 
-- [ ] **LatencyTracker implementation**
-  - Circular buffer for recent N samples (default 1000)
-  - Record elapsed_ms after each request
-  - Compute median on read (O(n) sort)
-  - Thread-safe for async context
+### Step 8.1: LatencyTracker Implementation
 
-- [ ] **Middleware integration**
-  - Create tracker at proxy startup
-  - Record timing in outermost middleware
-  - Measure total time through proxy (includes backend)
+- [ ] **LatencyTracker class** (in `manager/state.py` or separate file)
+  - Circular buffer for recent N samples (`LATENCY_BUFFER_SIZE = 1000` in constants.py)
+  - Compute median on read (O(n) sort acceptable for small N)
+  - Thread-safe for async context (cooperative asyncio model)
+  - Three tracker instances:
+    - `proxy_latency`: Total request time through proxy (includes backend)
+    - `policy_eval`: Policy evaluation time only
+    - `hitl_wait`: HITL wait time only
 
-- [ ] **API endpoint**
-  - `GET /api/stats` returns:
-    ```json
-    {
-      "requests_total": 1234,
-      "median_ms": 45.2
+- [ ] **Integration in ProxyState**
+  - Add `LatencyTrackers` as field in `ProxyState.__init__()`
+  - Keeps all stats together (request counts + latency)
+  - API reads from single source
+  - SSE emission handled consistently
+
+- [ ] **Extend `record_decision()` signature**
+  ```python
+  def record_decision(
+      self,
+      decision: Decision,
+      eval_ms: float | None = None,
+      hitl_ms: float | None = None,
+  ) -> None:
+  ```
+  - Records timing alongside decision (always called together)
+  - `eval_ms`: Policy evaluation time (always provided for policy-evaluated requests)
+  - `hitl_ms`: HITL wait time (only for HITL decisions)
+
+- [ ] **Middleware updates**
+  - Pass timing to `record_decision()` from each handler
+  - `proxy_latency`: Measure total time in ContextMiddleware (outermost)
+  - Timing data already captured: `eval_duration_ms`, `hitl_result.response_time_ms`
+
+### Step 8.2: API and UI
+
+- [ ] **Expanded `/api/stats` endpoint**
+  ```json
+  {
+    "requests_total": 1234,
+    "requests_allowed": 1100,
+    "requests_denied": 50,
+    "requests_hitl": 84,
+    "latency": {
+      "proxy_median_ms": 45.2,
+      "policy_eval_median_ms": 2.1,
+      "hitl_wait_median_ms": 8500.0,
+      "sample_count": 1000
     }
-    ```
+  }
+  ```
 
 - [ ] **UI display**
-  - Show stats on each proxy card in list view
-  - Requests count and median response time per proxy
-  - `~` prefix indicates median (typical experience)
-  - Example: "1,234 requests  ~45ms"
-  - Disconnected proxies show stats from last session
+  - Extend existing StatsSection with latency info
+  - Show: "~45ms response" (total proxy median)
+  - Tooltip or expandable detail: policy eval ~2ms, HITL ~8.5s
+  - Multi-proxy list view: show median on each proxy card
 
-- [ ] **Benchmark script for thesis**
-  - Compare direct backend vs proxied latency
-  - Calculate proxy overhead (median_proxied - median_direct)
-  - Report: overhead_ms, overhead_pct, stdev
-  - Document test methodology
+### Step 8.3: Thesis Benchmark Script
+
+Hybrid approach: log parsing for metrics already captured, live benchmark for proxy overhead comparison.
+
+- [ ] **Log parser** (`scripts/parse_latency_logs.py`)
+  - Parse audit logs for `policy_eval_ms` and `policy_hitl_ms`
+  - Aggregate into median, std dev, sample count
+  - Supports filtering by date range
+  - **Why log parsing for these metrics:**
+    - Data already exists from real usage
+    - Reflects actual usage patterns, not synthetic tests
+    - Historical analysis possible
+    - No test infrastructure needed
+
+- [ ] **Live benchmark** (`scripts/benchmark_overhead.py`)
+  - Uses FastMCP Client (pytest fixtures) to send MCP requests programmatically
+  - Tests both STDIO and HTTP proxy↔backend transport modes
+  - **Why live benchmark for proxy overhead:**
+    - Requires direct vs proxied comparison (can't get "direct" from logs)
+    - Controlled, reproducible test conditions
+    - Can isolate proxy overhead specifically
+
+  - **Test setup**:
+    ```
+    Direct:   FastMCP Client ──STDIO/HTTP──▶ Backend
+    Proxied:  FastMCP Client ──STDIO──▶ Proxy ──STDIO/HTTP──▶ Backend
+    ```
+
+  - **Warmup**: Discard first N requests (cold caches, lazy imports, policy parsing)
+  - **Request mix**: Discovery (tools/list) + tool calls (representative workload)
+  - **Transport modes**: Test proxy↔backend over both STDIO and HTTP
+
+  - **Proxy overhead methodology**:
+    ```
+    Direct:  Client ──────────────────────▶ Backend
+             median_direct = 30ms
+
+    Proxied: Client ──▶ Proxy ──▶ Backend
+             median_proxied = 45ms
+
+    Proxy Overhead = median_proxied - median_direct = 15ms
+    ```
+
+- [ ] **Output report**:
+  ```
+  === Policy Decision Latency (from audit logs) ===
+  Log file: ~/.mcp-acp/logs/audit/decisions.jsonl
+  Samples: 1000
+  Median: 2.1ms
+  Std Dev: 0.8ms
+
+  === HITL Overhead (from audit logs) ===
+  Samples: 84 (HITL decisions only)
+  Median: 8.5s
+  Note: Human response time dominates
+
+  === Proxy Overhead - STDIO backend (live benchmark) ===
+  Warmup: 10 requests (discarded)
+  Test requests: 100 x (tools/list + tool call)
+  Direct median: 30.2ms
+  Proxied median: 45.4ms
+  Overhead: 15.2ms (+50.3%)
+  Std Dev (direct): 5.1ms
+  Std Dev (proxied): 6.3ms
+
+  === Proxy Overhead - HTTP backend (live benchmark) ===
+  Direct median: 28.1ms
+  Proxied median: 42.8ms
+  Overhead: 14.7ms (+52.3%)
+
+  Note: Proxy overhead is a feasibility indicator only, not optimization data.
+  ```
 
 - [ ] **Tests**
-  - LatencyTracker unit tests
-  - API endpoint tests
+  - LatencyTracker unit tests (buffer, median calculation, thread safety)
+  - API endpoint tests (extended stats response)
+  - Log parser tests (parsing, aggregation)
+  - Benchmark script smoke test
 
 ---
 
 ## Stage 3 Completion Criteria
 
 - [x] Audit logs protected by hash chain with between-run verification
-- [ ] Manager daemon serves UI and observes proxies
-- [ ] Multiple STDIO proxies can register with manager
-- [ ] Credential isolation per proxy
-- [ ] CLI commands for proxy configuration (not lifecycle)
-- [ ] UI updated for multi-proxy observation
-- [ ] Proxy deletion with audit trail preservation
-- [ ] Toast notifications for proxy events
-- [ ] Crash detection with UI notification
-- [ ] Basic performance metrics displayed in UI
+- [x] Manager daemon serves UI and observes proxies (Phase 3 core complete)
+- [ ] Multiple STDIO proxies can register with manager (Phase 4)
+- [ ] Credential isolation per proxy (Phase 4)
+- [ ] CLI commands for proxy configuration (not lifecycle) (Phase 4)
+- [ ] UI updated for multi-proxy observation (Phase 5)
+- [ ] Proxy deletion with audit trail preservation (Phase 6)
+- [ ] Toast notifications for proxy events (Phase 7)
+- [ ] Crash detection with UI notification (Phase 7)
+- [ ] Basic performance metrics displayed in UI (Phase 8)
 
 ---
 
@@ -665,21 +594,3 @@ See [docs/design/http-client-mode.md](docs/design/http-client-mode.md) for:
 - Manager-owned proxy lifecycle (lazy spawn, idle shutdown)
 - Manager as reverse proxy
 - OIDC/mTLS authentication for HTTP clients
-
-### Extended Performance Testing
-
-See [docs/design/performance-testing-enhanced.md](docs/design/performance-testing-enhanced.md) for:
-- Percentile tracking (p50, p95, p99)
-- Segment-level timing breakdown
-- Load testing / soak testing
-- Coordinated omission-aware benchmarks
-- Resource consumption metrics
-
-### Distributed Deployment
-
-See [docs/design/multi.md](docs/design/multi.md) "Storage Backends" section for:
-- RedisStore for multi-host deployment
-- DynamoDB / MongoDB backends
-- Distributed approval coordination
-
-Note: `key_value.aio` library (FastMCP dependency) already provides Redis, DynamoDB, MongoDB backends. No new dependencies needed - just configuration.
