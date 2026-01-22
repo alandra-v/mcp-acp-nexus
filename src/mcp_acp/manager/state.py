@@ -11,15 +11,6 @@ When no UI is connected, HITL falls back to osascript dialogs.
 from __future__ import annotations
 
 __all__ = [
-    # Re-exported from other modules (for backward compatibility)
-    "CachedApprovalSummary",
-    "EventSeverity",
-    "PendingApprovalInfo",
-    "PendingApprovalRequest",
-    "ProxyInfo",
-    "ProxyStats",
-    "SSEEventType",
-    # Defined in this module
     "ProxyState",
     "get_global_proxy_state",
     "set_global_proxy_state",
@@ -34,8 +25,6 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
-# Re-export from new modules for backward compatibility
-# This allows existing code to import from manager.state
 from mcp_acp.manager.events import EventSeverity, SSEEventType
 from mcp_acp.manager.models import (
     CachedApprovalSummary,
@@ -472,6 +461,34 @@ class ProxyState:
 
         return True
 
+    def cancel_pending(self, approval_id: str, reason: str = "cancelled") -> bool:
+        """Cancel a pending approval without resolving it.
+
+        Used when the approval wait is interrupted (e.g., manager disconnect).
+        Removes the pending approval and broadcasts a cancellation event.
+
+        Args:
+            approval_id: The pending approval ID.
+            reason: Reason for cancellation (e.g., "manager_disconnected", "cancelled").
+
+        Returns:
+            True if the approval was found and cancelled, False otherwise.
+        """
+        removed = self._pending.pop(approval_id, None)
+        if removed is None:
+            return False
+
+        # Broadcast cancellation to SSE subscribers
+        self._broadcast_event(
+            {
+                "type": "pending_cancelled",
+                "approval_id": approval_id,
+                "reason": reason,
+            }
+        )
+
+        return True
+
     async def wait_for_decision(self, approval_id: str, timeout: float) -> tuple[str | None, str | None]:
         """Wait for a pending approval decision.
 
@@ -547,20 +564,24 @@ class ProxyState:
 
     @property
     def is_ui_connected(self) -> bool:
-        """Check if any UI clients are connected via SSE.
+        """Check if browser is connected for HITL web UI.
 
         Used by HITL handler to decide between web UI and osascript.
 
         Returns True if:
         - Local SSE subscribers exist (UI connected directly to proxy), OR
-        - Proxy is registered with manager (UI connects via manager's /api/events)
+        - Browser is connected to manager (manager sends ui_status with browser_connected=True)
+
+        Note: This now accurately reflects browser connectivity, not just manager
+        registration. If manager is running but no browser is connected,
+        browser_connected will be False and HITL will fall back to osascript.
         """
         # Direct connection to proxy
         if len(self._sse_subscribers) > 0:
             return True
 
-        # Connected via manager - assume UI could be watching
-        if self._manager_client is not None and self._manager_client.registered:
+        # Connected via manager - check actual browser connectivity
+        if self._manager_client is not None and self._manager_client.browser_connected:
             return True
 
         return False

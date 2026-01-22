@@ -379,7 +379,7 @@ class ShutdownCoordinator:
         # 7. Emit SSE event to UI (best effort - may not arrive before exit)
         if self._proxy_state is not None:
             try:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._proxy_state.emit_system_event(
                     SSEEventType.CRITICAL_SHUTDOWN,

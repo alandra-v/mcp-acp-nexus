@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 from mcp_acp.manager.client import ManagerClient, is_manager_available
-from mcp_acp.manager.protocol import PROTOCOL_VERSION, encode_ndjson
+from mcp_acp.manager.protocol import encode_ndjson
 
 
 @pytest.fixture
@@ -242,7 +242,6 @@ class TestManagerClientRegister:
 
             assert received_message is not None
             assert received_message["type"] == "register"
-            assert received_message["protocol_version"] == PROTOCOL_VERSION
             assert received_message["proxy_name"] == "my-proxy"
             assert received_message["instance_id"] == "inst_abc"
             assert received_message["socket_path"] == "/tmp/my.sock"

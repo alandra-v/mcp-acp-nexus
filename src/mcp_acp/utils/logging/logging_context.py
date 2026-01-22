@@ -27,8 +27,6 @@ __all__ = [
     "set_request_id",
     "set_session_id",
     "set_tool_context",
-    "tool_arguments_var",
-    "tool_name_var",
 ]
 
 import time

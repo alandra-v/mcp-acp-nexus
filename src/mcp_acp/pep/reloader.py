@@ -260,7 +260,7 @@ class PolicyReloader:
         if self._proxy_state is None:
             return
 
-        from mcp_acp.manager.state import SSEEventType
+        from mcp_acp.manager.events import SSEEventType
 
         self._proxy_state.emit_system_event(
             SSEEventType.POLICY_RELOADED,
@@ -277,7 +277,7 @@ class PolicyReloader:
         if self._proxy_state is None:
             return
 
-        from mcp_acp.manager.state import SSEEventType
+        from mcp_acp.manager.events import SSEEventType
 
         if error_type == "file_not_found":
             event_type = SSEEventType.POLICY_FILE_NOT_FOUND

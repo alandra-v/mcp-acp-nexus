@@ -9,7 +9,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mcp_acp.manager.state import ProxyState, ProxyStats, SSEEventType
+from mcp_acp.manager.state import ProxyState
+from mcp_acp.manager.models import ProxyStats
+from mcp_acp.manager.events import SSEEventType
 from mcp_acp.pdp import Decision
 
 

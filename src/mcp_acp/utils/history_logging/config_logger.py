@@ -18,10 +18,7 @@ from typing import Any
 from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.system import ConfigHistoryEvent
 from mcp_acp.utils.config.config_helpers import compute_config_checksum
-from mcp_acp.utils.file_helpers import (
-    VersionInfo,
-    get_next_version,
-)
+from mcp_acp.utils.file_helpers import get_next_version
 from mcp_acp.utils.history_logging.base import (
     HistoryLoggerConfig,
     get_last_version_info_for_entity,
@@ -32,10 +29,7 @@ from mcp_acp.utils.history_logging.base import (
 )
 from mcp_acp.utils.logging.logging_helpers import sanitize_config_snapshot
 
-# Re-export for backwards compatibility
 __all__ = [
-    "VersionInfo",
-    "get_next_version",
     "detect_config_changes",
     "log_config_created",
     "log_config_loaded",

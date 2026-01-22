@@ -8,7 +8,6 @@ from __future__ import annotations
 import pytest
 
 from mcp_acp.manager.protocol import (
-    PROTOCOL_VERSION,
     decode_ndjson,
     encode_ndjson,
 )
@@ -94,7 +93,6 @@ class TestDecodeNdjson:
         """Encode then decode returns original message."""
         original = {
             "type": "register",
-            "protocol_version": PROTOCOL_VERSION,
             "proxy_name": "test-proxy",
             "instance_id": "inst_123",
             "config_summary": {"key": "value"},
@@ -102,15 +100,3 @@ class TestDecodeNdjson:
         encoded = encode_ndjson(original)
         decoded = decode_ndjson(encoded)
         assert decoded == original
-
-
-class TestProtocolVersion:
-    """Tests for protocol versioning."""
-
-    def test_protocol_version_is_integer(self) -> None:
-        """Protocol version is an integer."""
-        assert isinstance(PROTOCOL_VERSION, int)
-
-    def test_protocol_version_is_positive(self) -> None:
-        """Protocol version is positive."""
-        assert PROTOCOL_VERSION > 0

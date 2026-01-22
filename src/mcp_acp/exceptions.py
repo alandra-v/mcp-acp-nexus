@@ -201,8 +201,8 @@ class AuditFailure(CriticalSecurityFailure):
 class PolicyEnforcementFailure(CriticalSecurityFailure):
     """Policy enforcement mechanism has failed.
 
-    Raised when the policy engine cannot evaluate requests reliably.
-    Reserved for future use - not currently triggered.
+    Raised when the policy engine cannot evaluate requests reliably,
+    e.g., unexpected errors during rule matching or evaluation.
 
     Exit code 11 indicates policy enforcement failure.
     """
@@ -215,7 +215,7 @@ class IdentityVerificationFailure(CriticalSecurityFailure):
     """Cannot verify caller identity.
 
     Raised when identity cannot be determined and zero-trust
-    requires known subjects. Reserved for future use.
+    requires known subjects, e.g., JWKS fetch fails with no valid cache.
 
     Exit code 12 indicates identity verification failure.
     """

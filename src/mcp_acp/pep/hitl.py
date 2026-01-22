@@ -16,6 +16,7 @@ Security Note:
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 import threading
@@ -97,6 +98,10 @@ class HITLHandler:
         # When set and UI is connected, HITL uses web UI instead of osascript
         self._proxy_state: "ProxyState | None" = None
 
+        # Event to signal manager disconnect during web UI approval wait
+        # When set, pending web UI approvals should abort and fall back to osascript
+        self._manager_disconnect_event: asyncio.Event = asyncio.Event()
+
         # Track pending approval requests for queue indicator.
         # NOTE: This queuing logic is currently ineffective with the macOS
         # osascript implementation because _show_macos_dialog uses synchronous
@@ -140,16 +145,28 @@ class HITLHandler:
         """
         self._proxy_state = proxy_state
 
+    def notify_manager_disconnected(self) -> None:
+        """Notify handler that manager connection was lost.
+
+        Called by ManagerClient when connection drops. This interrupts any
+        pending web UI approval waits so they can fall back to osascript.
+        The disconnect event is checked by _request_approval_via_ui().
+        """
+        self._manager_disconnect_event.set()
+
     async def _request_approval_via_ui(
         self,
         context: "DecisionContext",
         matched_rule: str | None,
         will_cache: bool,
-    ) -> HITLResult:
+    ) -> HITLResult | None:
         """Request approval via web UI.
 
         Creates a pending approval in ProxyState and waits for user decision
         via the web UI. The pending approval is broadcast to SSE subscribers.
+
+        If the manager disconnects while waiting, returns None so the caller
+        can fall back to osascript.
 
         Args:
             context: Decision context with operation details.
@@ -157,10 +174,14 @@ class HITLHandler:
             will_cache: Whether approval can be cached (affects UI display).
 
         Returns:
-            HITLResult with user's decision and response time.
+            HITLResult with user's decision and response time, or None if
+            manager disconnected (caller should fall back to osascript).
         """
         start_time = time.perf_counter()
         timeout_seconds = self.config.timeout_seconds
+
+        # Clear disconnect event for this approval wait
+        self._manager_disconnect_event.clear()
 
         # Extract context for pending approval
         tool_name = context.resource.tool.name if context.resource.tool else "unknown"
@@ -179,9 +200,42 @@ class HITLHandler:
             cache_ttl_seconds=self.config.approval_ttl_seconds if will_cache else None,
         )
 
-        # Wait for decision from web UI
-        decision, approver_id = await self._proxy_state.wait_for_decision(pending.id, timeout_seconds)
+        # Wait for decision from web UI, but also watch for manager disconnect
+        decision_task = asyncio.create_task(self._proxy_state.wait_for_decision(pending.id, timeout_seconds))
+        disconnect_task = asyncio.create_task(self._manager_disconnect_event.wait())
+
+        done, pending_tasks = await asyncio.wait(
+            [decision_task, disconnect_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
         response_time_ms = (time.perf_counter() - start_time) * 1000
+
+        # Cancel the task that didn't complete
+        for task in pending_tasks:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        # Check if manager disconnected - return None to trigger osascript fallback
+        if disconnect_task in done:
+            self._system_logger.warning(
+                {
+                    "event": "hitl_manager_disconnected",
+                    "message": "Manager disconnected during web UI approval wait, falling back to osascript",
+                    "approval_id": pending.id,
+                    "tool_name": tool_name,
+                    "response_time_ms": response_time_ms,
+                }
+            )
+            # Clean up the pending approval to prevent memory leak and stale UI
+            self._proxy_state.cancel_pending(pending.id, reason="manager_disconnected")
+            return None  # Signal caller to fall back to osascript
+
+        # Get the decision result
+        decision, approver_id = decision_task.result()
 
         if decision == "allow":
             # Allow with caching (if caching is possible)
@@ -235,7 +289,10 @@ class HITLHandler:
         """
         # Check if web UI is connected (preferred over osascript)
         if self._proxy_state is not None and self._proxy_state.is_ui_connected:
-            return await self._request_approval_via_ui(context, matched_rule, will_cache)
+            result = await self._request_approval_via_ui(context, matched_rule, will_cache)
+            if result is not None:
+                return result
+            # result is None = manager disconnected, fall through to osascript
 
         # Fall back to osascript on macOS
         if not self.is_supported:
@@ -426,7 +483,7 @@ class HITLHandler:
                 )
                 # Emit SSE event for UI notification
                 if self._proxy_state is not None:
-                    from mcp_acp.manager.state import SSEEventType
+                    from mcp_acp.manager.events import SSEEventType
 
                     self._proxy_state.emit_system_event(
                         SSEEventType.HITL_PARSE_FAILED,

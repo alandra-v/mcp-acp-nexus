@@ -25,7 +25,7 @@ from fastapi.responses import StreamingResponse
 from mcp_acp.api.deps import IdentityProviderDep, ProxyStateDep
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas import ApprovalActionResponse, PendingApprovalResponse
-from mcp_acp.manager.state import SSEEventType
+from mcp_acp.manager.events import SSEEventType
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 if TYPE_CHECKING:

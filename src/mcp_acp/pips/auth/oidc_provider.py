@@ -268,7 +268,7 @@ class OIDCIdentityProvider:
             )
             # Emit SSE event for UI notification
             if self._proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._proxy_state.emit_system_event(
                     SSEEventType.TOKEN_VALIDATION_FAILED,
@@ -297,7 +297,7 @@ class OIDCIdentityProvider:
             self._expiry_warned = True
             minutes_left = int(seconds_until_expiry / 60)
 
-            from mcp_acp.manager.state import SSEEventType
+            from mcp_acp.manager.events import SSEEventType
 
             self._proxy_state.emit_system_event(
                 SSEEventType.AUTH_SESSION_EXPIRING,
@@ -349,7 +349,7 @@ class OIDCIdentityProvider:
             )
             # Emit SSE event for UI notification
             if self._proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._proxy_state.emit_system_event(
                     SSEEventType.TOKEN_REFRESH_FAILED,
@@ -401,7 +401,7 @@ class OIDCIdentityProvider:
             )
             # Emit SSE event for UI notification
             if self._proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._proxy_state.emit_system_event(
                     SSEEventType.TOKEN_REFRESH_FAILED,
@@ -484,7 +484,7 @@ class OIDCIdentityProvider:
 
         # Emit SSE event for UI notification
         if emit_event:
-            from mcp_acp.manager.state import SSEEventType
+            from mcp_acp.manager.events import SSEEventType
 
             self._proxy_state.emit_system_event(
                 SSEEventType.AUTH_LOGOUT,
@@ -527,7 +527,7 @@ class OIDCIdentityProvider:
 
         # Emit SSE event for UI notification
         if emit_event and self._proxy_state is not None:
-            from mcp_acp.manager.state import SSEEventType
+            from mcp_acp.manager.events import SSEEventType
 
             self._proxy_state.emit_system_event(
                 SSEEventType.AUTH_LOGIN,

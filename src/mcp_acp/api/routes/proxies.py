@@ -14,7 +14,7 @@ from fastapi import APIRouter
 from mcp_acp.api.deps import ProxyStateDep
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas import ProxyResponse, StatsResponse
-from mcp_acp.manager.state import ProxyInfo, ProxyStats
+from mcp_acp.manager.models import ProxyInfo, ProxyStats
 
 router = APIRouter()
 

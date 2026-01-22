@@ -8,24 +8,30 @@ Protocol format:
 - Each message is terminated by a newline character
 - Encoding: UTF-8
 
-Example message:
-    {"type":"register","protocol_version":1,"proxy_name":"default"}\\n
+Message types:
+- Proxy → Manager: {"type": "register", "proxy_name": "...", "instance_id": "...", ...}
+- Manager → Proxy: {"type": "registered", "ok": true}
+- Manager → Proxy: {"type": "ui_status", "browser_connected": bool, "subscriber_count": int}
+- Manager → Proxy: {"type": "heartbeat"}
+- Proxy → Manager: {"type": "event", "event_type": "...", "data": {...}}
+
+Unknown message types are ignored (forward compatibility).
+
+Example messages:
+    {"type":"register","proxy_name":"default","instance_id":"abc123"}\\n
+    {"type":"ui_status","browser_connected":true,"subscriber_count":1}\\n
+    {"type":"heartbeat"}\\n
 """
 
 from __future__ import annotations
 
 __all__ = [
-    "PROTOCOL_VERSION",
     "decode_ndjson",
     "encode_ndjson",
 ]
 
 import json
 from typing import Any
-
-# Protocol version for proxy-manager communication.
-# Increment this when making breaking changes to the protocol.
-PROTOCOL_VERSION = 1
 
 
 def encode_ndjson(msg: dict[str, Any]) -> bytes:

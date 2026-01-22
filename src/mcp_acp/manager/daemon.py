@@ -54,7 +54,7 @@ from mcp_acp.manager.config import (
     get_manager_system_log_path,
     load_manager_config,
 )
-from mcp_acp.manager.protocol import PROTOCOL_VERSION, decode_ndjson, encode_ndjson
+from mcp_acp.manager.protocol import decode_ndjson, encode_ndjson
 from mcp_acp.manager.registry import ProxyRegistry, get_proxy_registry
 from mcp_acp.manager.routes import (
     PROXY_SNAPSHOT_TIMEOUT_SECONDS,
@@ -71,6 +71,9 @@ HTTP_LISTEN_BACKLOG = 100
 
 # Timeout for proxy registration handshake (seconds)
 PROXY_REGISTRATION_TIMEOUT_SECONDS = 10.0
+
+# How often to send heartbeats to proxies (seconds)
+PROXY_HEARTBEAT_INTERVAL_SECONDS = 30.0
 
 # Get module logger - initially with stderr only
 # File handler added via _configure_manager_logging() after config is loaded
@@ -358,24 +361,6 @@ async def _handle_proxy_connection(
             await _send_error(writer, "Expected 'register' message")
             return
 
-        protocol_version = msg.get("protocol_version")
-        if protocol_version != PROTOCOL_VERSION:
-            _logger.warning(
-                {
-                    "event": "registration_protocol_mismatch",
-                    "message": f"Incompatible protocol version: {protocol_version} (expected {PROTOCOL_VERSION})",
-                    "details": {
-                        "received_version": protocol_version,
-                        "expected_version": PROTOCOL_VERSION,
-                    },
-                }
-            )
-            await _send_error(
-                writer,
-                f"Incompatible protocol version {protocol_version} (expected {PROTOCOL_VERSION})",
-            )
-            return
-
         proxy_name = msg.get("proxy_name")
         instance_id = msg.get("instance_id")
         config_summary = msg.get("config_summary", {})
@@ -416,6 +401,9 @@ async def _handle_proxy_connection(
         # Send acknowledgment
         ack = {"type": "registered", "ok": True}
         await _send_message(writer, ack)
+
+        # Send initial UI status to proxy so it knows browser connectivity
+        await _send_ui_status_to_proxy(writer, registry)
 
         # Fetch initial state from proxy and broadcast to browsers
         await _broadcast_proxy_snapshot(socket_path, registry)
@@ -579,6 +567,57 @@ async def _send_error(writer: asyncio.StreamWriter, error: str) -> None:
     await _send_message(writer, {"type": "registered", "ok": False, "error": error})
 
 
+async def _send_ui_status_to_proxy(
+    writer: asyncio.StreamWriter,
+    registry: ProxyRegistry,
+) -> None:
+    """Send current UI connection status to a proxy.
+
+    Args:
+        writer: Stream writer for the proxy connection.
+        registry: Proxy registry to get subscriber count from.
+    """
+    browser_connected = registry.sse_subscriber_count > 0
+    msg = {
+        "type": "ui_status",
+        "browser_connected": browser_connected,
+        "subscriber_count": registry.sse_subscriber_count,
+    }
+    try:
+        await _send_message(writer, msg)
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        pass  # Proxy will be cleaned up by its handler
+
+
+async def _send_heartbeats_to_proxies(registry: ProxyRegistry) -> None:
+    """Periodically send heartbeats to all connected proxies.
+
+    Runs as a background task. Sends heartbeat message to each proxy
+    every PROXY_HEARTBEAT_INTERVAL_SECONDS.
+
+    Args:
+        registry: Proxy registry containing connected proxies.
+    """
+    heartbeat_msg = encode_ndjson({"type": "heartbeat"})
+
+    while True:
+        await asyncio.sleep(PROXY_HEARTBEAT_INTERVAL_SECONDS)
+
+        # Get all proxy connections and send heartbeat
+        proxies = await registry.list_proxies()
+        for proxy_info in proxies:
+            proxy_name = proxy_info.get("name")
+            if proxy_name:
+                conn = await registry.get_proxy(proxy_name)
+                if conn is not None:
+                    try:
+                        conn.writer.write(heartbeat_msg)
+                        await conn.writer.drain()
+                    except (ConnectionResetError, BrokenPipeError, OSError):
+                        # Proxy disconnected - will be cleaned up by its handler
+                        pass
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
@@ -714,6 +753,9 @@ async def run_manager(port: int | None = None) -> None:
 
     server_task = asyncio.create_task(run_servers())
 
+    # Start heartbeat task to keep proxy connections alive
+    heartbeat_task = asyncio.create_task(_send_heartbeats_to_proxies(registry))
+
     _logger.info(
         {
             "event": "manager_started",
@@ -757,6 +799,13 @@ async def run_manager(port: int | None = None) -> None:
                 "message": "Manager shutting down",
             }
         )
+
+        # Cancel heartbeat task
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
         # Close all proxy connections
         await registry.close_all()

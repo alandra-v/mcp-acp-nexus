@@ -28,9 +28,6 @@ from .client import (
     is_manager_available,
 )
 
-# Protocol
-from .protocol import PROTOCOL_VERSION
-
 # Config
 from .config import (
     ManagerConfig,
@@ -90,7 +87,6 @@ __all__ = [
     # Client
     "ManagerClient",
     "ManagerConnectionError",
-    "PROTOCOL_VERSION",
     "ensure_manager_running",
     "is_manager_available",
     # Config

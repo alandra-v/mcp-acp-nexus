@@ -51,7 +51,8 @@ from mcp_acp.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
     from mcp_acp.config import HITLConfig
-    from mcp_acp.manager.state import ProxyState, SSEEventType
+    from mcp_acp.manager.state import ProxyState
+    from mcp_acp.manager.events import SSEEventType
     from mcp_acp.pdp.policy import PolicyConfig
     from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
@@ -142,6 +143,11 @@ class PolicyEnforcementMiddleware(Middleware):
         """Get the approval store for cache management."""
         return self._approval_store
 
+    @property
+    def hitl_handler(self) -> HITLHandler:
+        """Get the HITL handler for manager disconnect notifications."""
+        return self._hitl_handler
+
     def set_proxy_state(self, proxy_state: "ProxyState") -> None:
         """Set ProxyState for web UI HITL integration.
 
@@ -215,7 +221,7 @@ class PolicyEnforcementMiddleware(Middleware):
 
             # Emit SSE event for UI notification
             if self._hitl_handler.proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.POLICY_ROLLBACK,
@@ -402,7 +408,7 @@ class PolicyEnforcementMiddleware(Middleware):
         # NOTE: Connection errors during get_tools() (before middleware runs) are caught
         # by LoggingProxyClient.__aenter__. This handles mid-request errors only.
         # See docs/implementation/sse-system-events.md for architecture details.
-        from mcp_acp.manager.state import SSEEventType
+        from mcp_acp.manager.events import SSEEventType
 
         try:
             result = await call_next(context)
@@ -460,7 +466,7 @@ class PolicyEnforcementMiddleware(Middleware):
                     )
                     # Emit SSE event for UI notification
                     if self._hitl_handler.proxy_state is not None:
-                        from mcp_acp.manager.state import SSEEventType
+                        from mcp_acp.manager.events import SSEEventType
 
                         self._hitl_handler.proxy_state.emit_system_event(
                             SSEEventType.TOOL_SANITIZATION_FAILED,
@@ -794,7 +800,7 @@ class PolicyEnforcementMiddleware(Middleware):
             )
             # Emit SSE event for UI notification
             if self._hitl_handler.proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.REQUEST_ERROR,

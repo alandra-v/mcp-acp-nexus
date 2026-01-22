@@ -6,10 +6,12 @@ Handles proxy-to-manager communication over UDS:
 - Graceful disconnect handling
 
 Protocol (NDJSON over UDS):
-- Proxy sends: {"type": "register", "protocol_version": 1, "proxy_name": "...", "instance_id": "...", "config_summary": {...}}
+- Proxy sends: {"type": "register", "proxy_name": "...", "instance_id": "...", ...}
 - Manager sends: {"type": "registered", "ok": true}
+- Manager sends: {"type": "ui_status", "browser_connected": true, "subscriber_count": 1}
+- Manager sends: {"type": "heartbeat"}
 - Proxy sends: {"type": "event", "event_type": "...", "data": {...}}
-- (No response to events - fire and forget)
+- Unknown message types are ignored (forward compatibility)
 """
 
 from __future__ import annotations
@@ -27,7 +29,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mcp_acp.pep.hitl import HITLHandler
 
 from mcp_acp.constants import (
     APP_NAME,
@@ -36,11 +41,17 @@ from mcp_acp.constants import (
     RUNTIME_DIR,
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
-from mcp_acp.manager.protocol import PROTOCOL_VERSION, decode_ndjson, encode_ndjson
+from mcp_acp.manager.protocol import decode_ndjson, encode_ndjson
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 # Timeout for registration handshake (seconds)
 REGISTRATION_TIMEOUT_SECONDS = 5.0
+
+# Timeout for manager messages (heartbeat/ui_status) before considering connection lost
+HEARTBEAT_TIMEOUT_SECONDS = 45.0
+
+# How often to check for manager availability and attempt reconnection
+RECONNECT_CHECK_INTERVAL_SECONDS = 10.0
 
 # Use proxy's system logger since this code runs in the proxy process
 _logger = get_system_logger()
@@ -101,6 +112,20 @@ class ManagerClient:
         self._registered = False
         self._lock = asyncio.Lock()
 
+        # Browser connectivity state (from manager ui_status messages)
+        self._browser_connected: bool = False
+
+        # Background task for listening to manager messages
+        self._message_handler_task: asyncio.Task[None] | None = None
+
+        # Reconnection state
+        self._was_registered: bool = False
+        self._reconnect_task: asyncio.Task[None] | None = None
+        self._last_config_summary: dict[str, Any] | None = None
+
+        # HITL handler for disconnect notifications
+        self._hitl_handler: "HITLHandler | None" = None
+
     @property
     def connected(self) -> bool:
         """Check if connected to manager."""
@@ -110,6 +135,27 @@ class ManagerClient:
     def registered(self) -> bool:
         """Check if registered with manager."""
         return self._registered
+
+    @property
+    def browser_connected(self) -> bool:
+        """Check if browser is connected to manager.
+
+        Returns:
+            True if connected, registered, AND browser is connected to manager.
+            This accurately reflects whether web UI is available for HITL.
+        """
+        return self._connected and self._registered and self._browser_connected
+
+    def set_hitl_handler(self, handler: "HITLHandler") -> None:
+        """Set HITL handler for disconnect notifications.
+
+        Called by proxy during setup to enable HITL fallback when manager
+        disconnects mid-wait.
+
+        Args:
+            handler: HITLHandler to notify when manager disconnects.
+        """
+        self._hitl_handler = handler
 
     async def connect(self) -> bool:
         """Connect to manager socket.
@@ -133,13 +179,6 @@ class ManagerClient:
                 timeout=SOCKET_CONNECT_TIMEOUT_SECONDS,
             )
             self._connected = True
-            _logger.info(
-                {
-                    "event": "manager_connected",
-                    "message": f"Connected to manager at {self._socket_path}",
-                    "socket_path": str(self._socket_path),
-                }
-            )
             return True
 
         except asyncio.TimeoutError:
@@ -169,12 +208,14 @@ class ManagerClient:
         if self._registered:
             return True
 
+        # Store config for potential reconnection
+        self._last_config_summary = config_summary
+
         async with self._lock:
             try:
                 # Send registration message
                 reg_msg = {
                     "type": "register",
-                    "protocol_version": PROTOCOL_VERSION,
                     "proxy_name": self._proxy_name,
                     "instance_id": self._instance_id,
                     "config_summary": config_summary or {},
@@ -191,14 +232,14 @@ class ManagerClient:
                 if response and response.get("type") == "registered":
                     if response.get("ok"):
                         self._registered = True
-                        _logger.info(
-                            {
-                                "event": "manager_registered",
-                                "message": f"Registered with manager: {self._proxy_name}",
-                                "proxy_name": self._proxy_name,
-                                "instance_id": self._instance_id,
-                            }
-                        )
+                        self._was_registered = True
+
+                        # Start background message listener for ui_status and heartbeat
+                        await self._start_message_listener()
+
+                        # Start periodic reconnection task
+                        await self._start_reconnect_task()
+
                         return True
                     else:
                         error = response.get("error", "Unknown error")
@@ -273,9 +314,28 @@ class ManagerClient:
     async def disconnect(self) -> None:
         """Gracefully disconnect from manager.
 
+        Cancels background tasks (message listener, reconnect) and closes connection.
         Note: Does not log - callers log if needed. Unexpected disconnects
         are logged in _handle_disconnect() before calling this method.
         """
+        # Cancel message handler task
+        if self._message_handler_task is not None:
+            self._message_handler_task.cancel()
+            try:
+                await self._message_handler_task
+            except asyncio.CancelledError:
+                pass
+            self._message_handler_task = None
+
+        # Cancel reconnect task
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnect_task = None
+
         if self._writer:
             try:
                 self._writer.close()
@@ -286,6 +346,7 @@ class ManagerClient:
         self._writer = None
         self._connected = False
         self._registered = False
+        self._browser_connected = False
 
     async def _send_message(self, msg: dict[str, Any]) -> None:
         """Send a JSON message over the connection (NDJSON format)."""
@@ -314,7 +375,11 @@ class ManagerClient:
         return msg
 
     async def _handle_disconnect(self) -> None:
-        """Handle unexpected disconnect from manager."""
+        """Handle unexpected disconnect from manager.
+
+        Logs the disconnect, notifies HITL handler (so pending approvals can
+        fall back to osascript), and cleans up the connection state.
+        """
         if self._connected:
             _logger.warning(
                 {
@@ -324,8 +389,204 @@ class ManagerClient:
                     "instance_id": self._instance_id,
                 }
             )
-            # TODO: Show osascript popup notification
-        await self.disconnect()
+
+        # Notify HITL handler so pending approvals can fall back to osascript
+        if self._hitl_handler is not None:
+            self._hitl_handler.notify_manager_disconnected()
+
+        # Cancel message handler but keep reconnect task running
+        if self._message_handler_task is not None:
+            self._message_handler_task.cancel()
+            try:
+                await self._message_handler_task
+            except asyncio.CancelledError:
+                pass
+            self._message_handler_task = None
+
+        if self._writer:
+            try:
+                self._writer.close()
+                await self._writer.wait_closed()
+            except OSError:
+                pass  # Already closed
+        self._reader = None
+        self._writer = None
+        self._connected = False
+        self._registered = False
+        self._browser_connected = False
+
+    async def _start_message_listener(self) -> None:
+        """Start background task to listen for manager messages.
+
+        Called after successful registration. The listener handles ui_status
+        and heartbeat messages from the manager.
+        """
+        if self._message_handler_task is not None:
+            return  # Already running
+
+        self._message_handler_task = asyncio.create_task(self._listen_for_messages())
+
+    async def _listen_for_messages(self) -> None:
+        """Listen for messages from manager in background.
+
+        Handles ui_status and heartbeat messages. If no message received within
+        HEARTBEAT_TIMEOUT_SECONDS, considers the connection lost.
+
+        This task runs until cancelled or connection is lost.
+        """
+        try:
+            while self._connected and self._reader is not None:
+                try:
+                    # Wait for message with timeout
+                    line = await asyncio.wait_for(
+                        self._reader.readline(),
+                        timeout=HEARTBEAT_TIMEOUT_SECONDS,
+                    )
+
+                    if not line:
+                        # EOF - connection closed
+                        _logger.warning(
+                            {
+                                "event": "manager_connection_closed",
+                                "message": "Manager closed connection",
+                                "proxy_name": self._proxy_name,
+                            }
+                        )
+                        await self._handle_disconnect()
+                        return
+
+                    msg = decode_ndjson(line)
+                    if msg is not None:
+                        await self._handle_manager_message(msg)
+
+                except asyncio.TimeoutError:
+                    # No message within timeout - connection may be lost
+                    _logger.warning(
+                        {
+                            "event": "manager_heartbeat_timeout",
+                            "message": f"No message from manager in {HEARTBEAT_TIMEOUT_SECONDS}s",
+                            "proxy_name": self._proxy_name,
+                        }
+                    )
+                    await self._handle_disconnect()
+                    return
+
+                except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                    _logger.warning(
+                        {
+                            "event": "manager_message_read_error",
+                            "message": f"Error reading from manager: {e}",
+                            "proxy_name": self._proxy_name,
+                            "error_type": type(e).__name__,
+                        }
+                    )
+                    await self._handle_disconnect()
+                    return
+
+        except asyncio.CancelledError:
+            # Normal cancellation during shutdown
+            raise
+
+    async def _handle_manager_message(self, msg: dict[str, Any]) -> None:
+        """Handle a message from the manager.
+
+        Args:
+            msg: Decoded JSON message from manager.
+        """
+        msg_type = msg.get("type")
+
+        if msg_type == "ui_status":
+            old_status = self._browser_connected
+            self._browser_connected = msg.get("browser_connected", False)
+            subscriber_count = msg.get("subscriber_count", 0)
+
+            if old_status != self._browser_connected:
+                # Log at WARNING so it appears in system log files (not just stderr)
+                _logger.warning(
+                    {
+                        "event": "browser_status_changed",
+                        "message": f"Browser connectivity changed: {self._browser_connected}",
+                        "browser_connected": self._browser_connected,
+                        "subscriber_count": subscriber_count,
+                        "proxy_name": self._proxy_name,
+                    }
+                )
+
+        elif msg_type == "heartbeat":
+            # Heartbeat received - connection is alive
+            # No logging needed for successful heartbeats
+            pass
+
+        else:
+            # Unknown message type - ignore (forward compatibility)
+            _logger.debug(
+                {
+                    "event": "manager_unknown_message",
+                    "message": f"Unknown message type from manager: {msg_type}",
+                    "proxy_name": self._proxy_name,
+                    "msg_type": msg_type,
+                }
+            )
+
+    async def _start_reconnect_task(self) -> None:
+        """Start background task for periodic reconnection attempts.
+
+        Called after successful registration. The task checks for manager
+        availability and reconnects if the connection is lost.
+        """
+        if self._reconnect_task is not None:
+            return  # Already running
+
+        self._reconnect_task = asyncio.create_task(self._periodic_reconnect_check())
+
+    async def _periodic_reconnect_check(self) -> None:
+        """Periodically check if manager is available and reconnect.
+
+        Runs as background task after initial registration. Only attempts
+        reconnection if previously registered but currently disconnected.
+        """
+        try:
+            while True:
+                await asyncio.sleep(RECONNECT_CHECK_INTERVAL_SECONDS)
+
+                # Only try to reconnect if we were previously registered but now disconnected
+                if not self._connected and self._was_registered:
+                    if await self._try_reconnect():
+                        _logger.warning(
+                            {
+                                "event": "manager_reconnected",
+                                "message": f"Reconnected to manager: {self._proxy_name}",
+                                "proxy_name": self._proxy_name,
+                                "instance_id": self._instance_id,
+                            }
+                        )
+        except asyncio.CancelledError:
+            # Normal cancellation during shutdown
+            raise
+
+    async def _try_reconnect(self) -> bool:
+        """Try to reconnect to manager if it's available again.
+
+        Called periodically when disconnected but was previously registered.
+
+        Returns:
+            True if reconnected and re-registered successfully.
+        """
+        if self._connected:
+            return True
+
+        if not self._socket_path.exists():
+            return False
+
+        # Try to connect
+        if await self.connect():
+            # Try to re-register with stored config
+            if await self.register(self._last_config_summary):
+                return True
+            # Registration failed - disconnect
+            await self.disconnect()
+
+        return False
 
 
 def is_manager_available() -> bool:
@@ -372,12 +633,6 @@ def ensure_manager_running() -> bool:
             return True
 
         # Start manager daemon
-        _logger.info(
-            {
-                "event": "manager_starting",
-                "message": "Starting manager daemon...",
-            }
-        )
         if not _spawn_manager_daemon():
             _logger.warning(
                 {
@@ -389,12 +644,6 @@ def ensure_manager_running() -> bool:
 
         # Wait for manager to become ready
         if _wait_for_manager_ready():
-            _logger.info(
-                {
-                    "event": "manager_started",
-                    "message": "Manager daemon started successfully",
-                }
-            )
             return True
         else:
             _logger.warning(

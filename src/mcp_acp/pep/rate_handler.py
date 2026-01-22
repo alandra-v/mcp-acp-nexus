@@ -108,7 +108,7 @@ class RateBreachHandler:
 
         # Emit SSE event for UI notification
         if self._hitl_handler.proxy_state is not None:
-            from mcp_acp.manager.state import SSEEventType
+            from mcp_acp.manager.events import SSEEventType
 
             self._hitl_handler.proxy_state.emit_system_event(
                 SSEEventType.RATE_LIMIT_TRIGGERED,
@@ -175,7 +175,7 @@ class RateBreachHandler:
 
             # Emit SSE event for UI notification
             if self._hitl_handler.proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.RATE_LIMIT_APPROVED,
@@ -215,7 +215,7 @@ class RateBreachHandler:
 
             # Emit SSE event for UI notification
             if self._hitl_handler.proxy_state is not None:
-                from mcp_acp.manager.state import SSEEventType
+                from mcp_acp.manager.events import SSEEventType
 
                 self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.RATE_LIMIT_DENIED,

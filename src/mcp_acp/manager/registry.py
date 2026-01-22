@@ -249,6 +249,10 @@ class ProxyRegistry:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         async with self._sse_lock:
             self._sse_subscribers.append(queue)
+
+        # Notify proxies that browser connected
+        await self.broadcast_ui_status()
+
         return queue
 
     async def unsubscribe_sse(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
@@ -256,6 +260,39 @@ class ProxyRegistry:
         async with self._sse_lock:
             if queue in self._sse_subscribers:
                 self._sse_subscribers.remove(queue)
+
+        # Notify proxies that browser may have disconnected
+        await self.broadcast_ui_status()
+
+    async def broadcast_ui_status(self) -> None:
+        """Broadcast current UI connection status to all registered proxies.
+
+        Sends ui_status message to each proxy with current browser connectivity
+        and subscriber count. This allows proxies to know whether web UI is
+        available for HITL approvals.
+
+        Called when SSE subscribers connect/disconnect.
+        """
+        from mcp_acp.manager.protocol import encode_ndjson
+
+        browser_connected = len(self._sse_subscribers) > 0
+        subscriber_count = len(self._sse_subscribers)
+
+        msg = {
+            "type": "ui_status",
+            "browser_connected": browser_connected,
+            "subscriber_count": subscriber_count,
+        }
+        msg_bytes = encode_ndjson(msg)
+
+        async with self._lock:
+            for conn in self._proxies.values():
+                try:
+                    conn.writer.write(msg_bytes)
+                    await conn.writer.drain()
+                except (ConnectionResetError, BrokenPipeError, OSError):
+                    # Proxy will be cleaned up by its handler
+                    pass
 
     async def _broadcast_sse_event(
         self,

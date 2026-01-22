@@ -161,7 +161,8 @@ class LoggingProxyClient(ProxyClient):
         Args:
             error: The connection exception.
         """
-        from mcp_acp.manager.state import SSEEventType, get_global_proxy_state
+        from mcp_acp.manager.events import SSEEventType
+        from mcp_acp.manager.state import get_global_proxy_state
 
         # Log to system logger
         self._system_logger.error(

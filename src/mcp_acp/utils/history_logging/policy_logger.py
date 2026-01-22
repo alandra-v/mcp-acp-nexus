@@ -14,10 +14,6 @@ from typing import Any
 
 from mcp_acp.constants import APP_NAME
 from mcp_acp.telemetry.models.system import PolicyHistoryEvent
-from mcp_acp.utils.file_helpers import (
-    VersionInfo,
-    get_next_version,
-)
 from mcp_acp.utils.history_logging.base import (
     HistoryLoggerConfig,
     log_entity_created,
@@ -26,10 +22,7 @@ from mcp_acp.utils.history_logging.base import (
 )
 from mcp_acp.utils.policy import compute_policy_checksum
 
-# Re-export for backwards compatibility
 __all__ = [
-    "VersionInfo",
-    "get_next_version",
     "log_policy_created",
     "log_policy_loaded",
     "log_policy_validation_failed",

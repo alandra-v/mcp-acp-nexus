@@ -23,7 +23,7 @@ from mcp_acp.api.schemas import (
     ClearApprovalsResponse,
     DeleteApprovalResponse,
 )
-from mcp_acp.manager.state import SSEEventType
+from mcp_acp.manager.events import SSEEventType
 
 router = APIRouter()
 
