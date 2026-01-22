@@ -18,12 +18,6 @@ Security:
 
 from __future__ import annotations
 
-# Suppress websockets deprecation warning BEFORE importing uvicorn
-# uvicorn imports websockets.server which triggers the warning
-import warnings
-
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets")
-
 __all__ = [
     "create_proxy",
 ]
@@ -509,7 +503,7 @@ def create_proxy(
                     uds_app,
                     uds=str(SOCKET_PATH),
                     log_config=None,
-                    ws="wsproto",
+                    ws="none",  # We use SSE, not WebSockets
                 )
                 uds_server = uvicorn.Server(uds_config)
 
@@ -545,7 +539,7 @@ def create_proxy(
                         http_app,
                         fd=http_socket.fileno(),
                         log_config=None,
-                        ws="wsproto",
+                        ws="none",  # We use SSE, not WebSockets
                     )
                     http_server = uvicorn.Server(http_config)
                 else:

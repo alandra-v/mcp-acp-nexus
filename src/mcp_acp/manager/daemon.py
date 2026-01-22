@@ -688,7 +688,7 @@ async def run_manager(port: int | None = None) -> None:
         http_app,
         fd=http_socket.fileno(),
         log_config=None,
-        ws="wsproto",
+        ws="none",  # We use SSE, not WebSockets
     )
     http_server = uvicorn.Server(http_config)
 
