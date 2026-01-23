@@ -804,6 +804,93 @@ class TestInitCommand:
             assert config["backend"]["server_name"] == "new-server"
             assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
 
+    def test_init_non_interactive_partial_mtls_shows_error(self, runner: CliRunner) -> None:
+        """Given partial mTLS config (1-2 of 3 options), shows error."""
+        # Arrange
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            policy_path = Path(tmpdir) / "policy.json"
+
+            with patch(
+                "mcp_acp.cli.commands.init.get_config_path",
+                return_value=config_path,
+            ):
+                with patch(
+                    "mcp_acp.cli.commands.init.get_policy_path",
+                    return_value=policy_path,
+                ):
+                    # Act
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "init",
+                            "--non-interactive",
+                            "--log-dir",
+                            str(tmpdir),
+                            "--server-name",
+                            "test-server",
+                            "--connection-type",
+                            "http",
+                            "--url",
+                            "http://localhost:3000/mcp",
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
+                            "--mtls-cert",
+                            "/path/to/cert.pem",
+                            # Missing --mtls-key and --mtls-ca
+                        ],
+                    )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "mTLS requires all three options" in result.output
+
+    def test_init_non_interactive_invalid_url_format_shows_error(self, runner: CliRunner) -> None:
+        """Given invalid URL format, shows clear error before health check."""
+        # Arrange
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            policy_path = Path(tmpdir) / "policy.json"
+
+            with patch(
+                "mcp_acp.cli.commands.init.get_config_path",
+                return_value=config_path,
+            ):
+                with patch(
+                    "mcp_acp.cli.commands.init.get_policy_path",
+                    return_value=policy_path,
+                ):
+                    # Act
+                    result = runner.invoke(
+                        cli,
+                        [
+                            "init",
+                            "--non-interactive",
+                            "--log-dir",
+                            str(tmpdir),
+                            "--server-name",
+                            "test-server",
+                            "--connection-type",
+                            "http",
+                            "--url",
+                            "not-a-valid-url",  # Invalid format
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
+                        ],
+                    )
+
+        # Assert
+        assert result.exit_code == 1
+        assert "--url must start with http:// or https://" in result.output
+
 
 class TestConfigShow:
     """Tests for config show command."""

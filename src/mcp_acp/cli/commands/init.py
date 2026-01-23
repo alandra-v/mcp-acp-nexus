@@ -8,6 +8,7 @@ from __future__ import annotations
 __all__ = ["init"]
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
@@ -40,11 +41,46 @@ from mcp_acp.utils.config import (
 )
 from mcp_acp.utils.history_logging import log_config_created
 from mcp_acp.utils.transport import check_http_health, validate_mtls_config
-from mcp_acp.utils.validation import is_valid_oidc_issuer, validate_sha256_hex
+from mcp_acp.utils.validation import is_valid_http_url, is_valid_oidc_issuer, validate_sha256_hex
 from mcp_acp.security.auth.token_storage import create_token_storage
 
 from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
 from ..styling import style_dim, style_error, style_header, style_success, style_warning
+
+
+# =============================================================================
+# Data Models
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class InitConfig:
+    """Collected configuration values from init wizard or CLI flags.
+
+    Attributes:
+        log_dir: Directory path for logs.
+        log_level: Logging verbosity (DEBUG or INFO).
+        include_payloads: Whether to include payloads in debug logs.
+        server_name: Backend server name.
+        connection_type: Transport type (stdio, http, or both).
+        stdio_config: STDIO transport configuration (if applicable).
+        http_config: HTTP transport configuration (if applicable).
+        auth_config: Authentication configuration.
+    """
+
+    log_dir: str
+    log_level: str
+    include_payloads: bool
+    server_name: str
+    connection_type: str
+    stdio_config: StdioTransportConfig | None
+    http_config: HttpTransportConfig | None
+    auth_config: AuthConfig
+
+
+# =============================================================================
+# Validation Helpers
+# =============================================================================
 
 
 def _require_flag(value: str | None, flag_name: str, message: str | None = None) -> str:
@@ -121,6 +157,11 @@ def _check_oidc_change_warning(
         pass
 
 
+# =============================================================================
+# Config Creation
+# =============================================================================
+
+
 def _create_policy_only(config: AppConfig, policy_path: Path) -> None:
     """Create policy file using existing config's log_dir.
 
@@ -141,62 +182,46 @@ def _create_policy_only(config: AppConfig, policy_path: Path) -> None:
     )
 
 
-def _create_and_save_config(
-    config_path: Path,
-    log_dir: str,
-    log_level: str,
-    include_payloads: bool,
-    server_name: str,
-    connection_type: str,
-    stdio_config: StdioTransportConfig | None,
-    http_config: HttpTransportConfig | None,
-    auth_config: AuthConfig,
-) -> None:
+def _create_and_save_config(config_path: Path, init_config: InitConfig) -> None:
     """Create and save configuration and policy files.
 
     Args:
         config_path: Path to save config file.
-        log_dir: Log directory path.
-        log_level: Logging level.
-        include_payloads: Whether to include payloads in debug logs.
-        server_name: Backend server name.
-        connection_type: Connection type (stdio, http, or both).
-        stdio_config: STDIO transport config (if applicable).
-        http_config: HTTP transport config (if applicable).
-        auth_config: Authentication configuration.
+        init_config: Collected configuration values.
 
     Raises:
         OSError: If files cannot be saved.
     """
     log_level_literal = cast(
         Literal["DEBUG", "INFO"],
-        log_level.upper(),
+        init_config.log_level.upper(),
     )
 
     # Determine transport setting based on connection type
     # CLI uses "both" -> config uses "auto" (auto-detect)
+    connection_lower = init_config.connection_type.lower()
     transport: Literal["stdio", "streamablehttp", "auto"]
-    if connection_type == "stdio":
+    if connection_lower == "stdio":
         transport = "stdio"
-    elif connection_type == "http":
+    elif connection_lower == "http":
         transport = "streamablehttp"
-    elif connection_type == "both":
-        transport = "auto"  # auto-detect at runtime
+    elif connection_lower == "both":
+        transport = "auto"
     else:
-        raise ValueError(f"Invalid connection_type: {connection_type}")
+        raise ValueError(f"Invalid connection_type: {init_config.connection_type}")
 
     config = AppConfig(
-        auth=auth_config,
+        auth=init_config.auth_config,
         logging=LoggingConfig(
-            log_dir=log_dir,
+            log_dir=init_config.log_dir,
             log_level=log_level_literal,
-            include_payloads=include_payloads,
+            include_payloads=init_config.include_payloads,
         ),
         backend=BackendConfig(
-            server_name=server_name,
+            server_name=init_config.server_name,
             transport=transport,
-            stdio=stdio_config,
-            http=http_config,
+            stdio=init_config.stdio_config,
+            http=init_config.http_config,
         ),
     )
 
@@ -226,21 +251,27 @@ def _create_and_save_config(
     click.echo("\nRun 'mcp-acp start' to test the proxy manually.")
 
 
+# =============================================================================
+# Setup Flows
+# =============================================================================
+
+
 def _run_interactive_init(
     log_dir: str | None,
     log_level: str,
     server_name: str | None,
-) -> tuple[str, str, bool, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
+    include_payloads: bool | None,
+) -> InitConfig:
     """Run interactive configuration wizard.
 
     Args:
         log_dir: Pre-provided log directory or None.
         log_level: Pre-provided log level.
         server_name: Pre-provided server name or None.
+        include_payloads: Pre-provided payload logging preference or None.
 
     Returns:
-        Tuple of (log_dir, log_level, include_payloads, server_name, connection_type,
-        stdio_config, http_config, auth_config).
+        InitConfig with user-provided values.
 
     Raises:
         click.Abort: If user aborts during HTTP configuration.
@@ -259,12 +290,17 @@ def _run_interactive_init(
     )
 
     # Payload logging (only relevant for DEBUG)
-    include_payloads = True  # default
+    # For DEBUG: respect CLI flag as default for prompt
+    # For non-DEBUG: always True (flag ignored, same as original behavior)
     if log_level.upper() == "DEBUG":
         click.echo("\n  Include full message payloads in debug logs?")
         click.echo("    Yes = more verbose, shows actual content")
         click.echo("    No  = only method names and metadata")
-        include_payloads = click.confirm("  Include payloads", default=True)
+        default_payloads = include_payloads if include_payloads is not None else True
+        include_payloads_result = click.confirm("  Include payloads", default=default_payloads)
+    else:
+        # For non-DEBUG, always True (setting has no effect anyway)
+        include_payloads_result = True
 
     # Backend settings
     click.echo()
@@ -297,15 +333,15 @@ def _run_interactive_init(
     # Authentication settings
     auth_config = prompt_auth_config(http_config)
 
-    return (
-        log_dir,
-        log_level,
-        include_payloads,
-        server_name,
-        connection_type,
-        stdio_config,
-        http_config,
-        auth_config,
+    return InitConfig(
+        log_dir=log_dir,
+        log_level=log_level,
+        include_payloads=include_payloads_result,
+        server_name=server_name,
+        connection_type=connection_type,
+        stdio_config=stdio_config,
+        http_config=http_config,
+        auth_config=auth_config,
     )
 
 
@@ -330,7 +366,7 @@ def _run_non_interactive_init(
     attestation_slsa_owner: str | None,
     attestation_sha256: str | None,
     attestation_require_signature: bool | None,
-) -> tuple[str, str, bool, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
+) -> InitConfig:
     """Run non-interactive configuration setup.
 
     Args:
@@ -354,11 +390,10 @@ def _run_non_interactive_init(
         attestation_require_signature: Require code signature (macOS).
 
     Returns:
-        Tuple of (log_dir, log_level, include_payloads, server_name, connection_type,
-        stdio_config, http_config, auth_config).
+        InitConfig with validated configuration.
 
     Raises:
-        SystemExit: If required flags are missing.
+        SystemExit: If required flags are missing or validation fails.
     """
     # Validate required flags
     log_dir = _require_flag(log_dir, "log-dir")
@@ -409,6 +444,12 @@ def _run_non_interactive_init(
 
     if connection_type.lower() in ("http", "both"):
         url = _require_flag(url, "url", "--url required for http connection")
+
+        # Validate URL format (parity with interactive mode)
+        if not is_valid_http_url(url):
+            click.echo(style_error("Error: --url must start with http:// or https://"), err=True)
+            sys.exit(1)
+
         http_config = HttpTransportConfig(url=url, timeout=timeout)
 
         # Test HTTP connectivity
@@ -428,6 +469,17 @@ def _run_non_interactive_init(
     )
 
     mtls_config: MTLSConfig | None = None
+
+    # Check for partial mTLS config (parity with interactive mode)
+    mtls_provided = [mtls_cert, mtls_key, mtls_ca]
+    mtls_count = sum(1 for x in mtls_provided if x)
+    if 0 < mtls_count < 3:
+        click.echo(
+            style_error("Error: mTLS requires all three options: --mtls-cert, --mtls-key, --mtls-ca"),
+            err=True,
+        )
+        sys.exit(1)
+
     if mtls_cert and mtls_key and mtls_ca:
         # Validate mTLS certificates
         click.echo("Validating mTLS certificates...")
@@ -453,16 +505,21 @@ def _run_non_interactive_init(
     # Default include_payloads to True if not specified
     resolved_include_payloads = include_payloads if include_payloads is not None else True
 
-    return (
-        log_dir,
-        log_level,
-        resolved_include_payloads,
-        server_name,
-        connection_type,
-        stdio_config,
-        http_config,
-        auth_config,
+    return InitConfig(
+        log_dir=log_dir,
+        log_level=log_level,
+        include_payloads=resolved_include_payloads,
+        server_name=server_name,
+        connection_type=connection_type,
+        stdio_config=stdio_config,
+        http_config=http_config,
+        auth_config=auth_config,
     )
+
+
+# =============================================================================
+# CLI Command
+# =============================================================================
 
 
 @click.command()
@@ -629,16 +686,7 @@ def init(
     # Gather configuration values
     try:
         if non_interactive:
-            (
-                log_dir,
-                log_level,
-                include_payloads,
-                server_name,
-                connection_type,
-                stdio_config,
-                http_config,
-                auth_config,
-            ) = _run_non_interactive_init(
+            init_config = _run_non_interactive_init(
                 log_dir,
                 log_level,
                 include_payloads,
@@ -659,41 +707,17 @@ def init(
                 attestation_require_signature,
             )
         else:
-            (
-                log_dir,
-                log_level,
-                include_payloads,
-                server_name,
-                connection_type,
-                stdio_config,
-                http_config,
-                auth_config,
-            ) = _run_interactive_init(log_dir, log_level, server_name)
+            init_config = _run_interactive_init(log_dir, log_level, server_name, include_payloads)
     except click.Abort:
         click.echo(style_dim("Aborted."))
         sys.exit(0)
 
     # Warn if OIDC settings changed and user has stored tokens
-    _check_oidc_change_warning(old_config, auth_config)
+    _check_oidc_change_warning(old_config, init_config.auth_config)
 
     # Create and save configuration (always creates both config and policy)
-    # Note: log_dir, server_name, connection_type are guaranteed to be str after
-    # _run_non_interactive_init (validates and exits) or _run_interactive_init (prompts until valid)
-    assert log_dir is not None
-    assert server_name is not None
-    assert connection_type is not None
     try:
-        _create_and_save_config(
-            config_path,
-            log_dir,
-            log_level,
-            include_payloads,
-            server_name,
-            connection_type,
-            stdio_config,
-            http_config,
-            auth_config,
-        )
+        _create_and_save_config(config_path, init_config)
     except OSError as e:
         click.echo(style_error(f"Error: Failed to save configuration: {e}"), err=True)
         sys.exit(1)
