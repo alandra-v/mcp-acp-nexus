@@ -18,7 +18,7 @@ from mcp_acp.api.schemas import ProxyStatus, ReloadResponse
 router = APIRouter()
 
 
-@router.get("/status")
+@router.get("/status", response_model=ProxyStatus)
 async def get_status(reloader: PolicyReloaderDep) -> ProxyStatus:
     """Get current proxy and policy status.
 
@@ -35,7 +35,7 @@ async def get_status(reloader: PolicyReloaderDep) -> ProxyStatus:
     )
 
 
-@router.post("/reload-policy")
+@router.post("/reload-policy", response_model=ReloadResponse)
 async def reload_policy(reloader: PolicyReloaderDep) -> ReloadResponse:
     """Reload policy from disk without restarting proxy.
 

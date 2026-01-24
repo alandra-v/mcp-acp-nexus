@@ -28,7 +28,7 @@ from mcp_acp.manager.events import SSEEventType
 router = APIRouter()
 
 
-@router.get("")
+@router.get("", response_model=ApprovalCacheResponse)
 async def get_approvals(store: ApprovalStoreDep) -> ApprovalCacheResponse:
     """Get all cached approvals.
 
@@ -60,14 +60,14 @@ async def get_approvals(store: ApprovalStoreDep) -> ApprovalCacheResponse:
     )
 
 
-@router.delete("")
+@router.delete("", response_model=ClearApprovalsResponse)
 async def clear_approvals(state: ProxyStateDep) -> ClearApprovalsResponse:
     """Clear all cached approvals."""
     count = state.clear_all_cached_approvals()  # Emits cache_cleared SSE event
     return ClearApprovalsResponse(cleared=count, status="ok")
 
 
-@router.delete("/entry")
+@router.delete("/entry", response_model=DeleteApprovalResponse)
 async def delete_approval(
     store: ApprovalStoreDep,
     state: ProxyStateDep,

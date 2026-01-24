@@ -73,7 +73,7 @@ def _is_dev_mode() -> bool:
     return f":{VITE_DEV_PORT}" in cors_origins
 
 
-@router.get("/dev-token")
+@router.get("/dev-token", response_model=DevTokenResponse)
 async def get_dev_token(request: Request) -> DevTokenResponse:
     """Get API token for development mode.
 
@@ -225,7 +225,7 @@ def _clear_credentials(
                 raise
 
 
-@router.get("/status")
+@router.get("/status", response_model=AuthStatusResponse)
 async def get_auth_status(request: Request, oidc_config: OIDCConfigDep) -> AuthStatusResponse:
     """Get authentication status and user info.
 
@@ -341,7 +341,7 @@ async def get_auth_status(request: Request, oidc_config: OIDCConfigDep) -> AuthS
     )
 
 
-@router.post("/login")
+@router.post("/login", response_model=DeviceFlowStartResponse)
 async def start_login(oidc_config: OIDCConfigDep) -> DeviceFlowStartResponse:
     """Start device flow authentication.
 
@@ -393,7 +393,7 @@ def _request_device_code(oidc_config: "OIDCConfig") -> DeviceCodeResponse:
         return flow.request_device_code()
 
 
-@router.get("/login/poll")
+@router.get("/login/poll", response_model=DeviceFlowPollResponse)
 async def poll_login(
     request: Request,
     code: str = Query(..., description="The user_code from /login"),
@@ -481,7 +481,7 @@ def _poll_token_once(state: _DeviceFlowState) -> "PollOnceResult":
         return flow.poll_once(state.device_code)
 
 
-@router.post("/notify-login")
+@router.post("/notify-login", response_model=NotifyResponse)
 async def notify_login(request: Request) -> NotifyResponse:
     """Notify running proxy that CLI completed login.
 
@@ -511,7 +511,7 @@ async def notify_login(request: Request) -> NotifyResponse:
         )
 
 
-@router.post("/notify-logout")
+@router.post("/notify-logout", response_model=NotifyResponse)
 async def notify_logout(request: Request) -> NotifyResponse:
     """Notify running proxy of logout.
 
@@ -537,7 +537,7 @@ async def notify_logout(request: Request) -> NotifyResponse:
     )
 
 
-@router.post("/logout")
+@router.post("/logout", response_model=LogoutResponse)
 async def logout(request: Request, oidc_config: OIDCConfigDep) -> LogoutResponse:
     """Clear local authentication tokens from keychain.
 
@@ -568,7 +568,7 @@ async def logout(request: Request, oidc_config: OIDCConfigDep) -> LogoutResponse
     )
 
 
-@router.post("/logout-federated")
+@router.post("/logout-federated", response_model=FederatedLogoutResponse)
 async def logout_federated(request: Request, oidc_config: OIDCConfigDep) -> FederatedLogoutResponse:
     """Get federated logout URL (Auth0) and clear local credentials.
 

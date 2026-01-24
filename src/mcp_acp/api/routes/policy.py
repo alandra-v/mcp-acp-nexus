@@ -114,7 +114,7 @@ def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> Policy
         )
 
 
-@router.get("/schema")
+@router.get("/schema", response_model=PolicySchemaResponse)
 async def get_policy_schema() -> PolicySchemaResponse:
     """Get policy schema information.
 
@@ -124,7 +124,7 @@ async def get_policy_schema() -> PolicySchemaResponse:
     return PolicySchemaResponse(operations=list(VALID_OPERATIONS))
 
 
-@router.get("")
+@router.get("", response_model=PolicyResponse)
 async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
     """Get current policy configuration.
 
@@ -143,7 +143,7 @@ async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
     )
 
 
-@router.put("")
+@router.put("", response_model=PolicyResponse)
 async def update_full_policy(
     reloader: PolicyReloaderDep,
     policy_data: PolicyFullUpdate,
@@ -214,7 +214,7 @@ async def update_full_policy(
     )
 
 
-@router.get("/rules")
+@router.get("/rules", response_model=list[PolicyRuleResponse])
 async def get_policy_rules() -> list[PolicyRuleResponse]:
     """Get just the policy rules (simplified view)."""
     policy = _load_policy_or_raise()
@@ -302,7 +302,7 @@ def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
     )
 
 
-@router.post("/rules", status_code=201)
+@router.post("/rules", status_code=201, response_model=PolicyRuleMutationResponse)
 async def add_policy_rule(
     reloader: PolicyReloaderDep,
     rule_data: PolicyRuleCreate,
@@ -355,7 +355,7 @@ async def add_policy_rule(
     )
 
 
-@router.put("/rules/{rule_id}")
+@router.put("/rules/{rule_id}", response_model=PolicyRuleMutationResponse)
 async def update_policy_rule(
     reloader: PolicyReloaderDep,
     rule_id: str,

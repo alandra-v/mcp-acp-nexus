@@ -188,7 +188,7 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
 # =============================================================================
 
 
-@router.get("")
+@router.get("", response_model=ConfigResponse)
 async def get_config(config: ConfigDep) -> ConfigResponse:
     """Get current configuration.
 
@@ -200,7 +200,7 @@ async def get_config(config: ConfigDep) -> ConfigResponse:
     return _build_config_response(config)
 
 
-@router.put("")
+@router.put("", response_model=ConfigUpdateResponse)
 async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     """Update configuration file.
 
@@ -292,7 +292,7 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     )
 
 
-@router.get("/compare")
+@router.get("/compare", response_model=ConfigComparisonResponse)
 async def compare_config(config: ConfigDep) -> ConfigComparisonResponse:
     """Compare running (in-memory) config with saved (file) config.
 

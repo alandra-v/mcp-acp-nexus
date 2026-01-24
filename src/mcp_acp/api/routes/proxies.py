@@ -45,7 +45,7 @@ def _build_proxy_response(info: ProxyInfo, stats: ProxyStats) -> ProxyResponse:
     )
 
 
-@router.get("")
+@router.get("", response_model=list[ProxyResponse])
 async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
     """List all proxies.
 
@@ -58,7 +58,7 @@ async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
     return [_build_proxy_response(info, stats)]
 
 
-@router.get("/{proxy_id}")
+@router.get("/{proxy_id}", response_model=ProxyResponse)
 async def get_proxy(proxy_id: str, state: ProxyStateDep) -> ProxyResponse:
     """Get details for a specific proxy.
 

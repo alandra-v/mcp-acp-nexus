@@ -151,7 +151,7 @@ def _count_entries_and_latest(log_path: Path) -> tuple[int, str | None]:
 # =============================================================================
 
 
-@router.get("/shutdowns")
+@router.get("/shutdowns", response_model=LogsResponse)
 async def get_shutdowns(
     config: ConfigDep,
     time_range: str = TimeRangeQuery,
@@ -173,7 +173,7 @@ async def get_shutdowns(
     )
 
 
-@router.get("/bootstrap")
+@router.get("/bootstrap", response_model=LogsResponse)
 async def get_bootstrap_logs(
     time_range: str = TimeRangeQuery,
     limit: int = LimitQuery,
@@ -192,7 +192,7 @@ async def get_bootstrap_logs(
     )
 
 
-@router.get("/emergency")
+@router.get("/emergency", response_model=LogsResponse)
 async def get_emergency_logs(
     time_range: str = TimeRangeQuery,
     limit: int = LimitQuery,
@@ -211,7 +211,7 @@ async def get_emergency_logs(
     )
 
 
-@router.get("/summary")
+@router.get("/summary", response_model=IncidentsSummary)
 async def get_incidents_summary(config: ConfigDep) -> IncidentsSummary:
     """Get summary of all incidents.
 
