@@ -16,11 +16,10 @@ from pathlib import Path
 
 import click
 
-from mcp_acp.config import AppConfig
 from mcp_acp.constants import APP_NAME
-from mcp_acp.utils.config import get_config_path
+from mcp_acp.manager.config import list_configured_proxies
 
-from ..styling import style_error, style_success
+from ..styling import style_dim, style_error, style_success
 
 
 def _get_executable_path() -> str:
@@ -86,54 +85,66 @@ def install() -> None:
 
 
 @install.command("mcp-json")
-@click.option("--name", "-n", help="Override server name in output")
+@click.option("--proxy", "-p", "proxy_name", help="Specific proxy (default: all proxies)")
 @click.option("--copy", "-c", "copy_to_clip", is_flag=True, help="Copy to clipboard")
-def install_mcp_json(name: str | None, copy_to_clip: bool) -> None:
+def install_mcp_json(proxy_name: str | None, copy_to_clip: bool) -> None:
     """Generate MCP client configuration JSON.
+
+    Without --proxy, generates config for ALL configured proxies.
+    With --proxy, generates config for a single proxy.
 
     Outputs JSON in the standard mcpServers format used by Claude Desktop,
     Cursor, VS Code, and other MCP clients.
 
     \b
-    Example output:
+    Example output (all proxies):
         {
           "mcpServers": {
-            "mcp-acp-proxy": {
+            "filesystem": {
               "command": "/path/to/mcp-acp",
-              "args": ["start"]
+              "args": ["start", "--proxy", "filesystem"]
+            },
+            "database": {
+              "command": "/path/to/mcp-acp",
+              "args": ["start", "--proxy", "database"]
             }
           }
         }
 
     \b
     Usage with MCP clients:
-        Claude Desktop: ~/.claude/claude_desktop_config.json
+        Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json
         Cursor:         ~/.cursor/mcp.json
         VS Code:        .vscode/mcp.json
     """
-    config_path = get_config_path()
+    proxies = list_configured_proxies()
 
-    if not config_path.exists():
-        raise click.ClickException(
-            f"Config not found at {config_path}\n" "Run 'mcp-acp init' first to create configuration."
-        )
+    if not proxies:
+        click.echo(style_error("No proxies configured."), err=True)
+        click.echo(style_dim("Run 'mcp-acp proxy add' to create one."), err=True)
+        sys.exit(1)
 
-    try:
-        config = AppConfig.load_from_files(config_path)
-    except (FileNotFoundError, ValueError) as e:
-        raise click.ClickException(f"Error loading config: {e}") from e
+    if proxy_name:
+        # Single proxy
+        if proxy_name not in proxies:
+            click.echo(style_error(f"Proxy '{proxy_name}' not found."), err=True)
+            click.echo(f"Available: {', '.join(proxies)}", err=True)
+            sys.exit(1)
+        proxies_to_include = [proxy_name]
+    else:
+        # All proxies
+        proxies_to_include = proxies
 
     executable = _get_executable_path()
-    server_name = name or config.proxy.name
 
-    output = {
-        "mcpServers": {
-            server_name: {
-                "command": executable,
-                "args": ["start"],
-            }
+    mcp_servers: dict[str, dict[str, object]] = {}
+    for name in proxies_to_include:
+        mcp_servers[name] = {
+            "command": executable,
+            "args": ["start", "--proxy", name],
         }
-    }
+
+    output = {"mcpServers": mcp_servers}
 
     json_output = json.dumps(output, indent=2)
 
@@ -144,3 +155,7 @@ def install_mcp_json(name: str | None, copy_to_clip: bool) -> None:
             click.echo(style_error("Could not copy to clipboard"), err=True)
 
     click.echo(json_output)
+
+    # Show helpful next steps
+    click.echo()
+    click.echo(style_dim("Add the mcpServers entries to your MCP client config file."))

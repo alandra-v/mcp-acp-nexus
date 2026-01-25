@@ -12,6 +12,7 @@ Commands:
     logs      - Log viewing (show, tail)
     manager   - Manager daemon commands (start, stop, status)
     policy    - Policy management (show, edit, add, validate, reload)
+    proxy     - Proxy management (add, list, show)
     sessions  - Session management (list)
     start     - Start the proxy server manually
     status    - Show proxy runtime status
@@ -39,6 +40,7 @@ from .commands.install import install
 from .commands.logs import logs
 from .commands.manager import manager
 from .commands.policy import policy
+from .commands.proxy import proxy
 from .commands.sessions import sessions
 from .commands.start import start
 from .commands.status import status
@@ -51,38 +53,35 @@ class ReorderedGroup(click.Group):
         """Add extra help after commands section."""
         formatter.write(
             """
-Quick Start:
-  mcp-acp init                     Interactive setup wizard
-  mcp-acp start                    Test the proxy manually
+Quick Start (Interactive):
+  mcp-acp init                     Configure OIDC authentication
+  mcp-acp proxy add                Add a proxy with backend config
+  mcp-acp start --proxy <name>     Test the proxy manually
 
-Non-Interactive Setup (stdio):
+Non-Interactive Setup:
+  # Step 1: Configure OIDC authentication
   mcp-acp init --non-interactive \\
-    --server-name my-server \\
+    --oidc-issuer https://auth.example.com/ \\
+    --oidc-client-id my-client-id \\
+    --oidc-audience https://api.example.com
+
+  # Step 2: Add proxy with STDIO backend
+  mcp-acp proxy add --name my-proxy \\
+    --server-name "My Server" \\
     --connection-type stdio \\
     --command npx \\
     --args "-y,@modelcontextprotocol/server-filesystem,/tmp"
 
-Non-Interactive Setup (both transports):
-  mcp-acp init --non-interactive \\
-    --server-name my-server \\
-    --connection-type both \\
-    --command npx \\
-    --args "-y,@modelcontextprotocol/server-filesystem,/tmp" \\
-    --url http://localhost:3010/mcp
-
-Non-Interactive Setup (HTTPS with mTLS):
-  mcp-acp init --non-interactive \\
-    --server-name my-server \\
+  # Step 2 (alternative): Add proxy with HTTP backend + mTLS
+  mcp-acp proxy add --name my-proxy \\
+    --server-name "My Server" \\
     --connection-type http \\
     --url https://backend.example.com/mcp \\
-    --issuer https://auth.example.com/ \\
-    --client-id my-client-id \\
-    --audience https://api.example.com \\
     --mtls-cert ~/certs/client.pem \\
     --mtls-key ~/certs/client-key.pem \\
     --mtls-ca ~/certs/ca-bundle.pem
 
-Connection Types (--connection-type):
+Connection Types (for proxy add --connection-type):
   stdio   Spawn local server process (npx, uvx, python)
   http    Connect to remote HTTP server (requires --url)
   both    Auto-detect: tries HTTP first, falls back to STDIO
@@ -116,6 +115,7 @@ cli.add_command(install)
 cli.add_command(logs)
 cli.add_command(manager)
 cli.add_command(policy)
+cli.add_command(proxy)
 cli.add_command(sessions)
 cli.add_command(start)
 cli.add_command(status)

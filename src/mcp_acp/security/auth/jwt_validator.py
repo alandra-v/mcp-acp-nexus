@@ -26,6 +26,9 @@ from jwt import PyJWKClient, PyJWKClientError
 from mcp_acp.constants import JWKS_CACHE_TTL_SECONDS
 from mcp_acp.exceptions import AuthenticationError, IdentityVerificationFailure
 
+# Timeout for JWKS fetch - fail fast if identity provider is unreachable
+JWKS_FETCH_TIMEOUT_SECONDS = 5
+
 if TYPE_CHECKING:
     from mcp_acp.config import OIDCConfig
 
@@ -111,32 +114,73 @@ class JWTValidator:
         issuer_base = config.issuer.rstrip("/")
         self._jwks_uri = f"{issuer_base}/.well-known/jwks.json"
 
+    async def ensure_jwks_available(self) -> None:
+        """Verify JWKS endpoint is reachable (async pre-flight check).
+
+        Must be called from async context before validate() to ensure
+        the identity provider is reachable. Uses async httpx which has
+        proper timeout support (sync httpx has timeout bugs).
+
+        Raises:
+            IdentityVerificationFailure: If JWKS endpoint unreachable.
+        """
+        # Skip if we have a valid cache
+        if self._jwks_cache is not None and not self._jwks_cache.is_expired:
+            return
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(JWKS_FETCH_TIMEOUT_SECONDS, connect=JWKS_FETCH_TIMEOUT_SECONDS)
+            ) as client:
+                response = await client.get(self._jwks_uri, follow_redirects=True)
+                response.raise_for_status()
+        except httpx.TimeoutException as e:
+            raise IdentityVerificationFailure(
+                f"Connection to identity provider timed out after {JWKS_FETCH_TIMEOUT_SECONDS}s.\n"
+                f"Endpoint: {self._jwks_uri}\n\n"
+                f"Check your OIDC issuer configuration in manager.json.\n"
+                f"Run 'mcp-acp init' to reconfigure if needed."
+            ) from e
+        except httpx.HTTPStatusError as e:
+            raise IdentityVerificationFailure(
+                f"Identity provider returned error: HTTP {e.response.status_code}\n"
+                f"Endpoint: {self._jwks_uri}\n\n"
+                f"Check your OIDC issuer configuration in manager.json.\n"
+                f"Run 'mcp-acp init' to reconfigure if needed."
+            ) from e
+        except httpx.RequestError as e:
+            raise IdentityVerificationFailure(
+                f"Cannot reach identity provider: {type(e).__name__}\n"
+                f"Endpoint: {self._jwks_uri}\n\n"
+                f"Check your OIDC issuer configuration in manager.json.\n"
+                f"Run 'mcp-acp init' to reconfigure if needed."
+            ) from e
+
     def _get_jwks_client(self) -> PyJWKClient:
         """Get or create JWKS client with caching.
+
+        IMPORTANT: Call ensure_jwks_available() first from async context.
+        The sync httpx client has timeout bugs for unreachable hosts.
 
         Returns:
             PyJWKClient configured for the issuer's JWKS endpoint.
 
         Raises:
             IdentityVerificationFailure: If JWKS fetch fails and no valid cache exists.
-                This is a critical failure - cannot verify any identity.
         """
         # Return cached client if still valid
         if self._jwks_cache is not None and not self._jwks_cache.is_expired:
             return self._jwks_cache.client
 
         # Cache is expired or doesn't exist - must fetch fresh JWKS
+        # Note: ensure_jwks_available() should have been called first to verify connectivity
         try:
-            # PyJWKClient handles key caching internally, but we add our own
-            # TTL-based cache to control refresh timing
             client = PyJWKClient(
                 self._jwks_uri,
                 cache_keys=True,
                 lifespan=JWKS_CACHE_TTL_SECONDS,
+                timeout=JWKS_FETCH_TIMEOUT_SECONDS,
             )
-
-            # Validate that we can actually fetch keys
-            # This will raise if the endpoint is unreachable
             _ = client.get_jwk_set()
 
             self._jwks_cache = _CachedJWKS(
@@ -145,14 +189,13 @@ class JWTValidator:
             )
             return client
 
-        except (PyJWKClientError, httpx.HTTPError, Exception) as e:
-            # JWKS fetch failed - CRITICAL failure
-            # We only reach here if cache was None or expired (valid cache returns early)
-            # Cannot verify ANY identity - proxy must shutdown
+        except (PyJWKClientError, Exception) as e:
+            error_detail = str(e) if str(e) else type(e).__name__
             raise IdentityVerificationFailure(
-                f"JWKS endpoint unreachable and cache expired. "
-                f"Cannot verify user identity. "
-                f"Endpoint: {self._jwks_uri}, Error: {e}"
+                f"Cannot reach identity provider at {self._jwks_uri}\n"
+                f"Error: {error_detail}\n\n"
+                f"Check your OIDC issuer configuration in manager.json.\n"
+                f"Run 'mcp-acp init' to reconfigure if needed."
             ) from e
 
     def _normalize_audience(self, aud: str | list[str]) -> list[str]:

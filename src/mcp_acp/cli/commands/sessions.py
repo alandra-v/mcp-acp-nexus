@@ -29,12 +29,16 @@ def sessions() -> None:
 
 @sessions.command("list")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def sessions_list(as_json: bool) -> None:
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
+def sessions_list(as_json: bool, proxy_name: str) -> None:
     """List active sessions.
 
     Shows all active authentication sessions with user info and timestamps.
+
+    Example:
+        mcp-acp sessions list --proxy filesystem
     """
-    data = api_request("GET", "/api/auth-sessions")
+    data = api_request("GET", "/api/auth-sessions", proxy_name=proxy_name)
 
     if not isinstance(data, list):
         data = []

@@ -13,6 +13,8 @@ from typing import Any
 import click
 
 from mcp_acp.cli.api_client import APIError, api_request
+from mcp_acp.manager.config import list_configured_proxies
+from mcp_acp.utils.cli import check_proxy_running
 
 # Time conversion constants
 SECONDS_PER_DAY = 86400
@@ -22,19 +24,39 @@ SECONDS_PER_MINUTE = 60
 
 @click.command()
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def status(as_json: bool) -> None:
+@click.option("--proxy", "-p", "proxy_name", help="Proxy name (shows all if not specified)")
+def status(as_json: bool, proxy_name: str | None) -> None:
     """Show proxy runtime status.
 
-    Displays proxy health, uptime, auth status, and session count.
-    Requires the proxy to be running.
+    Without --proxy: Shows summary of all configured proxies.
+    With --proxy: Shows detailed status for specific proxy.
+
+    Examples:
+        mcp-acp status                    # All proxies summary
+        mcp-acp status --proxy filesystem # Detailed status
+    """
+    if proxy_name:
+        # Detailed status for specific proxy
+        _show_single_proxy_status(proxy_name, as_json)
+    else:
+        # Summary of all proxies
+        _show_all_proxies_status(as_json)
+
+
+def _show_single_proxy_status(proxy_name: str, as_json: bool) -> None:
+    """Show detailed status for a single proxy.
+
+    Args:
+        proxy_name: Name of the proxy to show status for.
+        as_json: If True, output as JSON instead of formatted text.
     """
     # Get status from API
-    status_response = api_request("GET", "/api/control/status")
+    status_response = api_request("GET", "/api/control/status", proxy_name=proxy_name)
     data = status_response if isinstance(status_response, dict) else {}
 
     # Get session count (best effort - don't fail if sessions endpoint errors)
     try:
-        sessions_response = api_request("GET", "/api/auth-sessions")
+        sessions_response = api_request("GET", "/api/auth-sessions", proxy_name=proxy_name)
         session_count = len(sessions_response) if isinstance(sessions_response, list) else 0
     except APIError:
         session_count = 0
@@ -60,8 +82,50 @@ def status(as_json: bool) -> None:
         _print_status_formatted(result)
 
 
+def _show_all_proxies_status(as_json: bool) -> None:
+    """Show summary status for all configured proxies.
+
+    Args:
+        as_json: If True, output as JSON instead of formatted text.
+    """
+    proxies = list_configured_proxies()
+
+    if not proxies:
+        click.echo("No proxies configured. Run 'mcp-acp proxy add' to create one.")
+        return
+
+    results = []
+    running_count = 0
+
+    for name in proxies:
+        is_running = check_proxy_running(name)
+        if is_running:
+            running_count += 1
+        results.append({"name": name, "running": is_running})
+
+    if as_json:
+        click.echo(json.dumps({"proxies": results, "running_count": running_count}, indent=2))
+    else:
+        click.echo(click.style("Proxies:", fg="cyan", bold=True))
+        click.echo()
+        for proxy_info in results:
+            name = str(proxy_info["name"])
+            is_running = bool(proxy_info["running"])
+            if is_running:
+                status_str = click.style("running", fg="green")
+            else:
+                status_str = click.style("stopped", fg="red")
+            click.echo(f"  {name:20} {status_str}")
+        click.echo()
+        click.echo(f"{running_count}/{len(proxies)} proxies running")
+
+
 def _print_status_formatted(result: dict[str, Any]) -> None:
-    """Print status in human-readable format."""
+    """Print status in human-readable format.
+
+    Args:
+        result: Status data dictionary with running, uptime, policy, and auth info.
+    """
     # Running status
     running = result.get("running", False)
     if running:

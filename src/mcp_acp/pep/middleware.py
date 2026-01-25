@@ -83,6 +83,7 @@ class PolicyEnforcementMiddleware(Middleware):
         policy_version: str | None = None,
         rate_tracker: SessionRateTracker | None = None,
         engine: PolicyEngineProtocol | None = None,
+        proxy_name: str | None = None,
     ) -> None:
         """Initialize enforcement middleware.
 
@@ -98,6 +99,7 @@ class PolicyEnforcementMiddleware(Middleware):
             rate_tracker: Optional rate tracker for detecting runaway loops.
             engine: Optional custom policy engine. If None, uses built-in PolicyEngine.
                 External engines (Casbin, OPA) can be injected here.
+            proxy_name: Proxy instance name for multi-proxy deployments.
         """
         self._shutdown_callback = shutdown_callback
         # Protected path checker - built-in security separate from policy
@@ -108,6 +110,7 @@ class PolicyEnforcementMiddleware(Middleware):
         self._backend_id = backend_id
         self._logger = logger
         self._policy_version = policy_version
+        self._proxy_name = proxy_name
         self._hitl_handler = HITLHandler(hitl_config)
         self._hitl_config = hitl_config  # For cache settings
         # Approval cache for reducing HITL dialog fatigue
@@ -279,6 +282,7 @@ class PolicyEnforcementMiddleware(Middleware):
             backend_id=self._backend_id,
             client_name=self._client_name,
             client_version=self._client_version,
+            proxy_name=self._proxy_name,
         )
 
     def _extract_arguments(self, context: MiddlewareContext[Any]) -> dict[str, Any] | None:
@@ -874,6 +878,7 @@ def create_enforcement_middleware(
     engine: PolicyEngineProtocol | None = None,
     state_manager: "IntegrityStateManager | None" = None,
     log_dir: Path | None = None,
+    proxy_name: str | None = None,
 ) -> PolicyEnforcementMiddleware:
     """Create policy enforcement middleware.
 
@@ -895,6 +900,7 @@ def create_enforcement_middleware(
             External engines (Casbin, OPA) can be injected here.
         state_manager: Optional IntegrityStateManager for hash chain support.
         log_dir: Base log directory for computing relative file keys.
+        proxy_name: Proxy instance name for multi-proxy deployments.
 
     Returns:
         Configured PolicyEnforcementMiddleware.
@@ -917,4 +923,5 @@ def create_enforcement_middleware(
         policy_version=policy_version,
         rate_tracker=rate_tracker,
         engine=engine,
+        proxy_name=proxy_name,
     )

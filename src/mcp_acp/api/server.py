@@ -88,7 +88,11 @@ def _is_dev_mode_request(request: Request) -> bool:
     return dev_port_pattern in origin or dev_port_pattern in referer
 
 
-def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
+def create_api_app(
+    token: str | None = None,
+    is_uds: bool = False,
+    proxy_name: str | None = None,
+) -> FastAPI:
     """Create the FastAPI application with all routes.
 
     Args:
@@ -97,6 +101,8 @@ def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
         is_uds: If True, this app serves UDS connections (OS permissions = auth).
             UDS apps skip token/host/origin validation but keep size limits
             and security headers.
+        proxy_name: Name of the proxy this API serves. Required for per-proxy
+            policy paths. If None, falls back to global paths (legacy mode).
 
     Returns:
         Configured FastAPI application.
@@ -112,6 +118,9 @@ def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
 
     # Mark if this is a UDS server (CLI uses UDS, browser uses HTTP)
     app.state.is_uds_server = is_uds
+
+    # Store proxy name for per-proxy path resolution
+    app.state.proxy_name = proxy_name
 
     # Security middleware (must be added before CORS)
     # For UDS: skip token/host/origin checks (OS permissions = auth)

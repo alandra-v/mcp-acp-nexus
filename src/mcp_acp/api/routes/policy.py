@@ -18,11 +18,12 @@ from __future__ import annotations
 __all__ = ["router"]
 
 import json
+from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import ValidationError
 
-from mcp_acp.api.deps import PolicyReloaderDep
+from mcp_acp.api.deps import PolicyPathDep, PolicyReloaderDep
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas import (
     PolicyFullUpdate,
@@ -35,7 +36,7 @@ from mcp_acp.api.schemas import (
 from mcp_acp.context.resource import SideEffect
 from mcp_acp.pdp.policy import VALID_OPERATIONS, PolicyConfig, PolicyRule, RuleConditions
 from mcp_acp.pep.reloader import PolicyReloader
-from mcp_acp.utils.policy import get_policy_path, load_policy
+from mcp_acp.utils.policy import load_policy
 
 router = APIRouter()
 
@@ -45,16 +46,26 @@ router = APIRouter()
 # =============================================================================
 
 
-def _load_policy_or_raise() -> PolicyConfig:
-    """Load policy from disk, raising APIError on error."""
+def _load_policy_or_raise(policy_path: Path) -> PolicyConfig:
+    """Load policy from disk, raising APIError on error.
+
+    Args:
+        policy_path: Path to the policy file.
+
+    Returns:
+        PolicyConfig loaded from disk.
+
+    Raises:
+        APIError: 404 if file not found, 500 if invalid.
+    """
     try:
-        return load_policy()
+        return load_policy(policy_path)
     except FileNotFoundError:
         raise APIError(
             status_code=404,
             code=ErrorCode.POLICY_NOT_FOUND,
             message="Policy file not found",
-            details={"path": str(get_policy_path())},
+            details={"path": str(policy_path)},
         )
     except ValueError as e:
         raise APIError(
@@ -125,13 +136,13 @@ async def get_policy_schema() -> PolicySchemaResponse:
 
 
 @router.get("", response_model=PolicyResponse)
-async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
+async def get_policy(reloader: PolicyReloaderDep, policy_path: PolicyPathDep) -> PolicyResponse:
     """Get current policy configuration.
 
     Returns the active policy with metadata including version info.
     Note: HITL configuration is now in AppConfig (see /api/config endpoint).
     """
-    policy = _load_policy_or_raise()
+    policy = _load_policy_or_raise(policy_path)
 
     return PolicyResponse(
         version=policy.version,
@@ -139,13 +150,14 @@ async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
         rules_count=len(policy.rules),
         rules=[rule.model_dump() for rule in policy.rules],
         policy_version=reloader.current_version,
-        policy_path=str(get_policy_path()),
+        policy_path=str(policy_path),
     )
 
 
 @router.put("", response_model=PolicyResponse)
 async def update_full_policy(
     reloader: PolicyReloaderDep,
+    policy_path: PolicyPathDep,
     policy_data: PolicyFullUpdate,
 ) -> PolicyResponse:
     """Replace entire policy configuration.
@@ -158,6 +170,7 @@ async def update_full_policy(
 
     Args:
         reloader: PolicyReloader dependency for triggering reload.
+        policy_path: Path to the policy file (from dependency).
         policy_data: New policy configuration.
 
     Returns:
@@ -202,7 +215,7 @@ async def update_full_policy(
         )
 
     # Save and reload
-    policy_version = await _save_and_reload(reloader, new_policy)
+    policy_version = await _save_and_reload(reloader, new_policy, policy_path)
 
     return PolicyResponse(
         version=new_policy.version,
@@ -210,29 +223,33 @@ async def update_full_policy(
         rules_count=len(new_policy.rules),
         rules=[rule.model_dump() for rule in new_policy.rules],
         policy_version=policy_version,
-        policy_path=str(get_policy_path()),
+        policy_path=str(policy_path),
     )
 
 
 @router.get("/rules", response_model=list[PolicyRuleResponse])
-async def get_policy_rules() -> list[PolicyRuleResponse]:
+async def get_policy_rules(policy_path: PolicyPathDep) -> list[PolicyRuleResponse]:
     """Get just the policy rules (simplified view)."""
-    policy = _load_policy_or_raise()
+    policy = _load_policy_or_raise(policy_path)
 
     return [_rule_to_response(rule) for rule in policy.rules]
 
 
-async def _save_and_reload(reloader: PolicyReloader, policy: PolicyConfig) -> str | None:
+async def _save_and_reload(
+    reloader: PolicyReloader,
+    policy: PolicyConfig,
+    policy_path: Path,
+) -> str | None:
     """Save policy to file and trigger reload.
 
     Args:
         reloader: PolicyReloader instance (from dependency injection).
         policy: The new PolicyConfig to save.
+        policy_path: Path to the policy file.
 
     Returns:
         New policy version after reload.
     """
-    policy_path = get_policy_path()
 
     # Save to file (atomically via temp file)
     temp_path = policy_path.with_suffix(".tmp")
@@ -305,6 +322,7 @@ def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
 @router.post("/rules", status_code=201, response_model=PolicyRuleMutationResponse)
 async def add_policy_rule(
     reloader: PolicyReloaderDep,
+    policy_path: PolicyPathDep,
     rule_data: PolicyRuleCreate,
 ) -> PolicyRuleMutationResponse:
     """Add a new policy rule.
@@ -312,7 +330,7 @@ async def add_policy_rule(
     The rule is appended to the existing rules and policy is auto-reloaded.
     If id is not provided, one will be auto-generated.
     """
-    policy = _load_policy_or_raise()
+    policy = _load_policy_or_raise(policy_path)
 
     # Check for duplicate ID if provided
     if rule_data.id:
@@ -346,7 +364,7 @@ async def add_policy_rule(
     final_rule = updated_policy.rules[-1]
 
     # Save and reload
-    policy_version = await _save_and_reload(reloader, updated_policy)
+    policy_version = await _save_and_reload(reloader, updated_policy, policy_path)
 
     return PolicyRuleMutationResponse(
         rule=_rule_to_response(final_rule),
@@ -358,6 +376,7 @@ async def add_policy_rule(
 @router.put("/rules/{rule_id}", response_model=PolicyRuleMutationResponse)
 async def update_policy_rule(
     reloader: PolicyReloaderDep,
+    policy_path: PolicyPathDep,
     rule_id: str,
     rule_data: PolicyRuleCreate,
 ) -> PolicyRuleMutationResponse:
@@ -365,7 +384,7 @@ async def update_policy_rule(
 
     The rule is replaced and policy is auto-reloaded.
     """
-    policy = _load_policy_or_raise()
+    policy = _load_policy_or_raise(policy_path)
 
     # Validate conditions and cache_side_effects
     conditions = _validate_conditions(rule_data.conditions)
@@ -405,7 +424,7 @@ async def update_policy_rule(
     updated_rule = next(r for r in updated_policy.rules if r.id == rule_id)
 
     # Save and reload
-    policy_version = await _save_and_reload(reloader, updated_policy)
+    policy_version = await _save_and_reload(reloader, updated_policy, policy_path)
 
     return PolicyRuleMutationResponse(
         rule=_rule_to_response(updated_rule),
@@ -415,12 +434,16 @@ async def update_policy_rule(
 
 
 @router.delete("/rules/{rule_id}", status_code=204)
-async def delete_policy_rule(reloader: PolicyReloaderDep, rule_id: str) -> None:
+async def delete_policy_rule(
+    reloader: PolicyReloaderDep,
+    policy_path: PolicyPathDep,
+    rule_id: str,
+) -> None:
     """Delete a policy rule.
 
     The rule is removed and policy is auto-reloaded.
     """
-    policy = _load_policy_or_raise()
+    policy = _load_policy_or_raise(policy_path)
 
     # Remove rule
     new_rules = [r for r in policy.rules if r.id != rule_id]
@@ -435,4 +458,4 @@ async def delete_policy_rule(reloader: PolicyReloaderDep, rule_id: str) -> None:
 
     # Rebuild policy and save
     updated_policy = _rebuild_policy(policy, new_rules)
-    await _save_and_reload(reloader, updated_policy)
+    await _save_and_reload(reloader, updated_policy, policy_path)

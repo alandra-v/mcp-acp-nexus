@@ -32,13 +32,17 @@ def approvals() -> None:
 
 @approvals.command("cache")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def approvals_cache(as_json: bool) -> None:
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
+def approvals_cache(as_json: bool, proxy_name: str) -> None:
     """Show cached approvals.
 
     Lists approvals that have been cached (user selected "Allow for Xm").
     Use entry numbers with 'approvals clear --entry=N' to clear specific entries.
+
+    Example:
+        mcp-acp approvals cache --proxy filesystem
     """
-    response = api_request("GET", "/api/approvals/cached")
+    response = api_request("GET", "/api/approvals/cached", proxy_name=proxy_name)
     data = response if isinstance(response, dict) else {}
 
     if as_json:
@@ -76,10 +80,14 @@ def approvals_cache(as_json: bool) -> None:
 @approvals.command("clear")
 @click.option("--all", "clear_all", is_flag=True, help="Clear all cached approvals")
 @click.option("--entry", "entry_num", type=int, help="Clear entry by number (from 'approvals cache')")
-def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
+def approvals_clear(clear_all: bool, entry_num: int | None, proxy_name: str) -> None:
     """Clear cached approvals.
 
     Use --all to clear entire cache, or --entry=N to clear a specific entry.
+
+    Example:
+        mcp-acp approvals clear --proxy filesystem --all
     """
     if not clear_all and entry_num is None:
         click.echo(style_error("Error: Specify --all or --entry=N"), err=True)
@@ -90,7 +98,7 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
         sys.exit(1)
 
     # Get current cache
-    cache_response = api_request("GET", "/api/approvals/cached")
+    cache_response = api_request("GET", "/api/approvals/cached", proxy_name=proxy_name)
     cache_data = cache_response if isinstance(cache_response, dict) else {}
     approvals_list = cache_data.get("approvals", [])
 
@@ -103,7 +111,7 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
             click.echo(style_dim("Cancelled."))
             return
 
-        response = api_request("DELETE", "/api/approvals/cached")
+        response = api_request("DELETE", "/api/approvals/cached", proxy_name=proxy_name)
         result = response if isinstance(response, dict) else {}
         click.echo(style_success(f"Cleared {result.get('cleared', 0)} cached approval(s)."))
 
@@ -126,5 +134,5 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
             "tool_name": tool,
             "path": path,
         }
-        api_request("DELETE", "/api/approvals/cached/entry", params=params)
+        api_request("DELETE", "/api/approvals/cached/entry", proxy_name=proxy_name, params=params)
         click.echo(style_success(f"Cleared cached approval for '{tool}'."))

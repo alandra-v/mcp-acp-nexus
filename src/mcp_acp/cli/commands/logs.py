@@ -15,8 +15,7 @@ from pathlib import Path
 
 import click
 
-from mcp_acp.config import AppConfig
-from mcp_acp.utils.cli import load_config_or_exit
+from mcp_acp.utils.cli import load_manager_config_or_exit, require_proxy_name
 from mcp_acp.utils.config import (
     get_audit_log_path,
     get_auth_log_path,
@@ -25,6 +24,8 @@ from mcp_acp.utils.config import (
     get_policy_history_path,
     get_system_log_path,
 )
+
+from mcp_acp.manager.config import list_configured_proxies
 
 from ..styling import style_label
 
@@ -39,12 +40,12 @@ LOG_TYPES = {
 }
 
 
-def _get_log_path(config: AppConfig, log_type: str) -> Path:
+def _get_log_path(proxy_name: str, log_dir: str, log_type: str) -> Path:
     """Get path to a specific log file."""
     if log_type not in LOG_TYPES:
         raise click.ClickException(f"Unknown log type: {log_type}")
     _, path_fn = LOG_TYPES[log_type]
-    return path_fn(config)
+    return path_fn(proxy_name, log_dir)
 
 
 @click.group()
@@ -60,17 +61,50 @@ def logs() -> None:
 
 
 @logs.command("list")
-def logs_list() -> None:
+@click.option(
+    "--proxy",
+    "-p",
+    "proxy_name",
+    help="Proxy name (optional - shows all proxies if not specified)",
+)
+def logs_list(proxy_name: str | None) -> None:
     """List available log files.
 
-    Shows all log types with their file paths and sizes.
+    Without --proxy, shows log paths for ALL proxies.
+    With --proxy, shows detailed log info for a specific proxy.
     """
-    config = load_config_or_exit()
+    manager_config = load_manager_config_or_exit()
+    log_dir_str = manager_config.log_dir
 
-    click.echo("\n" + style_label("Available log files") + "\n")
+    if proxy_name:
+        # Validate specific proxy
+        proxy_name = require_proxy_name(proxy_name)
+        _show_proxy_logs(proxy_name, log_dir_str)
+    else:
+        # Show all proxies
+        proxies = list_configured_proxies()
+        if not proxies:
+            click.echo("No proxies configured.")
+            click.echo("Run 'mcp-acp proxy add' to create one.")
+            return
+
+        click.echo("\n" + style_label("Log Paths") + "\n")
+
+        for name in proxies:
+            click.echo(f"  {name}:")
+            for log_type, (description, path_fn) in LOG_TYPES.items():
+                log_path = path_fn(name, log_dir_str)
+                exists = "✓" if log_path.exists() else "✗"
+                click.echo(f"    {log_type}: {log_path} {exists}")
+            click.echo()
+
+
+def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
+    """Show detailed log info for a specific proxy."""
+    click.echo("\n" + style_label(f"Log files: {proxy_name}") + "\n")
 
     for log_type, (description, path_fn) in LOG_TYPES.items():
-        log_path = path_fn(config)
+        log_path = path_fn(proxy_name, log_dir_str)
         exists = log_path.exists()
 
         if exists:
@@ -104,6 +138,12 @@ def logs_list() -> None:
 
 @logs.command("show")
 @click.option(
+    "--proxy",
+    "-p",
+    "proxy_name",
+    help="Proxy name (required)",
+)
+@click.option(
     "--type",
     "-t",
     "log_type",
@@ -117,15 +157,16 @@ def logs_list() -> None:
     default=50,
     help="Number of entries to show (default: 50)",
 )
-def logs_show(log_type: str, limit: int) -> None:
+def logs_show(proxy_name: str | None, log_type: str, limit: int) -> None:
     """Show recent log entries as JSON.
 
     Outputs JSONL (one JSON object per line).
     Requires --type to specify which log to show.
     Use 'logs list' to see available log files.
     """
-    config = load_config_or_exit()
-    log_path = _get_log_path(config, log_type)
+    proxy_name = require_proxy_name(proxy_name)
+    manager_config = load_manager_config_or_exit()
+    log_path = _get_log_path(proxy_name, manager_config.log_dir, log_type)
 
     if not log_path.exists():
         # Output error as JSON
@@ -163,6 +204,12 @@ def logs_show(log_type: str, limit: int) -> None:
 
 @logs.command("tail")
 @click.option(
+    "--proxy",
+    "-p",
+    "proxy_name",
+    help="Proxy name (required)",
+)
+@click.option(
     "--type",
     "-t",
     "log_type",
@@ -170,15 +217,16 @@ def logs_show(log_type: str, limit: int) -> None:
     required=True,
     help="Log type to tail (required)",
 )
-def logs_tail(log_type: str) -> None:
+def logs_tail(proxy_name: str | None, log_type: str) -> None:
     """Tail log file in real-time (JSON output).
 
     Continuously outputs new log entries as JSONL.
     Use 'logs list' to see available log files.
     Press Ctrl+C to stop.
     """
-    config = load_config_or_exit()
-    log_path = _get_log_path(config, log_type)
+    proxy_name = require_proxy_name(proxy_name)
+    manager_config = load_manager_config_or_exit()
+    log_path = _get_log_path(proxy_name, manager_config.log_dir, log_type)
 
     if not log_path.exists():
         status_msg = {

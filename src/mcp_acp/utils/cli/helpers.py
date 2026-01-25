@@ -6,36 +6,138 @@ Provides common helpers for CLI commands to avoid duplication.
 from __future__ import annotations
 
 __all__ = [
-    "load_config_or_exit",
-    "get_editor",
-    "show_editor_hints",
+    "SOCKET_CONNECT_TIMEOUT_SECONDS",
+    "check_proxy_running",
     "edit_json_loop",
+    "get_editor",
+    "load_manager_config_or_exit",
+    "require_proxy_name",
+    "show_editor_hints",
+    "validate_proxy_if_provided",
 ]
 
 import json
 import os
+import socket
 import sys
 from collections.abc import Callable
 from typing import Any, TypeVar
 
 import click
 
-from mcp_acp.config import AppConfig
-from mcp_acp.utils.config import get_config_path
+from mcp_acp.constants import get_proxy_socket_path
+from mcp_acp.manager.config import (
+    ManagerConfig,
+    get_manager_config_path,
+    list_configured_proxies,
+    load_manager_config,
+)
+
+# Timeout for socket connection test (seconds)
+SOCKET_CONNECT_TIMEOUT_SECONDS = 0.5
 
 T = TypeVar("T")
 
 
-def load_config_or_exit() -> AppConfig:
-    """Load configuration from default path, exiting on failure.
+def check_proxy_running(name: str) -> bool:
+    """Check if a proxy is running by testing socket connection.
+
+    Attempts to connect to the proxy's Unix domain socket to verify
+    the proxy is running and accepting connections.
+
+    Args:
+        name: Proxy name (used to determine socket path).
 
     Returns:
-        AppConfig instance.
+        True if proxy is running and accepting connections, False otherwise.
+    """
+    socket_path = get_proxy_socket_path(name)
+    if not socket_path.exists():
+        return False
+
+    test_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        test_sock.settimeout(SOCKET_CONNECT_TIMEOUT_SECONDS)
+        test_sock.connect(str(socket_path))
+        return True
+    except (socket.error, OSError):
+        return False
+    finally:
+        test_sock.close()
+
+
+def require_proxy_name(proxy_name: str | None) -> str:
+    """Require a proxy name, raising an exception if not provided or not found.
+
+    Use this for commands that require a specific proxy to operate on.
+    Provides helpful error messages listing available proxies.
+
+    Args:
+        proxy_name: Proxy name from CLI option, or None if not provided.
+
+    Returns:
+        Validated proxy name.
+
+    Raises:
+        click.ClickException: If proxy name not provided or proxy not found.
+    """
+    if not proxy_name:
+        configured = list_configured_proxies()
+        if not configured:
+            raise click.ClickException(
+                "No proxies configured.\nRun 'mcp-acp proxy add <name>' to add a proxy."
+            )
+        raise click.ClickException(f"--proxy is required. Available: {', '.join(configured)}")
+
+    configured = list_configured_proxies()
+    if proxy_name not in configured:
+        raise click.ClickException(
+            f"Proxy '{proxy_name}' not found.\nAvailable: {', '.join(configured) or '(none)'}"
+        )
+
+    return proxy_name
+
+
+def validate_proxy_if_provided(proxy_name: str | None) -> str | None:
+    """Validate proxy name if provided, returning None if not provided.
+
+    Use this for commands where --proxy is optional but should be validated
+    if specified.
+
+    Args:
+        proxy_name: Proxy name from CLI option, or None if not provided.
+
+    Returns:
+        Validated proxy name, or None if not provided.
+
+    Raises:
+        click.ClickException: If proxy name provided but not found.
+    """
+    if not proxy_name:
+        return None
+
+    configured = list_configured_proxies()
+    if proxy_name not in configured:
+        raise click.ClickException(
+            f"Proxy '{proxy_name}' not found.\nAvailable: {', '.join(configured) or '(none)'}"
+        )
+
+    return proxy_name
+
+
+def load_manager_config_or_exit() -> ManagerConfig:
+    """Load manager configuration from manager.json, exiting on failure.
+
+    Use this for commands that need auth config (OIDC, mTLS) or log_dir.
+    These settings are shared across all proxies in multi-proxy mode.
+
+    Returns:
+        ManagerConfig instance with auth and logging settings.
 
     Raises:
         click.ClickException: If config not found or invalid.
     """
-    config_path = get_config_path()
+    config_path = get_manager_config_path()
 
     if not config_path.exists():
         raise click.ClickException(
@@ -43,7 +145,13 @@ def load_config_or_exit() -> AppConfig:
         )
 
     try:
-        return AppConfig.load_from_files(config_path)
+        config = load_manager_config()
+        # Verify auth is configured (required for most auth operations)
+        if config.auth is None:
+            raise click.ClickException(
+                "Authentication not configured.\n" "Run 'mcp-acp init' to configure OIDC authentication."
+            )
+        return config
     except (OSError, ValueError) as e:
         raise click.ClickException(f"Failed to load configuration: {e}") from e
 

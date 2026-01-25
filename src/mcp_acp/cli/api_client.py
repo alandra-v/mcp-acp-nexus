@@ -27,14 +27,17 @@ from typing import Any
 import click
 import httpx
 
-from mcp_acp.constants import DEFAULT_HTTP_TIMEOUT_SECONDS, SOCKET_PATH
+from mcp_acp.constants import DEFAULT_HTTP_TIMEOUT_SECONDS, get_proxy_socket_path
 
 
 class ProxyNotRunningError(click.ClickException):
     """Raised when proxy is not running (no UDS socket)."""
 
-    def __init__(self) -> None:
-        super().__init__("Proxy not running.\n" "Start it with: mcp-acp start")
+    def __init__(self, proxy_name: str) -> None:
+        super().__init__(
+            f"Proxy '{proxy_name}' is not running.\n" f"Start it with: mcp-acp start --proxy {proxy_name}"
+        )
+        self.proxy_name = proxy_name
 
 
 class APIError(click.ClickException):
@@ -48,10 +51,14 @@ class APIError(click.ClickException):
         self.status_code = status_code
 
 
-def _create_uds_client(timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS) -> httpx.Client:
+def _create_uds_client(
+    proxy_name: str,
+    timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
+) -> httpx.Client:
     """Create an httpx client configured for UDS connection.
 
     Args:
+        proxy_name: Name of the proxy to connect to.
         timeout: Request timeout in seconds.
 
     Returns:
@@ -60,10 +67,11 @@ def _create_uds_client(timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS) -> httpx.C
     Raises:
         FileNotFoundError: If socket file doesn't exist.
     """
-    if not SOCKET_PATH.exists():
-        raise FileNotFoundError(f"Socket not found: {SOCKET_PATH}")
+    socket_path = get_proxy_socket_path(proxy_name)
+    if not socket_path.exists():
+        raise FileNotFoundError(f"Socket not found: {socket_path}")
 
-    transport = httpx.HTTPTransport(uds=str(SOCKET_PATH))
+    transport = httpx.HTTPTransport(uds=str(socket_path))
     return httpx.Client(
         transport=transport,
         base_url="http://localhost",  # Required but ignored for UDS
@@ -75,13 +83,14 @@ def api_request(
     method: str,
     endpoint: str,
     *,
+    proxy_name: str,
     json_data: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
     timeout: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
     max_retries: int = 3,
     backoff_ms: int = 100,
 ) -> dict[str, Any] | list[Any]:
-    """Make an API request to the running proxy via UDS.
+    """Make an API request to a running proxy via UDS.
 
     No authentication token needed - OS file permissions on the UDS socket
     provide authentication. Only the user who started the proxy can connect.
@@ -92,6 +101,7 @@ def api_request(
     Args:
         method: HTTP method (GET, POST, DELETE, etc.)
         endpoint: API endpoint path (e.g., "/api/control/status")
+        proxy_name: Name of the proxy to connect to.
         json_data: Optional JSON body for POST/PUT requests.
         params: Optional query parameters.
         timeout: Request timeout in seconds.
@@ -109,7 +119,7 @@ def api_request(
 
     for attempt in range(max_retries):
         try:
-            with _create_uds_client(timeout=timeout) as client:
+            with _create_uds_client(proxy_name, timeout=timeout) as client:
                 response = client.request(
                     method,
                     endpoint,
@@ -149,4 +159,4 @@ def api_request(
             raise APIError(str(e)) from e
 
     # All retries exhausted
-    raise ProxyNotRunningError() from last_error
+    raise ProxyNotRunningError(proxy_name) from last_error

@@ -1,6 +1,6 @@
 """Config command group for mcp-acp CLI.
 
-Provides configuration management subcommands.
+Provides configuration management subcommands for multi-proxy mode.
 """
 
 from __future__ import annotations
@@ -14,19 +14,17 @@ from pathlib import Path
 
 import click
 
-from mcp_acp.config import AppConfig
-from mcp_acp.utils.cli import edit_json_loop, get_editor, show_editor_hints
-from mcp_acp.utils.config import (
-    get_audit_log_path,
-    get_backend_log_path,
-    get_client_log_path,
-    get_config_history_path,
-    get_config_path,
-    get_system_log_path,
+from mcp_acp.config import PerProxyConfig, load_proxy_config
+from mcp_acp.manager.config import (
+    ManagerConfig,
+    get_manager_config_path,
+    get_proxy_config_path,
+    list_configured_proxies,
+    load_manager_config,
 )
-from mcp_acp.utils.history_logging import log_config_updated
+from mcp_acp.utils.cli import edit_json_loop, get_editor, show_editor_hints
 
-from ..styling import style_error, style_header, style_success
+from ..styling import style_dim, style_error, style_header, style_success, style_warning
 
 
 def _load_raw_config(config_path: Path) -> dict[str, object]:
@@ -36,32 +34,14 @@ def _load_raw_config(config_path: Path) -> dict[str, object]:
         return result
 
 
-def _is_default(raw_config: dict[str, object], *keys: str) -> bool:
-    """Check if a config path is missing from raw file (using default).
-
-    Args:
-        raw_config: Raw JSON dict from file.
-        *keys: Path to the value (e.g., "hitl", "timeout_seconds").
-
-    Returns:
-        True if the key path is missing from raw config.
-    """
-    current: object = raw_config
-    for key in keys:
-        if not isinstance(current, dict) or key not in current:
-            return True
-        current = current[key]
-    return False
-
-
-def _default_marker() -> str:
-    """Return styled (default) marker."""
-    return click.style(" (default)", dim=True)
-
-
 @click.group()
 def config() -> None:
     """Configuration management commands.
+
+    \b
+    Config types:
+      --manager: Manager configuration (manager.json) - OIDC settings
+      --proxy NAME: Per-proxy configuration - backend, HITL, mTLS settings
 
     \b
     Editor selection for 'config edit' (in order):
@@ -79,267 +59,393 @@ def config() -> None:
 
 
 @config.command("show")
+@click.option("--manager", "-m", "show_manager", is_flag=True, help="Show manager configuration")
+@click.option("--proxy", "-p", "proxy_name", help="Show proxy configuration")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def config_show(as_json: bool) -> None:
-    """Display current configuration.
+def config_show(show_manager: bool, proxy_name: str | None, as_json: bool) -> None:
+    """Display configuration.
 
-    Loads configuration from the OS-appropriate location.
-    Values marked (default) are not in the config file - using built-in defaults.
+    Specify --manager or --proxy to choose which config to show.
     """
-    config_file_path = get_config_path()
-
-    try:
-        loaded_config = AppConfig.load_from_files(config_file_path)
-        raw_config = _load_raw_config(config_file_path)
-
-        if as_json:
-            # Output as JSON (exclude sensitive auth fields)
-            config_dict = loaded_config.model_dump(mode="json")
-            # Add computed paths
-            config_dict["_computed"] = {
-                "config_file": str(config_file_path),
-                "log_files": {
-                    "audit": str(get_audit_log_path(loaded_config)),
-                    "client_wire": str(get_client_log_path(loaded_config)),
-                    "backend_wire": str(get_backend_log_path(loaded_config)),
-                    "system": str(get_system_log_path(loaded_config)),
-                    "config_history": str(get_config_history_path(loaded_config)),
-                },
-            }
-            click.echo(json.dumps(config_dict, indent=2))
-            return
-
-        # Display formatted configuration
-        click.echo("\nmcp-acp configuration:\n")
-
-        click.echo(style_header("Logging"))
-        click.echo(f"  log_dir: {loaded_config.logging.log_dir}")
-        click.echo(f"  log_level: {loaded_config.logging.log_level}")
-        click.echo(f"  include_payloads: {loaded_config.logging.include_payloads}")
-        click.echo()
-        click.echo("  Log files (computed from log_dir):")
-        click.echo(f"    audit: {get_audit_log_path(loaded_config)}")
-        click.echo(f"    client_wire: {get_client_log_path(loaded_config)}")
-        click.echo(f"    backend_wire: {get_backend_log_path(loaded_config)}")
-        click.echo(f"    system: {get_system_log_path(loaded_config)}")
-        click.echo(f"    config_history: {get_config_history_path(loaded_config)}")
-        click.echo()
-
-        click.echo(style_header("Backend"))
-        click.echo(f"  server_name: {loaded_config.backend.server_name}")
-        if loaded_config.backend.transport:
-            click.echo(f"  transport: {loaded_config.backend.transport}")
-        else:
-            click.echo("  transport: auto-detect (prefers HTTP when reachable)")
-
-        if loaded_config.backend.stdio:
-            click.echo("  stdio:")
-            click.echo(f"    command: {loaded_config.backend.stdio.command}")
-            click.echo(f"    args: {loaded_config.backend.stdio.args}")
-        else:
-            click.echo("  stdio: (not configured)")
-
-        if loaded_config.backend.http:
-            click.echo("  http:")
-            click.echo(f"    url: {loaded_config.backend.http.url}")
-            click.echo(f"    timeout: {loaded_config.backend.http.timeout}")
-        else:
-            click.echo("  http: (not configured)")
-        click.echo()
-
-        click.echo(style_header("Proxy"))
-        click.echo(f"  name: {loaded_config.proxy.name}")
-        click.echo()
-
-        # Auth section
-        click.echo(style_header("Authentication"))
-        if loaded_config.auth is None:
-            click.echo("  (not configured)")
-        else:
-            if loaded_config.auth.oidc:
-                click.echo("  oidc:")
-                click.echo(f"    issuer: {loaded_config.auth.oidc.issuer}")
-                click.echo(f"    client_id: {loaded_config.auth.oidc.client_id}")
-                click.echo(f"    audience: {loaded_config.auth.oidc.audience}")
-            else:
-                click.echo("  oidc: (not configured)")
-
-            if loaded_config.auth.mtls:
-                click.echo("  mtls:")
-                click.echo(f"    client_cert: {loaded_config.auth.mtls.client_cert_path}")
-                click.echo(f"    client_key: {loaded_config.auth.mtls.client_key_path}")
-                click.echo(f"    ca_bundle: {loaded_config.auth.mtls.ca_bundle_path}")
-            else:
-                click.echo("  mtls: (not configured)")
-        click.echo()
-
-        # HITL section - mark values not in config file as defaults
-        hitl_is_default = _is_default(raw_config, "hitl")
-        hitl_header = style_header("Human-in-the-Loop (HITL)")
-        if hitl_is_default:
-            click.echo(hitl_header + _default_marker())
-        else:
-            click.echo(hitl_header)
-
-        timeout_default = _is_default(raw_config, "hitl", "timeout_seconds")
-        click.echo(
-            f"  timeout_seconds: {loaded_config.hitl.timeout_seconds}"
-            + (_default_marker() if timeout_default else "")
-        )
-
-        on_timeout_default = _is_default(raw_config, "hitl", "default_on_timeout")
-        click.echo(
-            f"  default_on_timeout: {loaded_config.hitl.default_on_timeout}"
-            + (_default_marker() if on_timeout_default else "")
-        )
-
-        ttl_default = _is_default(raw_config, "hitl", "approval_ttl_seconds")
-        click.echo(
-            f"  approval_ttl_seconds: {loaded_config.hitl.approval_ttl_seconds}"
-            + (_default_marker() if ttl_default else "")
-        )
-        click.echo("  cache_side_effects: (per-rule in policy)")
-        click.echo()
-
-        click.echo(f"Config file: {config_file_path}")
-
-    except (FileNotFoundError, ValueError) as e:
-        click.echo("\n" + style_error(f"Error: {e}"), err=True)
+    if not show_manager and not proxy_name:
+        click.echo(style_error("Specify --manager or --proxy <name>"), err=True)
+        click.echo(style_dim("Use 'mcp-acp config path' to see all config paths."), err=True)
         sys.exit(1)
 
+    if show_manager and proxy_name:
+        click.echo(style_error("Cannot specify both --manager and --proxy"), err=True)
+        sys.exit(1)
 
-@config.command("path")
-def config_path_cmd() -> None:
-    """Show config file path.
-
-    Displays the OS-appropriate config file location:
-    - macOS: ~/Library/Application Support/mcp-acp/
-    - Linux: ~/.config/mcp-acp/
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp/
-    """
-    path = get_config_path()
-    click.echo(str(path))
-
-    if not path.exists():
-        click.echo("(file does not exist - run 'mcp-acp init' to create)", err=True)
+    if show_manager:
+        _show_manager_config(as_json)
+    else:
+        _show_proxy_config(proxy_name, as_json)
 
 
-@config.command("edit")
-def config_edit() -> None:
-    """Edit configuration in $EDITOR.
+def _show_manager_config(as_json: bool) -> None:
+    """Show manager configuration."""
+    config_path = get_manager_config_path()
 
-    Opens the config file in your default editor (vim, nano, etc.).
-    After editing, validates the configuration with Pydantic.
-    If validation fails, offers to re-edit until valid or aborted.
-
-    Uses $EDITOR environment variable, falls back to $VISUAL,
-    then 'notepad' on Windows or 'vi' on macOS/Linux.
-
-    \b
-    Common editor commands:
-    vim/vi:  Esc (normal mode), :wq (save+exit), :q! (exit no save)
-    nano:    Ctrl+O Enter (save), Ctrl+X (exit)
-    VS Code: Cmd/Ctrl+S (save), close tab to finish
-    """
-    config_path = get_config_path()
-
-    # Check config exists
     if not config_path.exists():
-        click.echo(style_error(f"Error: Config file not found at {config_path}"), err=True)
-        click.echo("Run 'mcp-acp init' to create configuration.", err=True)
+        click.echo(style_error(f"Manager config not found: {config_path}"), err=True)
+        click.echo(style_dim("Run 'mcp-acp init' to create configuration."), err=True)
         sys.exit(1)
 
-    # Load and store original config for change detection
     try:
-        original_config = AppConfig.load_from_files(config_path)
-        original_dict = original_config.model_dump()
-    except (FileNotFoundError, ValueError) as e:
+        manager_config = load_manager_config()
+    except Exception as e:
         click.echo(style_error(f"Error loading config: {e}"), err=True)
         sys.exit(1)
 
-    # Get current content as formatted JSON
+    if as_json:
+        config_dict = manager_config.model_dump(mode="json")
+        config_dict["_computed"] = {"config_file": str(config_path)}
+        click.echo(json.dumps(config_dict, indent=2))
+        return
+
+    click.echo("\n" + style_header("Manager Configuration"))
+    click.echo()
+    click.echo(f"  ui_port: {manager_config.ui_port}")
+    click.echo(f"  log_dir: {manager_config.log_dir}")
+    click.echo(f"  log_level: {manager_config.log_level}")
+    click.echo()
+
+    click.echo(style_header("Authentication"))
+    if manager_config.auth is None:
+        click.echo("  (not configured)")
+    else:
+        click.echo("  oidc:")
+        click.echo(f"    issuer: {manager_config.auth.oidc.issuer}")
+        click.echo(f"    client_id: {manager_config.auth.oidc.client_id}")
+        click.echo(f"    audience: {manager_config.auth.oidc.audience}")
+    click.echo()
+
+    click.echo(f"Config file: {config_path}")
+
+
+def _show_proxy_config(proxy_name: str | None, as_json: bool) -> None:
+    """Show proxy configuration."""
+    if not proxy_name:
+        click.echo(style_error("Proxy name required with --proxy"), err=True)
+        sys.exit(1)
+
+    config_path = get_proxy_config_path(proxy_name)
+
+    if not config_path.exists():
+        click.echo(style_error(f"Proxy '{proxy_name}' not found."), err=True)
+        click.echo(style_dim("Run 'mcp-acp proxy list' to see available proxies."), err=True)
+        sys.exit(1)
+
+    try:
+        proxy_config = load_proxy_config(proxy_name)
+    except Exception as e:
+        click.echo(style_error(f"Error loading config: {e}"), err=True)
+        sys.exit(1)
+
+    if as_json:
+        config_dict = proxy_config.model_dump(mode="json")
+        config_dict["_computed"] = {"config_file": str(config_path)}
+        click.echo(json.dumps(config_dict, indent=2))
+        return
+
+    click.echo("\n" + style_header(f"Proxy: {proxy_name}"))
+    click.echo(f"  ID: {proxy_config.proxy_id}")
+    click.echo(f"  Created: {proxy_config.created_at}")
+    click.echo()
+
+    click.echo(style_header("Backend"))
+    backend = proxy_config.backend
+    click.echo(f"  Name: {backend.server_name}")
+    click.echo(f"  Transport: {backend.transport}")
+
+    if backend.stdio:
+        click.echo(f"  Command: {backend.stdio.command}")
+        if backend.stdio.args:
+            click.echo(f"  Args: {' '.join(backend.stdio.args)}")
+
+    if backend.http:
+        click.echo(f"  URL: {backend.http.url}")
+        click.echo(f"  Timeout: {backend.http.timeout}s")
+    click.echo()
+
+    click.echo(style_header("HITL"))
+    click.echo(f"  Timeout: {proxy_config.hitl.timeout_seconds}s")
+    click.echo(f"  Approval TTL: {proxy_config.hitl.approval_ttl_seconds}s")
+    click.echo()
+
+    click.echo(style_header("mTLS"))
+    if proxy_config.mtls:
+        click.echo(f"  Client cert: {proxy_config.mtls.client_cert_path}")
+        click.echo(f"  Client key: {proxy_config.mtls.client_key_path}")
+        click.echo(f"  CA bundle: {proxy_config.mtls.ca_bundle_path}")
+    else:
+        click.echo("  (not configured)")
+    click.echo()
+
+    click.echo(f"Config file: {config_path}")
+
+
+@config.command("path")
+@click.option("--manager", "-m", "show_manager", is_flag=True, help="Show manager config path")
+@click.option("--proxy", "-p", "proxy_name", help="Show proxy config path")
+def config_path_cmd(show_manager: bool, proxy_name: str | None) -> None:
+    """Show config file paths.
+
+    Without flags, shows all config paths.
+    """
+    if show_manager and proxy_name:
+        click.echo(style_error("Cannot specify both --manager and --proxy"), err=True)
+        sys.exit(1)
+
+    if show_manager:
+        path = get_manager_config_path()
+        click.echo(str(path))
+        if not path.exists():
+            click.echo(style_dim("(file does not exist - run 'mcp-acp init' to create)"), err=True)
+        return
+
+    if proxy_name:
+        path = get_proxy_config_path(proxy_name)
+        click.echo(str(path))
+        if not path.exists():
+            click.echo(style_dim(f"(file does not exist - run 'mcp-acp proxy add {proxy_name}')"), err=True)
+        return
+
+    # No flags - show all paths
+    click.echo(style_header("Configuration Paths"))
+    click.echo()
+
+    # Manager config
+    manager_path = get_manager_config_path()
+    exists = "✓" if manager_path.exists() else "✗"
+    click.echo(f"  Manager: {manager_path}")
+    click.echo(f"           {exists} {'exists' if manager_path.exists() else 'not found'}")
+    click.echo()
+
+    # Proxy configs
+    proxies = list_configured_proxies()
+    if proxies:
+        click.echo("  Proxies:")
+        for name in proxies:
+            proxy_path = get_proxy_config_path(name)
+            click.echo(f"    {name}: {proxy_path}")
+    else:
+        click.echo("  Proxies: (none configured)")
+    click.echo()
+
+
+@config.command("edit")
+@click.option("--manager", "-m", "edit_manager", is_flag=True, help="Edit manager configuration")
+@click.option("--proxy", "-p", "proxy_name", help="Edit proxy configuration")
+def config_edit(edit_manager: bool, proxy_name: str | None) -> None:
+    """Edit configuration in $EDITOR.
+
+    Specify --manager or --proxy to choose which config to edit.
+    After editing, validates the configuration with Pydantic.
+    If validation fails, offers to re-edit until valid or aborted.
+    """
+    if not edit_manager and not proxy_name:
+        click.echo(style_error("Specify --manager or --proxy <name>"), err=True)
+        sys.exit(1)
+
+    if edit_manager and proxy_name:
+        click.echo(style_error("Cannot specify both --manager and --proxy"), err=True)
+        sys.exit(1)
+
+    if edit_manager:
+        _edit_manager_config()
+    else:
+        _edit_proxy_config(proxy_name)
+
+
+def _edit_manager_config() -> None:
+    """Edit manager configuration."""
+    config_path = get_manager_config_path()
+
+    if not config_path.exists():
+        click.echo(style_error(f"Manager config not found: {config_path}"), err=True)
+        click.echo(style_dim("Run 'mcp-acp init' to create configuration."), err=True)
+        sys.exit(1)
+
+    try:
+        original_config = load_manager_config()
+        original_dict = original_config.model_dump()
+    except Exception as e:
+        click.echo(style_error(f"Error loading config: {e}"), err=True)
+        sys.exit(1)
+
     initial_content = json.dumps(original_dict, indent=2)
 
-    # Show editor info and hints
     editor = get_editor()
     click.echo(f"Opening config in {editor}...")
     show_editor_hints(editor)
-
     click.pause("Press Enter to open editor...")
 
-    # Edit loop - re-edit on validation failure
     edited_content, new_dict, new_config = edit_json_loop(
         initial_content,
-        AppConfig.model_validate,
-        "configuration",
+        ManagerConfig.model_validate,
+        "manager configuration",
     )
 
-    # Backup original before saving
+    # Backup and save
     backup_path = config_path.with_suffix(".json.bak")
     shutil.copy(config_path, backup_path)
 
     try:
-        # Write user's edited content directly (preserves their formatting/key order)
         with open(config_path, "w", encoding="utf-8") as f:
             f.write(edited_content)
             if not edited_content.endswith("\n"):
                 f.write("\n")
-
-        # Success - remove backup
         backup_path.unlink()
-
     except OSError as e:
         click.echo("\n" + style_error(f"Error saving config: {e}"), err=True)
         click.echo(f"Original backed up at: {backup_path}", err=True)
         sys.exit(1)
 
-    # Log config update
-    new_version = log_config_updated(
-        get_config_history_path(new_config),
-        config_path,
-        original_dict,
-        new_dict,  # Use parsed dict to match what was saved
-        source="cli_config_edit",
+    click.echo("\n" + style_success("Manager configuration saved."))
+    click.echo(f"Saved to: {config_path}")
+
+
+def _edit_proxy_config(proxy_name: str | None) -> None:
+    """Edit proxy configuration."""
+    if not proxy_name:
+        click.echo(style_error("Proxy name required with --proxy"), err=True)
+        sys.exit(1)
+
+    config_path = get_proxy_config_path(proxy_name)
+
+    if not config_path.exists():
+        click.echo(style_error(f"Proxy '{proxy_name}' not found."), err=True)
+        click.echo(style_dim("Run 'mcp-acp proxy list' to see available proxies."), err=True)
+        sys.exit(1)
+
+    try:
+        original_config = load_proxy_config(proxy_name)
+        original_dict = original_config.model_dump()
+    except Exception as e:
+        click.echo(style_error(f"Error loading config: {e}"), err=True)
+        sys.exit(1)
+
+    initial_content = json.dumps(original_dict, indent=2)
+
+    editor = get_editor()
+    click.echo(f"Opening config in {editor}...")
+    show_editor_hints(editor)
+    click.pause("Press Enter to open editor...")
+
+    edited_content, new_dict, new_config = edit_json_loop(
+        initial_content,
+        PerProxyConfig.model_validate,
+        "proxy configuration",
     )
 
-    if new_version:
-        click.echo("\n" + style_success(f"Configuration updated (version {new_version})."))
-    else:
-        click.echo("\n" + style_success("Configuration saved (no changes detected)."))
+    # Backup and save
+    backup_path = config_path.with_suffix(".json.bak")
+    shutil.copy(config_path, backup_path)
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(edited_content)
+            if not edited_content.endswith("\n"):
+                f.write("\n")
+        backup_path.unlink()
+    except OSError as e:
+        click.echo("\n" + style_error(f"Error saving config: {e}"), err=True)
+        click.echo(f"Original backed up at: {backup_path}", err=True)
+        sys.exit(1)
+
+    click.echo("\n" + style_success(f"Proxy configuration saved."))
     click.echo(f"Saved to: {config_path}")
 
 
 @config.command("validate")
-@click.option(
-    "--path",
-    "-p",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Validate file at this path (does not change config location)",
-)
-def config_validate(path: Path | None) -> None:
-    """Validate configuration file.
+@click.option("--manager", "-m", "validate_manager", is_flag=True, help="Validate manager only")
+@click.option("--proxy", "-p", "proxy_name", help="Validate specific proxy only")
+def config_validate(validate_manager: bool, proxy_name: str | None) -> None:
+    """Validate configuration files.
 
-    Checks the config file for:
-    - Valid JSON syntax
-    - Schema validation (required fields, types)
-    - Pydantic model validation
-
-    Note: The --path flag validates a file at a different location (useful
-    for testing changes or CI/CD). It does NOT change where the proxy loads
-    config from - that is always the OS default location.
+    Without flags, validates manager and all proxy configs.
+    Use --manager or --proxy to validate specific configs.
 
     Exit codes:
-        0: Config is valid
-        1: Config is invalid or not found
+        0: All configs valid
+        1: Config invalid or not found
     """
-    config_file_path = path or get_config_path()
+    if validate_manager and proxy_name:
+        click.echo(style_error("Cannot specify both --manager and --proxy"), err=True)
+        sys.exit(1)
+
+    all_valid = True
+
+    if validate_manager:
+        # Validate manager only
+        all_valid = _validate_manager()
+    elif proxy_name:
+        # Validate specific proxy only
+        all_valid = _validate_proxy(proxy_name)
+    else:
+        # Validate ALL
+        click.echo(style_header("Validating all configurations"))
+        click.echo()
+
+        # Validate manager
+        manager_valid = _validate_manager()
+        all_valid = all_valid and manager_valid
+
+        # Validate all proxies
+        proxies = list_configured_proxies()
+        if proxies:
+            click.echo()
+            for name in proxies:
+                proxy_valid = _validate_proxy(name)
+                all_valid = all_valid and proxy_valid
+        else:
+            click.echo(style_dim("  No proxies configured."))
+
+        click.echo()
+        if all_valid:
+            click.echo(style_success("All configurations valid."))
+        else:
+            click.echo(style_error("Some configurations invalid."))
+
+    sys.exit(0 if all_valid else 1)
+
+
+def _validate_manager() -> bool:
+    """Validate manager configuration. Returns True if valid."""
+    config_path = get_manager_config_path()
+
+    if not config_path.exists():
+        click.echo(style_warning(f"Manager config not found: {config_path}"))
+        return False
 
     try:
-        AppConfig.load_from_files(config_file_path)
-        click.echo(style_success(f"Config valid: {config_file_path}"))
+        load_manager_config()
+        click.echo(style_success(f"Manager config valid: {config_path}"))
+        return True
     except json.JSONDecodeError as e:
-        click.echo(style_error(f"Invalid JSON: {e}"), err=True)
-        sys.exit(1)
-    except (FileNotFoundError, ValueError) as e:
-        click.echo(style_error(str(e)), err=True)
-        sys.exit(1)
+        click.echo(style_error(f"Invalid JSON in manager config: {e}"))
+        return False
+    except Exception as e:
+        click.echo(style_error(f"Invalid manager config: {e}"))
+        return False
+
+
+def _validate_proxy(proxy_name: str) -> bool:
+    """Validate proxy configuration. Returns True if valid."""
+    config_path = get_proxy_config_path(proxy_name)
+
+    if not config_path.exists():
+        click.echo(style_warning(f"Proxy '{proxy_name}' not found: {config_path}"))
+        return False
+
+    try:
+        load_proxy_config(proxy_name)
+        click.echo(style_success(f"Proxy '{proxy_name}' config valid: {config_path}"))
+        return True
+    except json.JSONDecodeError as e:
+        click.echo(style_error(f"Invalid JSON in proxy '{proxy_name}' config: {e}"))
+        return False
+    except Exception as e:
+        click.echo(style_error(f"Invalid proxy '{proxy_name}' config: {e}"))
+        return False

@@ -35,7 +35,7 @@ from mcp_acp.api.schemas import (
     StdioTransportResponse,
 )
 from mcp_acp.config import AppConfig
-from mcp_acp.utils.config import get_config_path
+from mcp_acp.manager.config import get_proxy_config_path
 
 router = APIRouter()
 
@@ -136,7 +136,8 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
         http=http_response,
     )
 
-    # Build auth response with full OIDC and mTLS details
+    # Build auth response with OIDC details
+    # Note: mTLS is per-proxy at config.mtls, not config.auth.mtls
     auth_response = None
     if config.auth:
         oidc_response = None
@@ -148,12 +149,13 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
                 scopes=config.auth.oidc.scopes,
             )
 
+        # mTLS is per-proxy, stored at config.mtls (not config.auth.mtls)
         mtls_response = None
-        if config.auth.mtls:
+        if config.mtls:
             mtls_response = MTLSConfigResponse(
-                client_cert_path=config.auth.mtls.client_cert_path,
-                client_key_path=config.auth.mtls.client_key_path,
-                ca_bundle_path=config.auth.mtls.ca_bundle_path,
+                client_cert_path=config.mtls.client_cert_path,
+                client_key_path=config.mtls.client_key_path,
+                ca_bundle_path=config.mtls.ca_bundle_path,
             )
 
         auth_response = AuthConfigResponse(
@@ -178,7 +180,7 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
         auth=auth_response,
         proxy=ProxyConfigResponse(name=config.proxy.name),
         hitl=hitl_response,
-        config_path=str(get_config_path()),
+        config_path=str(get_proxy_config_path(config.proxy.name)),
         requires_restart_for_changes=True,
     )
 
@@ -201,7 +203,7 @@ async def get_config(config: ConfigDep) -> ConfigResponse:
 
 
 @router.put("", response_model=ConfigUpdateResponse)
-async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
+async def update_config(config: ConfigDep, updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     """Update configuration file.
 
     Validates changes before saving. Changes take effect on restart.
@@ -211,7 +213,7 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
 
     Returns the updated configuration (from file, not memory).
     """
-    config_path = get_config_path()
+    config_path = get_proxy_config_path(config.proxy.name)
 
     # Load current config from file (not memory, to get latest)
     try:
@@ -299,7 +301,7 @@ async def compare_config(config: ConfigDep) -> ConfigComparisonResponse:
     Returns both configs and a list of differences. Useful for seeing
     what will change on restart, or if the file was manually edited.
     """
-    config_path = get_config_path()
+    config_path = get_proxy_config_path(config.proxy.name)
 
     # Build running config response
     running_response = _build_config_response(config)

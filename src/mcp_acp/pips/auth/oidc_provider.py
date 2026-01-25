@@ -234,9 +234,20 @@ class OIDCIdentityProvider:
         if token.is_expired:
             return await self._refresh_and_validate(token)
 
+        # Ensure JWKS is available (async pre-flight check with proper timeout)
+        # This must happen before the sync validate() call because sync httpx
+        # has timeout bugs for unreachable hosts
+        import sys
+
+        print("DEBUG: calling ensure_jwks_available", file=sys.stderr, flush=True)
+        await self._validator.ensure_jwks_available()
+        print("DEBUG: ensure_jwks_available completed", file=sys.stderr, flush=True)
+
         # Validate JWT (signature, issuer, audience, exp)
         try:
+            print("DEBUG: calling validate()", file=sys.stderr, flush=True)
             validated = self._validator.validate(token.access_token)
+            print("DEBUG: validate() completed", file=sys.stderr, flush=True)
 
             # Check if token is expiring soon (warn once per token)
             self._check_session_expiring(token)

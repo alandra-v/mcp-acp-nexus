@@ -20,17 +20,22 @@ __all__ = [
     "get_config",
     "get_identity_provider",
     "get_oidc_config",
+    "get_policy_path_for_proxy",
     "get_policy_reloader",
+    "get_proxy_name",
     "get_proxy_state",
     # Type aliases for Annotated pattern
     "ApprovalStoreDep",
     "ConfigDep",
     "IdentityProviderDep",
     "OIDCConfigDep",
+    "PolicyPathDep",
     "PolicyReloaderDep",
+    "ProxyNameDep",
     "ProxyStateDep",
 ]
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Callable, cast
 
 from fastapi import Depends, HTTPException, Request
@@ -149,22 +154,52 @@ def get_oidc_config(request: Request) -> "OIDCConfig":
     )
 
 
+def get_proxy_name(request: Request) -> str | None:
+    """Get proxy name from app.state.
+
+    Returns:
+        Proxy name if set, None otherwise (legacy mode).
+    """
+    name: str | None = getattr(request.app.state, "proxy_name", None)
+    return name
+
+
+def get_policy_path_for_proxy(request: Request) -> Path:
+    """Get the policy path for the current proxy.
+
+    Uses per-proxy path if proxy_name is set, otherwise falls back
+    to global policy path (legacy single-proxy mode).
+
+    Args:
+        request: FastAPI request object.
+
+    Returns:
+        Path to the policy.json file.
+    """
+    from mcp_acp.manager.config import get_proxy_policy_path
+    from mcp_acp.utils.policy import get_policy_path
+
+    proxy_name = getattr(request.app.state, "proxy_name", None)
+    if proxy_name:
+        return get_proxy_policy_path(proxy_name)
+    return get_policy_path()
+
+
 def _load_oidc_config_from_file() -> "OIDCConfig | None":
-    """Load OIDC config from config file (like CLI does).
+    """Load OIDC config from manager.json.
 
     Returns:
         OIDCConfig if found and valid, None otherwise.
     """
     # Import here to avoid circular imports
-    from mcp_acp.config import AppConfig
-    from mcp_acp.utils.config import get_config_path
+    from mcp_acp.manager.config import get_manager_config_path, load_manager_config
 
     try:
-        config_path = get_config_path()
+        config_path = get_manager_config_path()
         if not config_path.exists():
             return None
 
-        config = AppConfig.load_from_files(config_path)
+        config = load_manager_config()
         if config.auth is None or config.auth.oidc is None:
             return None
 
@@ -188,3 +223,5 @@ PolicyReloaderDep = Annotated["PolicyReloader", Depends(get_policy_reloader)]
 ApprovalStoreDep = Annotated["ApprovalStore", Depends(get_approval_store)]
 IdentityProviderDep = Annotated["OIDCIdentityProvider", Depends(get_identity_provider)]
 OIDCConfigDep = Annotated["OIDCConfig", Depends(get_oidc_config)]
+ProxyNameDep = Annotated[str | None, Depends(get_proxy_name)]
+PolicyPathDep = Annotated[Path, Depends(get_policy_path_for_proxy)]

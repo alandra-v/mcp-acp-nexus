@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from mcp_acp.cli.api_client import APIError, ProxyNotRunningError, api_request
+# Note: api_request import removed - token notification deferred to auth migration
 from mcp_acp.constants import CLI_NOTIFICATION_TIMEOUT_SECONDS
 from mcp_acp.exceptions import AuthenticationError
 from mcp_acp.security.auth.device_flow import (
@@ -28,12 +28,13 @@ from mcp_acp.security.auth.token_storage import (
     create_token_storage,
     get_token_storage_info,
 )
-from mcp_acp.utils.cli import load_config_or_exit
+from mcp_acp.utils.cli import load_manager_config_or_exit
 
 from ..styling import style_dim, style_success
 
 if TYPE_CHECKING:
-    from mcp_acp.config import AppConfig, OIDCConfig
+    from mcp_acp.config import OIDCConfig
+    from mcp_acp.manager.config import ManagerConfig
 
 
 def _notify_proxy(endpoint: str) -> bool:
@@ -44,12 +45,15 @@ def _notify_proxy(endpoint: str) -> bool:
 
     Returns:
         True if notification succeeded, False otherwise.
+
+    Note:
+        In multi-proxy mode, token distribution is handled by the manager.
+        This notification is skipped until auth migration is complete.
     """
-    try:
-        api_request("POST", endpoint, timeout=CLI_NOTIFICATION_TIMEOUT_SECONDS)
-        return True
-    except (ProxyNotRunningError, APIError):
-        return False  # Proxy not running or request failed
+    # TODO: In multi-proxy mode, manager handles token distribution.
+    # For now, skip individual proxy notification.
+    # Auth migration will implement proper token broadcast.
+    return False
 
 
 @click.group()
@@ -72,16 +76,15 @@ def login(no_browser: bool) -> None:
 
     This is the same pattern as 'gh auth login' or 'aws sso login'.
     """
-    # Load config to get OIDC settings
-    config = load_config_or_exit()
+    # Load manager config to get OIDC settings
+    manager_config = load_manager_config_or_exit()
 
-    if config.auth is None or config.auth.oidc is None:
+    if manager_config.auth is None or manager_config.auth.oidc is None:
         raise click.ClickException(
-            "Authentication not configured.\n"
-            "Add 'auth.oidc' section to your config with issuer, client_id, and audience."
+            "Authentication not configured.\n" "Run 'mcp-acp init' to configure OIDC authentication."
         )
 
-    oidc_config = config.auth.oidc
+    oidc_config = manager_config.auth.oidc
 
     click.echo("Starting authentication...")
     click.echo()
@@ -200,10 +203,10 @@ def logout(federated: bool) -> None:
     Use --federated to also log out of Auth0 in your browser. This is
     useful when switching between different users.
     """
-    # Load config to get OIDC settings (for storage selection)
-    config = load_config_or_exit()
+    # Load manager config to get OIDC settings (for storage selection)
+    manager_config = load_manager_config_or_exit()
 
-    oidc_config = config.auth.oidc if config.auth else None
+    oidc_config = manager_config.auth.oidc if manager_config.auth else None
     storage = create_token_storage(oidc_config)
 
     if not storage.exists():
@@ -268,8 +271,8 @@ def status(as_json: bool) -> None:
     """
     import json as json_module
 
-    # Load config
-    config = load_config_or_exit()
+    # Load manager config
+    manager_config = load_manager_config_or_exit()
 
     # Build result dict for JSON output
     result: dict[str, Any] = {
@@ -278,18 +281,18 @@ def status(as_json: bool) -> None:
         "status": "not_configured",
     }
 
-    if config.auth is None or config.auth.oidc is None:
+    if manager_config.auth is None or manager_config.auth.oidc is None:
         result["status"] = "not_configured"
         if as_json:
             click.echo(json_module.dumps(result, indent=2))
         else:
             click.echo(click.style("Authentication not configured", fg="yellow"))
             click.echo()
-            click.echo("Add 'auth.oidc' section to your config to enable authentication.")
+            click.echo("Run 'mcp-acp init' to configure OIDC authentication.")
         return
 
     result["configured"] = True
-    oidc_config = config.auth.oidc
+    oidc_config = manager_config.auth.oidc
     storage = create_token_storage(oidc_config)
 
     # Storage info
@@ -309,7 +312,7 @@ def status(as_json: bool) -> None:
         if as_json:
             click.echo(json_module.dumps(result, indent=2))
         else:
-            _print_status_formatted(result, storage_info, oidc_config, config)
+            _print_status_formatted(result, storage_info, oidc_config, manager_config)
         return
 
     # Load and validate token
@@ -332,7 +335,7 @@ def status(as_json: bool) -> None:
         if as_json:
             click.echo(json_module.dumps(result, indent=2))
         else:
-            _print_status_formatted(result, storage_info, oidc_config, config)
+            _print_status_formatted(result, storage_info, oidc_config, manager_config)
         return
 
     # Token info
@@ -369,31 +372,17 @@ def status(as_json: bool) -> None:
         except (ValueError, KeyError):
             pass  # Can't decode ID token - not critical
 
-    # mTLS certificate status if configured
-    if config.auth.mtls:
-        from mcp_acp.utils.transport import get_certificate_expiry_info
-
-        cert_info = get_certificate_expiry_info(config.auth.mtls.client_cert_path)
-        result["mtls_configured"] = True
-        result["mtls_client_cert_path"] = str(config.auth.mtls.client_cert_path)
-        result["mtls_client_key_path"] = str(config.auth.mtls.client_key_path)
-        result["mtls_ca_bundle_path"] = str(config.auth.mtls.ca_bundle_path)
-        result["mtls_cert_status"] = cert_info.get("status", "unknown")
-        result["mtls_cert_days_until_expiry"] = cert_info.get("days_until_expiry")
-        if "error" in cert_info:
-            result["mtls_cert_error"] = cert_info["error"]
-
     if as_json:
         click.echo(json_module.dumps(result, indent=2))
     else:
-        _print_status_formatted(result, storage_info, oidc_config, config)
+        _print_status_formatted(result, storage_info, oidc_config, manager_config)
 
 
 def _print_status_formatted(
     result: dict[str, Any],
     storage_info: dict[str, Any],
     oidc_config: OIDCConfig,
-    config: AppConfig,
+    manager_config: ManagerConfig,
 ) -> None:
     """Print auth status in human-readable format."""
     # Show storage info
@@ -462,32 +451,4 @@ def _print_status_formatted(
     click.echo(f"  Client ID: {oidc_config.client_id}")
     click.echo(f"  Audience: {oidc_config.audience}")
 
-    # Show mTLS certificate status if configured
-    if result.get("mtls_configured") and config.auth and config.auth.mtls:
-        click.echo()
-        click.echo(click.style("mTLS Certificate", fg="cyan", bold=True))
-        click.echo(f"  Client cert: {result.get('mtls_client_cert_path')}")
-        click.echo(f"  Client key: {result.get('mtls_client_key_path')}")
-        click.echo(f"  CA bundle: {result.get('mtls_ca_bundle_path')}")
-
-        if result.get("mtls_cert_error"):
-            click.echo(f"  Status: {click.style('Error', fg='red')} - {result['mtls_cert_error']}")
-        else:
-            cert_status = result.get("mtls_cert_status", "unknown")
-            days_value = result.get("mtls_cert_days_until_expiry")
-            days = int(days_value) if days_value is not None else 0
-
-            if cert_status == "expired":
-                click.echo(f"  Status: {click.style('EXPIRED', fg='red', bold=True)}")
-                click.echo(f"  Expired: {abs(days)} days ago")
-            elif cert_status == "critical":
-                click.echo(f"  Status: {click.style('CRITICAL', fg='red', bold=True)}")
-                click.echo(f"  Expires in: {click.style(f'{days} days', fg='red')}")
-                click.echo("  Renew immediately!")
-            elif cert_status == "warning":
-                click.echo(f"  Status: {click.style('Warning', fg='yellow')}")
-                click.echo(f"  Expires in: {click.style(f'{days} days', fg='yellow')}")
-                click.echo("  Consider renewing soon.")
-            else:
-                click.echo(f"  Status: {click.style('Valid', fg='green')}")
-                click.echo(f"  Expires in: {days} days")
+    # Note: mTLS is per-proxy, shown in 'mcp-acp proxy show <name>'

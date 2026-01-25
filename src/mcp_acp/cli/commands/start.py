@@ -3,30 +3,42 @@
 Starts the proxy server for manual testing.
 """
 
-import sys
-from pathlib import Path
-from typing import NoReturn
+from __future__ import annotations
 
 __all__ = [
     "start",
 ]
 
+import sys
+from pathlib import Path
+from typing import NoReturn
+
 import click
 
 from mcp_acp import __version__
 from ..styling import style_error
-from mcp_acp.config import AppConfig
-from mcp_acp.utils.policy import get_policy_path, load_policy
+from mcp_acp.config import build_app_config_from_per_proxy, load_proxy_config
+from mcp_acp.manager.config import (
+    get_manager_config_path,
+    get_proxy_config_path,
+    get_proxy_policy_path,
+    load_manager_config,
+)
+from mcp_acp.utils.policy import load_policy
 from mcp_acp.utils.history_logging.policy_logger import (
     log_policy_loaded,
     log_policy_validation_failed,
 )
 from mcp_acp.cli.startup_alerts import show_startup_error_popup
-from mcp_acp.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
+from mcp_acp.exceptions import (
+    AuditFailure,
+    AuthenticationError,
+    DeviceHealthError,
+    IdentityVerificationFailure,
+)
 from mcp_acp.utils.config import (
     ensure_directories,
     get_config_history_path,
-    get_config_path,
     get_policy_history_path,
 )
 from mcp_acp.utils.history_logging import (
@@ -111,7 +123,8 @@ def _handle_startup_error(
 
 @click.command()
 @click.option("--no-ui", is_flag=True, help="Disable web UI completely (no HTTP server)")
-def start(no_ui: bool) -> None:
+@click.option("--proxy", "-p", "proxy_name", help="Proxy name to start (required for multi-proxy mode)")
+def start(no_ui: bool, proxy_name: str | None) -> None:
     """Start the proxy server manually (for testing).
 
     Loads configuration from the OS-appropriate location.
@@ -119,33 +132,91 @@ def start(no_ui: bool) -> None:
 
     Normally the proxy is started by the MCP client (e.g., Claude Desktop).
     This command is useful for manual testing.
+
+    Examples:
+        mcp-acp start --proxy filesystem    # Start specific proxy
+        mcp-acp start                       # Shows available proxies
     """
-    config_path = get_config_path()
+    # If no proxy specified, show available proxies and exit
+    if not proxy_name:
+        from mcp_acp.manager.config import list_configured_proxies
+
+        proxies = list_configured_proxies()
+        if proxies:
+            click.echo("Available proxies:", err=True)
+            for name in proxies:
+                click.echo(f"  - {name}", err=True)
+            click.echo(err=True)
+            click.echo("Start a specific proxy with: mcp-acp start --proxy <name>", err=True)
+            click.echo(err=True)
+            click.echo("Note: Each proxy runs in STDIO mode and needs its own terminal.", err=True)
+            click.echo("Claude Desktop starts each proxy automatically.", err=True)
+        else:
+            click.echo("No proxies configured.", err=True)
+            click.echo("Run 'mcp-acp proxy add' to create one.", err=True)
+        sys.exit(1)
+
+    # Multi-proxy mode: load from proxies/{name}/
+    config_path = get_proxy_config_path(proxy_name)
+    policy_path = get_proxy_policy_path(proxy_name)
+    manager_config_path = get_manager_config_path()
+
+    # Check config existence BEFORE setting up bootstrap log path
+    # This avoids creating directories for non-existent proxies
+    if not manager_config_path.exists():
+        click.echo(err=True)
+        click.echo(style_error("Error: Manager config not found."), err=True)
+        click.echo("Run 'mcp-acp init' to create a configuration.", err=True)
+        sys.exit(1)
+    if not config_path.exists():
+        click.echo(err=True)
+        click.echo(style_error(f"Error: Proxy '{proxy_name}' not found."), err=True)
+        click.echo("Run 'mcp-acp proxy add' to create it.", err=True)
+        available = list_configured_proxies()
+        if available:
+            click.echo(f"Available proxies: {', '.join(available)}", err=True)
+        sys.exit(1)
+
     bootstrap_log_path = config_path.parent / BOOTSTRAP_LOG_FILENAME
 
     try:
-        # Load configuration
-        loaded_config = AppConfig.load_from_files(config_path)
+
+        per_proxy_config = load_proxy_config(proxy_name)
+        manager_config = load_manager_config()
+
+        # Build AppConfig: OIDC from manager, mTLS from per-proxy
+        oidc_config = manager_config.auth.oidc if manager_config.auth else None
+        loaded_config = build_app_config_from_per_proxy(
+            proxy_name=proxy_name,
+            per_proxy=per_proxy_config,
+            oidc=oidc_config,
+            log_dir=manager_config.log_dir,
+            log_level=manager_config.log_level,
+        )
+
+        # Extract log path parameters
+        _proxy_name = loaded_config.proxy.name
+        _log_dir = loaded_config.logging.log_dir
+        _log_level = loaded_config.logging.log_level
 
         # Ensure directories exist
-        ensure_directories(loaded_config)
+        ensure_directories(_proxy_name, _log_dir, _log_level)
 
         # Log config loaded (detects manual changes, updates version)
         config_version, config_manual_changed = log_config_loaded(
-            get_config_history_path(loaded_config),
+            get_config_history_path(_proxy_name, _log_dir),
             config_path,
             loaded_config.model_dump(),
             component="cli",
             source="cli_start",
         )
 
-        # Load policy
-        policy_path = get_policy_path()
+        # Load policy (policy_path already set based on mode)
         loaded_policy = load_policy(policy_path)
 
         # Log policy loaded (detects manual changes, updates version)
         policy_version, policy_manual_changed = log_policy_loaded(
-            get_policy_history_path(loaded_config),
+            get_policy_history_path(_proxy_name, _log_dir),
             policy_path,
             loaded_policy.model_dump(),
             component="cli",
@@ -177,8 +248,7 @@ def start(no_ui: bool) -> None:
         # mTLS only applies to HTTPS URLs with streamablehttp transport
         uses_mtls = (
             actual_transport == "streamablehttp"
-            and loaded_config.auth
-            and loaded_config.auth.mtls
+            and loaded_config.mtls
             and loaded_config.backend.http
             and loaded_config.backend.http.url.lower().startswith("https://")
         )
@@ -226,7 +296,7 @@ def start(no_ui: bool) -> None:
                 error=e,
                 popup_message="Configuration not found.",
                 popup_detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
-                terminal_message="Error: Configuration not found.",
+                terminal_message=f"Error: File not found: {e}",
                 extra_terminal_lines=["Run 'mcp-acp init' to create a configuration."],
             )
 
@@ -241,7 +311,7 @@ def start(no_ui: bool) -> None:
             if is_policy_error:
                 log_policy_validation_failed(
                     bootstrap_log_path,
-                    get_policy_path(),
+                    policy_path,
                     error_type="ValidationError",
                     error_message=error_msg,
                     component="cli",
@@ -280,7 +350,7 @@ def start(no_ui: bool) -> None:
         # Check for backup if config file is corrupt
         if "Invalid JSON" in error_msg or "Could not read" in error_msg:
             if is_policy_error:
-                backup_path = get_policy_path().with_suffix(".json.bak")
+                backup_path = policy_path.with_suffix(".json.bak")
             else:
                 backup_path = config_path.with_suffix(".json.bak")
             if backup_path.exists():
@@ -401,6 +471,18 @@ def start(no_ui: bool) -> None:
             popup_detail=f"{e}\n\nEnsure FileVault is enabled and SIP is not disabled.",
             terminal_message="Error: Device health check failed",
             exit_code=DeviceHealthError.exit_code,
+            extra_terminal_lines=[str(e)],
+        )
+
+    except IdentityVerificationFailure as e:
+        _handle_startup_error(
+            bootstrap_log_path,
+            event="identity_verification_failed",
+            error=e,
+            popup_message="Cannot reach identity provider.",
+            popup_detail=f"{e}",
+            terminal_message="Error: Cannot reach identity provider",
+            exit_code=IdentityVerificationFailure.exit_code,
             extra_terminal_lines=[str(e)],
         )
 

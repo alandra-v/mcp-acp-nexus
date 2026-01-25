@@ -14,10 +14,14 @@ from pathlib import Path
 
 import click
 
-from mcp_acp.config import AppConfig
+from mcp_acp.manager.config import list_configured_proxies
 from mcp_acp.security.integrity import IntegrityStateManager
 from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
-from mcp_acp.utils.cli import load_config_or_exit
+from mcp_acp.utils.cli import (
+    load_manager_config_or_exit,
+    require_proxy_name,
+    validate_proxy_if_provided,
+)
 from mcp_acp.utils.config import (
     get_audit_log_path,
     get_auth_log_path,
@@ -124,6 +128,12 @@ def audit() -> None:
 
 @audit.command("verify")
 @click.option(
+    "--proxy",
+    "-p",
+    "proxy_name",
+    help="Proxy name (optional - verifies all proxies if not specified)",
+)
+@click.option(
     "--file",
     "-f",
     "log_file",
@@ -131,8 +141,11 @@ def audit() -> None:
     default="all",
     help="Log file to verify (default: all)",
 )
-def verify(log_file: str) -> None:
+def verify(proxy_name: str | None, log_file: str) -> None:
     """Verify audit log hash chain integrity.
+
+    Without --proxy, verifies ALL proxies.
+    With --proxy, verifies only the specified proxy.
 
     Checks that log entries haven't been tampered with, deleted,
     or reordered. Uses cryptographic hash chains for verification.
@@ -142,11 +155,23 @@ def verify(log_file: str) -> None:
       1 - Tampering detected (hash chain broken)
       2 - Unable to verify (missing files, read errors)
     """
-    config = load_config_or_exit()
+    proxy_name = validate_proxy_if_provided(proxy_name)
+    manager_config = load_manager_config_or_exit()
+    log_dir_str = manager_config.log_dir
 
     click.echo()
     click.echo(style_label("Audit Log Integrity Verification"))
     click.echo()
+
+    # Determine which proxies to verify
+    if proxy_name:
+        proxies_to_verify = [proxy_name]
+    else:
+        proxies_to_verify = list_configured_proxies()
+        if not proxies_to_verify:
+            click.echo(style_warning("No proxies configured."))
+            click.echo("Run 'mcp-acp proxy add' to create one.")
+            sys.exit(EXIT_UNABLE)
 
     if log_file == "all":
         files_to_verify = list(AUDIT_LOG_FILES.items())
@@ -160,20 +185,27 @@ def verify(log_file: str) -> None:
     total_failed = 0
     total_skipped = 0
 
-    for file_key, (description, path_fn) in files_to_verify:
-        log_path = path_fn(config)
+    for pname in proxies_to_verify:
+        if len(proxies_to_verify) > 1:
+            click.echo(f"Proxy: {pname}")
 
-        if not log_path.exists():
-            click.echo(f"  {description}: " + style_warning("not found (skipped)"))
-            total_skipped += 1
-            continue
+        for file_key, (description, path_fn) in files_to_verify:
+            log_path = path_fn(pname, log_dir_str)
 
-        success, _errors = _verify_single_file(log_path, description)
+            if not log_path.exists():
+                click.echo(f"  {description}: " + style_warning("not found (skipped)"))
+                total_skipped += 1
+                continue
 
-        if success:
-            total_passed += 1
-        else:
-            total_failed += 1
+            success, _errors = _verify_single_file(log_path, description)
+
+            if success:
+                total_passed += 1
+            else:
+                total_failed += 1
+
+        if len(proxies_to_verify) > 1:
+            click.echo()
 
     # Summary
     click.echo()
@@ -190,38 +222,65 @@ def verify(log_file: str) -> None:
     else:
         click.echo(style_error(f"INTEGRITY CHECK FAILED: {total_failed} file(s) have issues"))
         click.echo()
-        click.echo("Run 'mcp-acp audit repair' to fix.")
+        click.echo("Run 'mcp-acp audit repair --proxy <name>' to fix.")
         sys.exit(EXIT_FAILED)
 
 
 @audit.command("status")
-def status() -> None:
+@click.option(
+    "--proxy",
+    "-p",
+    "proxy_name",
+    help="Proxy name (optional - shows all proxies if not specified)",
+)
+def status(proxy_name: str | None) -> None:
     """Show audit log hash chain status.
+
+    Without --proxy, shows status for ALL proxies.
+    With --proxy, shows detailed status for a specific proxy.
 
     Displays which log files have hash chain protection enabled
     and their current state.
     """
-    config = load_config_or_exit()
-    log_dir = get_log_dir(config)
+    proxy_name = validate_proxy_if_provided(proxy_name)
+    manager_config = load_manager_config_or_exit()
+    log_dir_str = manager_config.log_dir
 
     click.echo()
     click.echo(style_label("Audit Log Hash Chain Status"))
     click.echo()
 
-    # Check for state file (log_dir already includes mcp-acp/proxies/default)
-    state_file = log_dir / IntegrityStateManager.STATE_FILE_NAME
-    if state_file.exists():
-        click.echo(f"State file: {style_success('present')}")
-        click.echo(f"  {state_file}")
+    # Determine which proxies to show
+    if proxy_name:
+        proxies_to_show = [proxy_name]
     else:
-        click.echo(f"State file: {style_warning('not found')}")
-        click.echo("  Hash chain state will be created on first proxy run.")
+        proxies_to_show = list_configured_proxies()
+        if not proxies_to_show:
+            click.echo(style_warning("No proxies configured."))
+            click.echo("Run 'mcp-acp proxy add' to create one.")
+            return
 
-    click.echo()
-    click.echo("Log files:")
+    for pname in proxies_to_show:
+        _show_proxy_audit_status(pname, log_dir_str)
+
+
+def _show_proxy_audit_status(proxy_name: str, log_dir_str: str) -> None:
+    """Show audit status for a single proxy."""
+    log_dir_path = get_log_dir(proxy_name, log_dir_str)
+
+    click.echo(f"Proxy: {proxy_name}")
+
+    # Check for state file (log_dir_path already includes mcp-acp/proxies/<name>)
+    state_file = log_dir_path / IntegrityStateManager.STATE_FILE_NAME
+    if state_file.exists():
+        click.echo(f"  State file: {style_success('present')}")
+    else:
+        click.echo(f"  State file: {style_warning('not found')}")
+
+    click.echo("  Log files:")
 
     for file_key, (description, path_fn) in AUDIT_LOG_FILES.items():
-        log_path = path_fn(config)
+        log_path = path_fn(proxy_name, log_dir_str)
 
         if not log_path.exists():
             status_str = style_warning("not created")
@@ -254,9 +313,9 @@ def status() -> None:
                 status_str = style_error("error reading")
                 info = ""
 
-        click.echo(f"  {file_key:15} - {status_str}")
+        click.echo(f"    {file_key:15} - {status_str}")
         if info:
-            click.echo(f"                   {info}")
+            click.echo(f"                       {info}")
 
     click.echo()
 
@@ -346,6 +405,13 @@ def _backup_and_reset_file(
 
 @audit.command("repair")
 @click.option(
+    "--proxy",
+    "-p",
+    "proxy_name",
+    required=True,
+    help="Proxy name (required - repair operates on one proxy at a time)",
+)
+@click.option(
     "--file",
     "-f",
     "log_file",
@@ -359,8 +425,10 @@ def _backup_and_reset_file(
     is_flag=True,
     help="Skip confirmation prompt",
 )
-def repair(log_file: str, yes: bool) -> None:
+def repair(proxy_name: str, log_file: str, yes: bool) -> None:
     """Repair integrity state after crash or verification failure.
+
+    Requires --proxy (dangerous operation, operates on one proxy at a time).
 
     Updates the .integrity_state file to match the actual log files.
     Use this when:
@@ -371,8 +439,10 @@ def repair(log_file: str, yes: bool) -> None:
     If a log file's hash chain is internally broken (e.g., entries deleted),
     offers to backup the broken file and create a fresh one.
     """
-    config = load_config_or_exit()
-    log_dir = get_log_dir(config)
+    proxy_name = require_proxy_name(proxy_name)
+    manager_config = load_manager_config_or_exit()
+    log_dir_str = manager_config.log_dir
+    log_dir_path = get_log_dir(proxy_name, log_dir_str)
 
     click.echo()
     click.echo(style_label("Audit Log State Repair"))
@@ -384,7 +454,7 @@ def repair(log_file: str, yes: bool) -> None:
         files_to_repair = [(log_file, AUDIT_LOG_FILES[log_file])]
 
     # Load state manager
-    state_manager = IntegrityStateManager(log_dir)
+    state_manager = IntegrityStateManager(log_dir_path)
     state_manager.load_state()
 
     repaired = 0
@@ -392,7 +462,7 @@ def repair(log_file: str, yes: bool) -> None:
     reset = 0
 
     for file_key, (description, path_fn) in files_to_repair:
-        log_path = path_fn(config)
+        log_path = path_fn(proxy_name, log_dir_str)
 
         if not log_path.exists():
             # File doesn't exist - clear any stale state

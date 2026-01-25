@@ -53,6 +53,7 @@ from mcp_acp.exceptions import (
     SessionBindingViolationError,
 )
 from mcp_acp.manager import ManagerClient, ProxyState, ensure_manager_running, set_global_proxy_state
+from mcp_acp.manager.config import get_proxy_policy_path
 from mcp_acp.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp.pips.auth import SessionManager
 from mcp_acp.security import create_identity_provider, SessionRateTracker
@@ -87,7 +88,7 @@ from mcp_acp.utils.config import (
     get_policy_history_path,
     get_system_log_path,
 )
-from mcp_acp.utils.policy import get_policy_path, load_policy
+from mcp_acp.utils.policy import load_policy
 from mcp_acp.utils.transport import create_backend_transport
 
 
@@ -136,7 +137,7 @@ def create_proxy(
     - Defense in depth: catches issues during idle periods between requests
 
     Args:
-        config: Application configuration loaded from mcp_acp_config.json.
+        config: Application configuration (built from per-proxy config).
         config_version: Current config version from config history (e.g., "v1").
         policy_version: Current policy version from policy history (e.g., "v1").
 
@@ -159,17 +160,21 @@ def create_proxy(
     # Verify all prerequisites before accepting any requests (Zero Trust)
     # =========================================================================
 
+    # Extract log path parameters for all log path functions
+    proxy_name = config.proxy.name
+    log_dir = config.logging.log_dir
+
     # Configure system logger file handler with user's log_dir
-    configure_system_logger_file(get_system_log_path(config))
+    configure_system_logger_file(get_system_log_path(proxy_name, log_dir))
 
     # Validate audit logs are writable BEFORE starting
     # If this fails, we raise AuditFailure and don't start
-    audit_path = get_audit_log_path(config)
-    decisions_path = get_decisions_log_path(config)
-    auth_log_path = get_auth_log_path(config)
-    system_log_path = get_system_log_path(config)
-    config_history_path = get_config_history_path(config)
-    policy_history_path = get_policy_history_path(config)
+    audit_path = get_audit_log_path(proxy_name, log_dir)
+    decisions_path = get_decisions_log_path(proxy_name, log_dir)
+    auth_log_path = get_auth_log_path(proxy_name, log_dir)
+    system_log_path = get_system_log_path(proxy_name, log_dir)
+    config_history_path = get_config_history_path(proxy_name, log_dir)
+    policy_history_path = get_policy_history_path(proxy_name, log_dir)
     # Verify all monitored logs are writable - raises AuditFailure if not
     # This also creates the files if they don't exist (required for AuditHealthMonitor)
     # No popup here - start.py handles user-facing popups to avoid duplicates
@@ -182,15 +187,15 @@ def create_proxy(
 
     # Create integrity state manager for tamper-evident hash chains
     # This must happen after verify_audit_writable (files exist) but before loggers are created
-    log_dir = get_log_dir(config)
-    integrity_manager = IntegrityStateManager(log_dir)
+    log_dir_path = get_log_dir(proxy_name, log_dir)
+    integrity_manager = IntegrityStateManager(log_dir_path)
     integrity_manager.load_state()
 
     # Configure hash chain on system logger (already has file handler from configure_system_logger_file)
-    configure_system_logger_hash_chain(integrity_manager, log_dir)
+    configure_system_logger_hash_chain(integrity_manager, log_dir_path)
 
     # Configure hash chain for history loggers (config_history.jsonl, policy_history.jsonl)
-    configure_history_logging_hash_chain(integrity_manager, log_dir)
+    configure_history_logging_hash_chain(integrity_manager, log_dir_path)
 
     # Get system logger early for use throughout startup
     # (also used later in PHASE 2 for shutdown_coordinator)
@@ -242,8 +247,8 @@ def create_proxy(
     # =========================================================================
 
     # Create shutdown coordinator for fail-closed behavior
-    # Note: log_dir and system_logger were already set above during integrity verification
-    shutdown_coordinator = ShutdownCoordinator(log_dir, system_logger)
+    # Note: log_dir_path and system_logger were already set above during integrity verification
+    shutdown_coordinator = ShutdownCoordinator(log_dir_path, system_logger)
 
     # Create shutdown callback with hybrid approach:
     # Try async coordinator if event loop is running, fall back to sync
@@ -275,7 +280,7 @@ def create_proxy(
             )
         except RuntimeError:
             # No event loop running - use sync fallback
-            sync_emergency_shutdown(log_dir, failure_type, reason, exit_code=exit_code)
+            sync_emergency_shutdown(log_dir_path, failure_type, reason, exit_code=exit_code)
 
     # Create AuditHealthMonitor for background integrity checking
     # This runs periodic checks even during idle periods (defense in depth)
@@ -292,7 +297,7 @@ def create_proxy(
         shutdown_coordinator=shutdown_coordinator,
         check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
         integrity_state_manager=integrity_manager,
-        log_dir=log_dir,
+        log_dir=log_dir_path,
     )
 
     # Create auth logger for authentication event audit trail
@@ -301,7 +306,7 @@ def create_proxy(
         auth_log_path,
         on_critical_failure,
         state_manager=integrity_manager,
-        log_dir=log_dir,
+        log_dir=log_dir_path,
     )
 
     # Wire auth logger to shutdown coordinator for session_ended logging on fatal errors
@@ -323,7 +328,8 @@ def create_proxy(
 
     # Create backend transport (handles detection, validation, health checks)
     # Pass mTLS config for client certificate authentication to HTTP backends
-    mtls_config = config.auth.mtls if config.auth else None
+    # Note: mTLS is per-proxy config, not in manager's AuthConfig
+    mtls_config = getattr(config.auth, "mtls", None) if config.auth else None
     transport, transport_type = create_backend_transport(config.backend, mtls_config)
 
     # Determine if debug wire logging is enabled
@@ -332,7 +338,7 @@ def create_proxy(
     # Create LoggingProxyClient with transport (logs to backend_wire.jsonl)
     logging_backend_client = create_logging_proxy_client(
         transport,
-        log_path=get_backend_log_path(config),
+        log_path=get_backend_log_path(proxy_name, log_dir),
         transport_type=transport_type,
         debug_enabled=debug_enabled,
     )
@@ -414,55 +420,102 @@ def create_proxy(
             policy_reloader = PolicyReloader(
                 middleware=enforcement_middleware,
                 system_logger=system_logger,
-                policy_path=get_policy_path(),
-                policy_history_path=get_policy_history_path(config),
+                policy_path=get_proxy_policy_path(proxy_name),
+                policy_history_path=get_policy_history_path(proxy_name, log_dir),
                 initial_version=policy_version,
             )
             # Wire proxy_state for SSE event emission
             policy_reloader.set_proxy_state(proxy_state)
 
-            # Start management API servers only if UI is enabled
-            # When disabled (--no-ui), no HTTP/UDS servers run - reduces attack surface
-            # HITL approvals fall back to osascript dialogs when UI is disabled
-            #
+            # ===================================================================
+            # ALWAYS: UDS Socket Setup (needed for CLI access regardless of UI)
+            # ===================================================================
             # Architecture:
+            # - UDS server always starts for CLI access (mcp-acp status, policy reload, etc.)
             # - If manager is running: proxy skips HTTP server (manager serves UI on 8765)
-            # - If manager not running: proxy starts its own HTTP server on 8765
-            # - UDS server always starts for CLI access (separate socket from manager)
+            # - If manager not running AND enable_ui: proxy starts its own HTTP server on 8765
+            # - HITL approvals fall back to osascript dialogs when UI is disabled
+
+            # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
+            import atexit
+            import logging
+            import socket as socket_module
+
+            from mcp_acp.api.server import create_api_app
+            from mcp_acp.constants import RUNTIME_DIR, get_proxy_socket_path
+
+            # Get per-proxy socket path
+            socket_path = get_proxy_socket_path(proxy_name)
+
+            def is_port_in_use(port: int) -> bool:
+                """Check if TCP port is accepting connections."""
+                with socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM) as s:
+                    return s.connect_ex(("127.0.0.1", port)) == 0
+
+            def cleanup_stale_socket() -> None:
+                """Remove stale socket file if exists and not connectable."""
+                if not socket_path.exists():
+                    return
+
+                # Try to connect - if it fails, socket is stale
+                try:
+                    test_sock = socket_module.socket(socket_module.AF_UNIX)
+                    test_sock.settimeout(SOCKET_CONNECT_TIMEOUT_SECONDS)
+                    test_sock.connect(str(socket_path))
+                    test_sock.close()
+                    # Connected successfully - another instance running
+                    raise RuntimeError(
+                        f"Another proxy '{proxy_name}' is already running (socket: {socket_path})"
+                    )
+                except (ConnectionRefusedError, FileNotFoundError, OSError):
+                    # Stale socket, remove it
+                    socket_path.unlink(missing_ok=True)
+
+            # Cleanup stale UDS socket from previous crash
+            cleanup_stale_socket()
+
+            # Create runtime directory with secure permissions
+            try:
+                RUNTIME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+            except OSError as e:
+                system_logger.error(
+                    {
+                        "event": "uds_socket_creation_failed",
+                        "message": f"Failed to create runtime directory: {e}",
+                        "component": "proxy",
+                        "path": str(RUNTIME_DIR),
+                        "error": str(e),
+                    }
+                )
+                raise
+
+            # Suppress uvicorn's error logging during shutdown
+            for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+                logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+
+            # Always create UDS app for CLI access
+            uds_app = create_api_app(token=None, is_uds=True, proxy_name=proxy_name)
+
+            # UDS server for CLI (always runs, separate socket from manager)
+            uds_config = uvicorn.Config(
+                uds_app,
+                uds=str(socket_path),
+                log_config=None,
+                ws="none",  # We use SSE, not WebSockets
+            )
+            uds_server = uvicorn.Server(uds_config)
+
+            # ===================================================================
+            # CONDITIONAL: HTTP Server Setup (only when UI is enabled)
+            # ===================================================================
+            # Type: socket.socket | None (can't use socket_module.socket in annotation)
+            http_socket: "socket_module.socket | None" = None
+            http_app = None  # Type inferred from create_api_app() return
+            manager_serves_ui = False
+
             if enable_ui:
-                # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
-                import atexit
-                import logging
-                import socket as socket_module
-
-                from mcp_acp.api.server import create_api_app
                 from mcp_acp.api.security import generate_token
-                from mcp_acp.constants import RUNTIME_DIR, SOCKET_PATH
                 from mcp_acp.manager import is_manager_available
-
-                def is_port_in_use(port: int) -> bool:
-                    """Check if TCP port is accepting connections."""
-                    with socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM) as s:
-                        return s.connect_ex(("127.0.0.1", port)) == 0
-
-                def cleanup_stale_socket() -> None:
-                    """Remove stale socket file if exists and not connectable."""
-                    if not SOCKET_PATH.exists():
-                        return
-
-                    # Try to connect - if it fails, socket is stale
-                    try:
-                        test_sock = socket_module.socket(socket_module.AF_UNIX)
-                        test_sock.settimeout(SOCKET_CONNECT_TIMEOUT_SECONDS)
-                        test_sock.connect(str(SOCKET_PATH))
-                        test_sock.close()
-                        # Connected successfully - another instance running
-                        raise RuntimeError(
-                            f"Another proxy instance is already running (socket: {SOCKET_PATH})"
-                        )
-                    except (ConnectionRefusedError, FileNotFoundError, OSError):
-                        # Stale socket, remove it
-                        SOCKET_PATH.unlink(missing_ok=True)
 
                 # Try to start manager FIRST (before binding to port 8765)
                 # This ensures manager gets the port if it can start
@@ -473,48 +526,11 @@ def create_proxy(
                 # If so, proxy skips its own HTTP server to avoid port conflict
                 manager_serves_ui = is_manager_available()
 
-                # Cleanup stale UDS socket from previous crash
-                cleanup_stale_socket()
-
-                # Create runtime directory with secure permissions
-                try:
-                    RUNTIME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-                except OSError as e:
-                    system_logger.error(
-                        {
-                            "event": "uds_socket_creation_failed",
-                            "message": f"Failed to create runtime directory: {e}",
-                            "component": "proxy",
-                            "path": str(RUNTIME_DIR),
-                            "error": str(e),
-                        }
-                    )
-                    raise
-
-                # Suppress uvicorn's error logging during shutdown
-                for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-                    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
-
-                # Always create UDS app for CLI access
-                uds_app = create_api_app(token=None, is_uds=True)
-
-                # UDS server for CLI (always runs, separate socket from manager)
-                uds_config = uvicorn.Config(
-                    uds_app,
-                    uds=str(SOCKET_PATH),
-                    log_config=None,
-                    ws="none",  # We use SSE, not WebSockets
-                )
-                uds_server = uvicorn.Server(uds_config)
-
                 # HTTP server only if manager is NOT running
-                # Type: socket.socket | None (can't use socket_module.socket in annotation)
-                http_socket: "socket_module.socket | None" = None
-                http_app = None  # Type inferred from create_api_app() return
                 if not manager_serves_ui:
                     # Generate API token (for browser HTTP only)
                     api_token = generate_token()
-                    http_app = create_api_app(token=api_token, is_uds=False)
+                    http_app = create_api_app(token=api_token, is_uds=False, proxy_name=proxy_name)
 
                     # HTTP server for browser
                     # Create socket with SO_REUSEADDR to avoid TIME_WAIT issues
@@ -551,103 +567,112 @@ def create_proxy(
                             "component": "proxy",
                         }
                     )
+            else:
+                http_server = None
 
-                async def run_api_servers() -> None:
-                    """Run API servers concurrently.
+            # ===================================================================
+            # Run API Servers (UDS always, HTTP conditionally)
+            # ===================================================================
+            async def run_api_servers() -> None:
+                """Run API servers concurrently.
 
-                    Uses uvicorn's _serve() to avoid signal handler conflicts.
-                    Gracefully handles CancelledError on shutdown.
-                    """
-                    try:
-                        if http_server is not None:
-                            await asyncio.gather(
-                                uds_server._serve(),
-                                http_server._serve(),
-                            )
-                        else:
-                            # Only UDS server (manager serves HTTP)
-                            await uds_server._serve()
-                    except asyncio.CancelledError:
-                        pass  # Clean shutdown
-
-                api_task = asyncio.create_task(run_api_servers())
-
-                # Wait for servers to be ready
-                if http_server is not None:
-                    # Poll until HTTP port accepts connections
-                    max_polls = int(API_SERVER_STARTUP_TIMEOUT_SECONDS / API_SERVER_POLL_INTERVAL_SECONDS)
-                    for _ in range(max_polls):
-                        await asyncio.sleep(API_SERVER_POLL_INTERVAL_SECONDS)
-                        if api_task.done():
-                            exc = api_task.exception()
-                            if exc:
-                                system_logger.error(
-                                    {
-                                        "event": "api_server_startup_failed",
-                                        "message": f"API server failed to start: {exc}",
-                                        "component": "proxy",
-                                        "error": str(exc),
-                                        "error_type": type(exc).__name__,
-                                    }
-                                )
-                                raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
-                        if is_port_in_use(DEFAULT_API_PORT):
-                            break
-
-                    if not is_port_in_use(DEFAULT_API_PORT):
-                        if api_task.done():
-                            exc = api_task.exception()
-                            if exc:
-                                raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
-                        system_logger.error(
-                            {
-                                "event": "api_server_startup_timeout",
-                                "message": f"HTTP server not listening after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s",
-                                "component": "proxy",
-                                "port": DEFAULT_API_PORT,
-                            }
+                Uses uvicorn's _serve() to avoid signal handler conflicts.
+                Gracefully handles CancelledError on shutdown.
+                """
+                try:
+                    if http_server is not None:
+                        await asyncio.gather(
+                            uds_server._serve(),
+                            http_server._serve(),
                         )
-                        raise RuntimeError(
-                            f"HTTP server not listening on port {DEFAULT_API_PORT} "
-                            f"after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s"
-                        )
-                else:
-                    # Just wait briefly for UDS server to start
+                    else:
+                        # Only UDS server (manager serves HTTP or UI disabled)
+                        await uds_server._serve()
+                except asyncio.CancelledError:
+                    pass  # Clean shutdown
+
+            api_task = asyncio.create_task(run_api_servers())
+
+            # Wait for servers to be ready
+            if http_server is not None:
+                # Poll until HTTP port accepts connections
+                max_polls = int(API_SERVER_STARTUP_TIMEOUT_SECONDS / API_SERVER_POLL_INTERVAL_SECONDS)
+                for _ in range(max_polls):
                     await asyncio.sleep(API_SERVER_POLL_INTERVAL_SECONDS)
+                    if api_task.done():
+                        exc = api_task.exception()
+                        if exc:
+                            system_logger.error(
+                                {
+                                    "event": "api_server_startup_failed",
+                                    "message": f"API server failed to start: {exc}",
+                                    "component": "proxy",
+                                    "error": str(exc),
+                                    "error_type": type(exc).__name__,
+                                }
+                            )
+                            raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
+                    if is_port_in_use(DEFAULT_API_PORT):
+                        break
 
-                # Set socket permissions after creation (0600 = owner read/write only)
-                if SOCKET_PATH.exists():
-                    SOCKET_PATH.chmod(0o600)
+                if not is_port_in_use(DEFAULT_API_PORT):
+                    if api_task.done():
+                        exc = api_task.exception()
+                        if exc:
+                            raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
+                    system_logger.error(
+                        {
+                            "event": "api_server_startup_timeout",
+                            "message": f"HTTP server not listening after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s",
+                            "component": "proxy",
+                            "port": DEFAULT_API_PORT,
+                        }
+                    )
+                    raise RuntimeError(
+                        f"HTTP server not listening on port {DEFAULT_API_PORT} "
+                        f"after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s"
+                    )
+            else:
+                # Just wait briefly for UDS server to start
+                await asyncio.sleep(API_SERVER_POLL_INTERVAL_SECONDS)
 
-                # Define socket cleanup function
-                def cleanup_socket() -> None:
-                    """Remove UDS socket file on process exit."""
-                    try:
-                        SOCKET_PATH.unlink(missing_ok=True)
-                    except OSError as e:
-                        system_logger.warning(
-                            {
-                                "event": "uds_socket_cleanup_failed",
-                                "message": f"Failed to cleanup socket: {e}",
-                                "component": "proxy",
-                                "path": str(SOCKET_PATH),
-                                "error": str(e),
-                            }
-                        )
+            # Set socket permissions after creation (0600 = owner read/write only)
+            if socket_path.exists():
+                socket_path.chmod(0o600)
 
-                atexit.register(cleanup_socket)
+            # Define socket cleanup function
+            def cleanup_socket() -> None:
+                """Remove UDS socket file on process exit."""
+                try:
+                    socket_path.unlink(missing_ok=True)
+                except OSError as e:
+                    system_logger.warning(
+                        {
+                            "event": "uds_socket_cleanup_failed",
+                            "message": f"Failed to cleanup socket: {e}",
+                            "component": "proxy",
+                            "path": str(socket_path),
+                            "error": str(e),
+                        }
+                    )
 
-                # Wire shared state to apps
-                apps_to_wire = [uds_app]
-                if http_app is not None:
-                    apps_to_wire.append(http_app)
-                for api_app in apps_to_wire:
-                    api_app.state.policy_reloader = policy_reloader
-                    api_app.state.proxy_state = proxy_state
-                    api_app.state.identity_provider = identity_provider
-                    api_app.state.config = config
-                    api_app.state.approval_store = enforcement_middleware.approval_store
+            atexit.register(cleanup_socket)
 
+            # Wire shared state to apps (always UDS, conditionally HTTP)
+            apps_to_wire = [uds_app]
+            if http_app is not None:
+                apps_to_wire.append(http_app)
+            for api_app in apps_to_wire:
+                api_app.state.policy_reloader = policy_reloader
+                api_app.state.proxy_state = proxy_state
+                api_app.state.identity_provider = identity_provider
+                api_app.state.config = config
+                api_app.state.approval_store = enforcement_middleware.approval_store
+
+            # ===================================================================
+            # CONDITIONAL: Browser Opening (only when UI is enabled)
+            # ===================================================================
+            if enable_ui:
                 # Auto-open management UI in browser
                 # If manager is running, it serves UI; otherwise proxy serves it
                 ui_url = f"http://127.0.0.1:{DEFAULT_API_PORT}"
@@ -668,44 +693,33 @@ def create_proxy(
                         except Exception:
                             pass  # Non-fatal
 
-                # Connect to manager for event aggregation
-                # Manager was either already running or auto-started above
-                manager_client = ManagerClient(
-                    proxy_name="default",
-                    instance_id=proxy_state.proxy_id,
-                    proxy_api_socket_path=str(SOCKET_PATH),
-                )
-                if await manager_client.connect():
-                    config_summary = {
-                        "backend_id": config.backend.server_name,
-                        "transport": transport_type,
-                        "api_port": DEFAULT_API_PORT if not manager_serves_ui else None,
-                    }
-                    if await manager_client.register(config_summary=config_summary):
-                        proxy_state.set_manager_client(manager_client)
-                        # Wire HITL handler for disconnect notifications
-                        # This allows pending web UI approvals to fall back to osascript
-                        manager_client.set_hitl_handler(enforcement_middleware.hitl_handler)
-                        system_logger.info(
-                            {
-                                "event": "manager_registered",
-                                "message": "Registered with manager daemon",
-                                "proxy_name": "default",
-                                "instance_id": proxy_state.proxy_id,
-                            }
-                        )
-                    else:
-                        system_logger.warning(
-                            {
-                                "event": "manager_registration_failed",
-                                "message": "Failed to register with manager",
-                            }
-                        )
+            # ===================================================================
+            # ALWAYS: Manager Registration (for mcp-acp status with --no-ui)
+            # ===================================================================
+            # Connect to manager for event aggregation if manager is available
+            # This runs regardless of enable_ui so CLI commands work with --no-ui
+            manager_client = ManagerClient(
+                proxy_name=proxy_name,
+                instance_id=proxy_state.proxy_id,
+                proxy_api_socket_path=str(socket_path),
+                proxy_id=config.proxy.proxy_id,
+            )
+            if await manager_client.connect():
+                config_summary = {
+                    "backend_id": config.backend.server_name,
+                    "transport": transport_type,
+                    "api_port": DEFAULT_API_PORT if not manager_serves_ui else None,
+                }
+                if await manager_client.register(config_summary=config_summary):
+                    proxy_state.set_manager_client(manager_client)
+                    # Wire HITL handler for disconnect notifications
+                    # This allows pending web UI approvals to fall back to osascript
+                    manager_client.set_hitl_handler(enforcement_middleware.hitl_handler)
                 else:
-                    system_logger.info(
+                    system_logger.warning(
                         {
-                            "event": "manager_not_available",
-                            "message": "Manager not running, proxy operating standalone",
+                            "event": "manager_registration_failed",
+                            "message": "Failed to register with manager",
                         }
                     )
 
@@ -923,7 +937,7 @@ def create_proxy(
         transport=transport_type,
         config_version=config_version,
         state_manager=integrity_manager,
-        log_dir=log_dir,
+        log_dir=log_dir_path,
     )
     proxy.add_middleware(audit_middleware)
 
@@ -935,7 +949,7 @@ def create_proxy(
     # exceptions - this is acceptable since they're rare and the raw messages
     # provide useful diagnostic context. See docs/architecture.md for details.
     client_middleware = create_client_logging_middleware(
-        log_path=get_client_log_path(config),
+        log_path=get_client_log_path(proxy_name, log_dir),
         transport=transport_type,
         debug_enabled=debug_enabled,
     )
@@ -945,14 +959,15 @@ def create_proxy(
     # Evaluates policy and blocks denied requests before they reach the backend.
     # Contains per-tool rate tracking (SessionRateTracker) for runaway loop detection.
     # Logs every decision to audit/decisions.jsonl with fail-closed handler
-    policy = load_policy()
+    policy = load_policy(get_proxy_policy_path(proxy_name))
 
     # Build protected directories tuple (config dir + log dir)
     # These paths are protected from MCP tool access - built-in security
     # Use os.path.realpath() to resolve ALL symlinks for security
+    # Protect the mcp-acp logs directory (parent of proxies/<name>)
     protected_dirs = (
         PROTECTED_CONFIG_DIR,
-        os.path.realpath(log_dir),
+        os.path.realpath(log_dir_path.parent.parent),  # .../mcp-acp/
     )
 
     # rate_tracker created earlier (before lifespan) for cleanup access
@@ -967,7 +982,8 @@ def create_proxy(
         policy_version=policy_version,
         rate_tracker=rate_tracker,
         state_manager=integrity_manager,
-        log_dir=log_dir,
+        log_dir=log_dir_path,
+        proxy_name=proxy_name,
     )
     proxy.add_middleware(enforcement_middleware)
 
