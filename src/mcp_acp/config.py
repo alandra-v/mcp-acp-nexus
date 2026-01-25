@@ -24,14 +24,23 @@ __all__ = [
     "LoggingConfig",
     "MTLSConfig",
     "OIDCConfig",
+    "PerProxyConfig",
     "ProxyConfig",
     "StdioAttestationConfig",
     "StdioTransportConfig",
+    "build_app_config_from_per_proxy",
+    "generate_instance_id",
+    "generate_proxy_id",
+    "load_proxy_config",
+    "sanitize_backend_name",
+    "save_proxy_config",
 ]
 
 import json
 import os
+import re
 import sys
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -82,6 +91,69 @@ def _get_platform_log_dir() -> str:
 
 # Default base log directory (platform-specific, follows OS conventions)
 DEFAULT_LOG_DIR = _get_platform_log_dir()
+
+
+# =============================================================================
+# Proxy ID Generation (Multi-Proxy Support)
+# =============================================================================
+
+
+def sanitize_backend_name(name: str) -> str:
+    """Sanitize backend name for use in proxy_id.
+
+    Transforms backend server name into a safe identifier component:
+    - Lowercase
+    - Replace spaces with hyphens
+    - Remove special characters (keep alphanumeric and hyphens)
+    - Collapse multiple hyphens
+    - Strip leading/trailing hyphens
+
+    Args:
+        name: Backend server name (e.g., "Filesystem Server").
+
+    Returns:
+        Sanitized name (e.g., "filesystem-server").
+    """
+    result = name.lower()
+    result = result.replace(" ", "-")
+    result = re.sub(r"[^a-z0-9-]", "", result)
+    result = re.sub(r"-+", "-", result)
+    return result.strip("-") or "backend"
+
+
+def generate_proxy_id(backend_name: str) -> str:
+    """Generate stable proxy ID from backend name.
+
+    Format: px_{uuid8}:{sanitized_backend_name}
+    Generated once on 'proxy add', never changes.
+
+    Args:
+        backend_name: Backend server name from config.
+
+    Returns:
+        Proxy ID (e.g., "px_a1b2c3d4:filesystem-server").
+    """
+    uuid_part = uuid.uuid4().hex[:8]
+    sanitized = sanitize_backend_name(backend_name)
+    return f"px_{uuid_part}:{sanitized}"
+
+
+def generate_instance_id(proxy_id: str) -> str:
+    """Generate ephemeral instance ID for this run.
+
+    Format: {uuid_from_proxy_id}_{new_uuid8}
+    Generated each startup, includes proxy's uuid prefix for correlation.
+
+    Args:
+        proxy_id: Stable proxy ID (e.g., "px_a1b2c3d4:filesystem-server").
+
+    Returns:
+        Instance ID (e.g., "a1b2c3d4_e5f6g7h8").
+    """
+    # Extract uuid part from proxy_id (px_{uuid8}:...)
+    uuid_part = proxy_id.split("_")[1].split(":")[0]
+    new_uuid = uuid.uuid4().hex[:8]
+    return f"{uuid_part}_{new_uuid}"
 
 
 # =============================================================================
@@ -136,13 +208,14 @@ class AuthConfig(BaseModel):
     Note: Device health (disk encryption, firewall) is checked at runtime,
     not configured here. If checks fail, proxy won't start.
 
+    Note: mTLS configuration is per-proxy (in PerProxyConfig), not here.
+    Different backends may need different certificates.
+
     Attributes:
         oidc: OIDC/Auth0 configuration for user authentication.
-        mtls: mTLS configuration (required for HTTPS backends).
     """
 
     oidc: OIDCConfig
-    mtls: MTLSConfig | None = None  # Required only for HTTPS backends
 
 
 # =============================================================================
@@ -267,9 +340,12 @@ class ProxyConfig(BaseModel):
 
     Attributes:
         name: Proxy server name for identification.
+        proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
+            Optional for backward compatibility with legacy single-proxy configs.
     """
 
     name: str = Field(default=APP_NAME, min_length=1)
+    proxy_id: str | None = Field(default=None, description="Stable proxy identifier")
 
 
 class HITLConfig(BaseModel):
@@ -306,6 +382,140 @@ class HITLConfig(BaseModel):
     )
 
 
+# =============================================================================
+# Per-Proxy Configuration (Multi-Proxy Support)
+# =============================================================================
+
+
+class PerProxyConfig(BaseModel):
+    """Per-proxy configuration stored in proxies/{name}/config.json.
+
+    Created by 'mcp-acp proxy add'. Each proxy has its own config file.
+
+    Note:
+    - Proxy name is derived from directory, not stored here
+    - OIDC auth config is in manager.json (shared across all proxies)
+    - mTLS is per-proxy (different backends may need different certs)
+    - Log directory is auto-derived from proxy name
+
+    Attributes:
+        proxy_id: Stable proxy identifier (px_{uuid8}:{sanitized_backend_name}).
+            Auto-generated on creation, never changes.
+        created_at: ISO8601 timestamp of proxy creation.
+        backend: Backend server configuration (STDIO or HTTP transport).
+        hitl: Human-in-the-loop approval configuration.
+        mtls: mTLS configuration for HTTPS backends (optional).
+    """
+
+    proxy_id: str = Field(
+        pattern=r"^px_[a-f0-9]{8}:[a-z0-9-]+$",
+        description="Stable proxy identifier (px_{uuid8}:{sanitized_backend_name})",
+    )
+    created_at: str = Field(
+        description="ISO8601 timestamp of proxy creation",
+    )
+    backend: BackendConfig
+    hitl: HITLConfig = Field(default_factory=HITLConfig)
+    mtls: MTLSConfig | None = Field(
+        default=None,
+        description="mTLS configuration for HTTPS backends",
+    )
+
+    model_config = {"extra": "ignore"}  # Ignore unknown fields for forward compat
+
+
+def load_proxy_config(name: str) -> PerProxyConfig:
+    """Load per-proxy configuration from file.
+
+    Args:
+        name: Proxy name (directory name under proxies/).
+
+    Returns:
+        PerProxyConfig loaded from proxies/{name}/config.json.
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist.
+        ValueError: If config is invalid.
+    """
+    # Import here to avoid circular import
+    from mcp_acp.manager.config import get_proxy_config_path
+
+    config_path = get_proxy_config_path(name)
+    require_file_exists(config_path, file_type="proxy configuration")
+    return load_validated_json(
+        config_path,
+        PerProxyConfig,
+        file_type="proxy config",
+        recovery_hint=f"Run 'mcp-acp proxy add' to create proxy '{name}'.",
+        encoding="utf-8",
+    )
+
+
+def save_proxy_config(name: str, config: PerProxyConfig) -> None:
+    """Save per-proxy configuration to file.
+
+    Creates proxy config directory if it doesn't exist.
+    Sets secure permissions (0o700 on dir, 0o600 on file).
+
+    Args:
+        name: Proxy name (directory name under proxies/).
+        config: Configuration to save.
+    """
+    # Import here to avoid circular import
+    from mcp_acp.manager.config import get_proxy_config_path
+
+    config_path = get_proxy_config_path(name)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.parent.chmod(0o700)
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config.model_dump(), f, indent=2)
+        f.write("\n")  # Trailing newline
+
+    config_path.chmod(0o600)
+
+
+def build_app_config_from_per_proxy(
+    proxy_name: str,
+    per_proxy: "PerProxyConfig",
+    oidc: "OIDCConfig | None",
+    log_dir: str = DEFAULT_LOG_DIR,
+    log_level: Literal["DEBUG", "INFO"] = "INFO",
+) -> "AppConfig":
+    """Build AppConfig from per-proxy config for use with create_proxy.
+
+    This adapter function allows the existing create_proxy() function to work
+    with the new multi-proxy configuration structure.
+
+    Args:
+        proxy_name: Name of the proxy (directory name).
+        per_proxy: Per-proxy configuration loaded from proxies/{name}/config.json.
+        oidc: OIDC configuration from manager.json (or None if not configured).
+        log_dir: Base log directory from manager config.
+        log_level: Logging level from manager config (DEBUG enables wire logs).
+
+    Returns:
+        AppConfig instance compatible with create_proxy().
+
+    Note:
+        mTLS is loaded from per_proxy.mtls (per-proxy configuration),
+        while OIDC is loaded from manager.json (shared across all proxies).
+    """
+    # Build auth config: OIDC from manager, mTLS from per-proxy
+    auth: AuthConfig | None = None
+    if oidc is not None:
+        auth = AuthConfig(oidc=oidc)
+
+    return AppConfig(
+        auth=auth,
+        mtls=per_proxy.mtls,  # mTLS is per-proxy
+        logging=LoggingConfig(log_dir=log_dir, log_level=log_level),
+        backend=per_proxy.backend,
+        proxy=ProxyConfig(name=proxy_name, proxy_id=per_proxy.proxy_id),
+        hitl=per_proxy.hitl,
+    )
+
+
 class AppConfig(BaseModel):
     """Main application configuration for mcp-acp.
 
@@ -316,7 +526,8 @@ class AppConfig(BaseModel):
     valid auth configuration. There is no unauthenticated fallback.
 
     Attributes:
-        auth: Authentication configuration (OIDC, mTLS). Required for proxy to start.
+        auth: Authentication configuration (OIDC only). Required for proxy to start.
+        mtls: mTLS configuration for HTTPS backends (per-proxy).
         logging: Logging configuration (log level, paths, payload settings).
         backend: Backend server configuration (STDIO or Streamable HTTP transport).
         proxy: Proxy server configuration (name).
@@ -324,6 +535,7 @@ class AppConfig(BaseModel):
     """
 
     auth: AuthConfig | None = None  # Validated at runtime - proxy won't start without it
+    mtls: MTLSConfig | None = None  # Per-proxy mTLS for HTTPS backends
     logging: LoggingConfig
     backend: BackendConfig
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
@@ -336,7 +548,7 @@ class AppConfig(BaseModel):
         Sets secure permissions (0o700) on the config directory.
 
         Args:
-            config_path: Path where mcp_acp_config.json should be saved.
+            config_path: Path where the config JSON file should be saved.
         """
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.parent.chmod(0o700)
@@ -351,7 +563,7 @@ class AppConfig(BaseModel):
         """Load configuration from JSON file.
 
         Args:
-            config_path: Path to the config file (mcp_acp_config.json).
+            config_path: Path to the config JSON file.
 
         Returns:
             AppConfig instance with loaded configuration.

@@ -42,7 +42,7 @@ __all__ = [
 def get_policy_dir() -> Path:
     """Get the OS-appropriate config directory for policy files.
 
-    Uses the same directory as mcp_acp_config.json:
+    Uses the same directory as manager.json:
     - macOS: ~/Library/Application Support/mcp-acp
     - Linux: ~/.config/mcp-acp (XDG compliant)
     - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp

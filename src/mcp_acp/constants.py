@@ -67,6 +67,7 @@ __all__ = [
     "MANAGER_SOCKET_PATH",
     "MANAGER_PID_PATH",
     "MANAGER_LOCK_PATH",
+    "get_proxy_socket_path",
     # History versioning
     "INITIAL_VERSION",
     # Crash recovery
@@ -398,6 +399,19 @@ SOCKET_PATH: Path = RUNTIME_DIR / "api.sock"
 MANAGER_SOCKET_PATH: Path = RUNTIME_DIR / "manager.sock"
 MANAGER_PID_PATH: Path = RUNTIME_DIR / "manager.pid"
 MANAGER_LOCK_PATH: Path = RUNTIME_DIR / "manager.lock"
+
+
+def get_proxy_socket_path(name: str) -> Path:
+    """Get socket path for a specific proxy.
+
+    Args:
+        name: Proxy name.
+
+    Returns:
+        Path to proxy's socket (<runtime_dir>/proxy_{name}.sock).
+    """
+    return RUNTIME_DIR / f"proxy_{name}.sock"
+
 
 # ============================================================================
 # History Versioning

@@ -15,20 +15,31 @@ from __future__ import annotations
 
 __all__ = [
     "ManagerConfig",
+    "RESERVED_PROXY_NAMES",
     "get_manager_config_path",
     "get_manager_log_dir",
     "get_manager_system_log_path",
+    "get_proxies_dir",
+    "get_proxy_config_dir",
+    "get_proxy_config_path",
+    "get_proxy_log_dir",
+    "get_proxy_policy_path",
+    "list_configured_proxies",
     "load_manager_config",
     "save_manager_config",
+    "validate_proxy_name",
 ]
 
 import json
 import logging
+import re
 import sys
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
+from mcp_acp.config import AuthConfig
 from mcp_acp.constants import APP_NAME, DEFAULT_API_PORT
 from mcp_acp.utils.file_helpers import get_app_dir, set_secure_permissions
 
@@ -72,6 +83,10 @@ class ManagerConfig(BaseModel):
             - macOS: ~/Library/Logs
             - Linux: $XDG_STATE_HOME (~/.local/state)
             Manager logs stored in <log_dir>/mcp-acp/manager/.
+        log_level: Logging level for all proxies. DEBUG enables wire logs.
+        auth: Authentication configuration (OIDC only).
+            Shared across all proxies. Required for multi-proxy mode.
+            Note: mTLS is per-proxy, configured via 'mcp-acp proxy add'.
     """
 
     ui_port: int = Field(
@@ -84,6 +99,14 @@ class ManagerConfig(BaseModel):
         default=DEFAULT_MANAGER_LOG_DIR,
         min_length=1,
         description="Directory for manager logs",
+    )
+    log_level: Literal["DEBUG", "INFO"] = Field(
+        default="INFO",
+        description="Logging level. DEBUG enables wire logs.",
+    )
+    auth: AuthConfig | None = Field(
+        default=None,
+        description="Authentication configuration (OIDC only). mTLS is per-proxy.",
     )
 
     model_config = {"extra": "ignore"}  # Ignore unknown fields for forward compat
@@ -151,11 +174,23 @@ def load_manager_config() -> ManagerConfig:
             }
         )
         return ManagerConfig()
-    except Exception as e:
+    except ValidationError as e:
         _logger.warning(
             {
-                "event": "config_load_failed",
-                "message": f"Failed to load manager config, using defaults: {e}",
+                "event": "config_validation_failed",
+                "message": f"Invalid manager config values, using defaults: {e}",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "details": {"config_path": str(config_path)},
+            }
+        )
+        return ManagerConfig()
+    except OSError as e:
+        # Covers all file I/O errors including PermissionError (subclass of OSError)
+        _logger.warning(
+            {
+                "event": "config_read_failed",
+                "message": f"Failed to read manager config file, using defaults: {e}",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "details": {"config_path": str(config_path)},
@@ -188,3 +223,126 @@ def save_manager_config(config: ManagerConfig) -> None:
 
     # Set secure permissions (owner read/write only)
     set_secure_permissions(config_path)
+
+
+# Proxy name validation
+RESERVED_PROXY_NAMES = frozenset({"manager", "all", "default"})
+_PROXY_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
+_PROXY_NAME_MAX_LENGTH = 64
+
+
+def validate_proxy_name(name: str) -> None:
+    """Validate proxy name for use as directory and identifier.
+
+    Rules:
+    - 1-64 characters
+    - Must start with alphanumeric
+    - Only alphanumeric, hyphens, underscores (no dots)
+    - Cannot be a reserved name
+    - Cannot start with '_' or '.'
+
+    Args:
+        name: Proxy name to validate.
+
+    Raises:
+        ValueError: If name is invalid, with descriptive message.
+    """
+    if not name:
+        raise ValueError("Proxy name cannot be empty.")
+
+    if len(name) > _PROXY_NAME_MAX_LENGTH:
+        raise ValueError(f"Proxy name too long (max {_PROXY_NAME_MAX_LENGTH} characters).")
+
+    if name.startswith("_") or name.startswith("."):
+        raise ValueError("Proxy name cannot start with '_' or '.'")
+
+    if name.lower() in RESERVED_PROXY_NAMES:
+        raise ValueError(f"'{name}' is a reserved name. Choose a different name.")
+
+    if not _PROXY_NAME_PATTERN.match(name):
+        raise ValueError(
+            f"Invalid proxy name '{name}'. "
+            "Use letters, numbers, hyphens, underscores. "
+            "Must start with letter or number."
+        )
+
+
+# =============================================================================
+# Proxy Path Helpers (Multi-Proxy Support)
+# =============================================================================
+
+
+def get_proxies_dir() -> Path:
+    """Get directory containing all proxy configurations.
+
+    Returns:
+        Path to proxies directory (<config_dir>/proxies/).
+    """
+    return get_app_dir() / "proxies"
+
+
+def get_proxy_config_dir(name: str) -> Path:
+    """Get directory for a specific proxy's configuration.
+
+    Args:
+        name: Proxy name (validated separately).
+
+    Returns:
+        Path to proxy's config directory (<config_dir>/proxies/{name}/).
+    """
+    return get_proxies_dir() / name
+
+
+def get_proxy_config_path(name: str) -> Path:
+    """Get path to a proxy's config file.
+
+    Args:
+        name: Proxy name.
+
+    Returns:
+        Path to config.json (<config_dir>/proxies/{name}/config.json).
+    """
+    return get_proxy_config_dir(name) / "config.json"
+
+
+def get_proxy_policy_path(name: str) -> Path:
+    """Get path to a proxy's policy file.
+
+    Args:
+        name: Proxy name.
+
+    Returns:
+        Path to policy.json (<config_dir>/proxies/{name}/policy.json).
+    """
+    return get_proxy_config_dir(name) / "policy.json"
+
+
+def get_proxy_log_dir(name: str, config: ManagerConfig | None = None) -> Path:
+    """Get log directory for a specific proxy.
+
+    Args:
+        name: Proxy name.
+        config: Manager config (uses default log_dir if None).
+
+    Returns:
+        Path to proxy's log directory (<log_dir>/mcp-acp/proxies/{name}/).
+    """
+    if config is None:
+        base_log_dir = DEFAULT_MANAGER_LOG_DIR
+    else:
+        base_log_dir = config.log_dir
+    return Path(base_log_dir).expanduser() / APP_NAME / "proxies" / name
+
+
+def list_configured_proxies() -> list[str]:
+    """List all configured proxy names.
+
+    Returns:
+        Sorted list of proxy names (directory names under proxies/).
+        Empty list if proxies directory doesn't exist.
+    """
+    proxies_dir = get_proxies_dir()
+    if not proxies_dir.exists():
+        return []
+
+    return sorted(d.name for d in proxies_dir.iterdir() if d.is_dir() and not d.name.startswith("."))
