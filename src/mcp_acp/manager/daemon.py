@@ -45,6 +45,7 @@ import uvicorn
 from mcp_acp.constants import (
     API_SERVER_SHUTDOWN_TIMEOUT_SECONDS,
     APP_NAME,
+    DEFAULT_APPROVAL_TTL_SECONDS,
     MANAGER_PID_PATH,
     MANAGER_SOCKET_PATH,
     RUNTIME_DIR,
@@ -362,6 +363,7 @@ async def _handle_proxy_connection(
             return
 
         proxy_name = msg.get("proxy_name")
+        proxy_id = msg.get("proxy_id", "")  # Stable proxy identifier
         instance_id = msg.get("instance_id")
         config_summary = msg.get("config_summary", {})
         socket_path = msg.get("socket_path", "")
@@ -391,6 +393,7 @@ async def _handle_proxy_connection(
         # Register the proxy
         await registry.register(
             proxy_name=proxy_name,
+            proxy_id=proxy_id,
             instance_id=instance_id,
             config_summary=config_summary,
             socket_path=socket_path,
@@ -476,7 +479,7 @@ async def _broadcast_proxy_snapshot(
                         "cached_snapshot",
                         {
                             "approvals": cached.get("approvals", []),
-                            "ttl_seconds": cached.get("ttl_seconds", 600),
+                            "ttl_seconds": cached.get("ttl_seconds", DEFAULT_APPROVAL_TTL_SECONDS),
                             "count": cached.get("count", 0),
                         },
                     )

@@ -25,12 +25,13 @@ from mcp_acp.constants import APP_NAME
 _logger = logging.getLogger(f"{APP_NAME}.manager.registry")
 
 
-@dataclass
+@dataclass(slots=True)
 class ProxyConnection:
     """Information about a connected proxy.
 
     Attributes:
         proxy_name: User-facing name (e.g., "default", "filesystem").
+        proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
         instance_id: Unique ID for this proxy run.
         config_summary: Summary of proxy configuration.
         connected_at: When the proxy connected.
@@ -40,6 +41,7 @@ class ProxyConnection:
     """
 
     proxy_name: str
+    proxy_id: str
     instance_id: str
     config_summary: dict[str, Any]
     connected_at: datetime
@@ -52,6 +54,7 @@ class ProxyConnection:
         """Convert to dictionary for API responses."""
         return {
             "name": self.proxy_name,
+            "proxy_id": self.proxy_id,
             "instance_id": self.instance_id,
             "connected": True,
             "connected_at": self.connected_at.isoformat(),
@@ -83,6 +86,7 @@ class ProxyRegistry:
     async def register(
         self,
         proxy_name: str,
+        proxy_id: str,
         instance_id: str,
         config_summary: dict[str, Any],
         socket_path: str,
@@ -93,6 +97,7 @@ class ProxyRegistry:
 
         Args:
             proxy_name: Name of the proxy.
+            proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
             instance_id: Unique instance ID.
             config_summary: Proxy configuration summary.
             socket_path: Path to proxy's UDS API socket for HTTP routing.
@@ -122,6 +127,7 @@ class ProxyRegistry:
 
             conn = ProxyConnection(
                 proxy_name=proxy_name,
+                proxy_id=proxy_id,
                 instance_id=instance_id,
                 config_summary=config_summary,
                 connected_at=datetime.now(timezone.utc),
@@ -136,6 +142,7 @@ class ProxyRegistry:
                     "event": "proxy_registered",
                     "message": f"Proxy registered: {proxy_name}",
                     "proxy_name": proxy_name,
+                    "proxy_id": proxy_id,
                     "instance_id": instance_id,
                     "socket_path": socket_path,
                 }
@@ -193,6 +200,15 @@ class ProxyRegistry:
         """Get a proxy connection by name."""
         async with self._lock:
             return self._proxies.get(proxy_name)
+
+    async def get_all_proxies(self) -> list[ProxyConnection]:
+        """Get all connected proxy connections.
+
+        Returns:
+            List of ProxyConnection objects (not dicts).
+        """
+        async with self._lock:
+            return list(self._proxies.values())
 
     async def list_proxies(self) -> list[dict[str, Any]]:
         """List all connected proxies."""

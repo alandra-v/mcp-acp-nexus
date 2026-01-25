@@ -6,9 +6,10 @@ Handles proxy-to-manager communication over UDS:
 - Graceful disconnect handling
 
 Protocol (NDJSON over UDS):
-- Proxy sends: {"type": "register", "proxy_name": "...", "instance_id": "...", ...}
+- Proxy sends: {"type": "register", "proxy_name": "...", "proxy_id": "...", "instance_id": "...", ...}
 - Manager sends: {"type": "registered", "ok": true}
 - Manager sends: {"type": "ui_status", "browser_connected": true, "subscriber_count": 1}
+- Manager sends: {"type": "token_update", "access_token": "...", "expires_at": "ISO8601"}
 - Manager sends: {"type": "heartbeat"}
 - Proxy sends: {"type": "event", "event_type": "...", "data": {...}}
 - Unknown message types are ignored (forward compatibility)
@@ -28,8 +29,9 @@ import fcntl
 import shutil
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
     from mcp_acp.pep.hitl import HITLHandler
@@ -93,17 +95,20 @@ class ManagerClient:
         instance_id: str,
         manager_socket_path: Path | None = None,
         proxy_api_socket_path: str | None = None,
+        proxy_id: str | None = None,
     ) -> None:
         """Initialize manager client.
 
         Args:
-            proxy_name: Name of this proxy (e.g., "default").
+            proxy_name: Name of this proxy (e.g., "filesystem").
             instance_id: Unique instance ID for this proxy run.
             manager_socket_path: Path to manager socket. Defaults to MANAGER_SOCKET_PATH.
             proxy_api_socket_path: Path to this proxy's API socket (for manager routing).
+            proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
         """
         self._proxy_name = proxy_name
         self._instance_id = instance_id
+        self._proxy_id = proxy_id or ""
         self._socket_path = manager_socket_path or MANAGER_SOCKET_PATH
         self._proxy_api_socket_path = proxy_api_socket_path or ""
         self._reader: asyncio.StreamReader | None = None
@@ -217,6 +222,7 @@ class ManagerClient:
                 reg_msg = {
                     "type": "register",
                     "proxy_name": self._proxy_name,
+                    "proxy_id": self._proxy_id,
                     "instance_id": self._instance_id,
                     "config_summary": config_summary or {},
                     "socket_path": self._proxy_api_socket_path,
@@ -517,6 +523,18 @@ class ManagerClient:
             # No logging needed for successful heartbeats
             pass
 
+        elif msg_type == "token_update":
+            # Token update from manager (Phase 4 - multi-proxy token distribution)
+            # Currently stubbed - full implementation in future phase
+            _logger.debug(
+                {
+                    "event": "token_update_received",
+                    "message": "Token update received from manager (not yet implemented)",
+                    "proxy_name": self._proxy_name,
+                    "expires_at": msg.get("expires_at"),
+                }
+            )
+
         else:
             # Unknown message type - ignore (forward compatibility)
             _logger.debug(
@@ -605,6 +623,34 @@ MANAGER_STARTUP_TIMEOUT_SECONDS = 5.0
 MANAGER_POLL_INTERVAL_SECONDS = 0.2
 
 
+@contextmanager
+def _file_lock(lock_path: Path) -> Iterator[None]:
+    """Context manager for exclusive file locking.
+
+    Acquires an exclusive lock on the specified file, creating it if needed.
+    The lock is automatically released when exiting the context.
+
+    Args:
+        lock_path: Path to the lock file.
+
+    Yields:
+        None when lock is acquired.
+
+    Raises:
+        OSError: If lock acquisition fails.
+    """
+    lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lock_file.close()
+
+
 def ensure_manager_running() -> bool:
     """Ensure manager daemon is running, starting it if needed.
 
@@ -623,36 +669,33 @@ def ensure_manager_running() -> bool:
     RUNTIME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     # Acquire file lock to prevent race conditions
-    lock_file = None
     try:
-        lock_file = open(MANAGER_LOCK_PATH, "w")
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        with _file_lock(MANAGER_LOCK_PATH):
+            # Double-check after acquiring lock (another proxy may have started it)
+            if is_manager_available():
+                return True
 
-        # Double-check after acquiring lock (another proxy may have started it)
-        if is_manager_available():
-            return True
+            # Start manager daemon
+            if not _spawn_manager_daemon():
+                _logger.warning(
+                    {
+                        "event": "manager_spawn_failed",
+                        "message": "Failed to spawn manager daemon",
+                    }
+                )
+                return False
 
-        # Start manager daemon
-        if not _spawn_manager_daemon():
-            _logger.warning(
-                {
-                    "event": "manager_spawn_failed",
-                    "message": "Failed to spawn manager daemon",
-                }
-            )
-            return False
-
-        # Wait for manager to become ready
-        if _wait_for_manager_ready():
-            return True
-        else:
-            _logger.warning(
-                {
-                    "event": "manager_not_ready",
-                    "message": "Manager daemon did not become ready in time",
-                }
-            )
-            return False
+            # Wait for manager to become ready
+            if _wait_for_manager_ready():
+                return True
+            else:
+                _logger.warning(
+                    {
+                        "event": "manager_not_ready",
+                        "message": "Manager daemon did not become ready in time",
+                    }
+                )
+                return False
 
     except OSError as e:
         _logger.warning(
@@ -664,13 +707,6 @@ def ensure_manager_running() -> bool:
             }
         )
         return False
-    finally:
-        if lock_file is not None:
-            try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-                lock_file.close()
-            except OSError:
-                pass
 
 
 def _spawn_manager_daemon() -> bool:

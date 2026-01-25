@@ -13,6 +13,7 @@ Message types:
 - Manager → Proxy: {"type": "registered", "ok": true}
 - Manager → Proxy: {"type": "ui_status", "browser_connected": bool, "subscriber_count": int}
 - Manager → Proxy: {"type": "heartbeat"}
+- Manager → Proxy: {"type": "token_update", "access_token": "...", "expires_at": "ISO8601"}
 - Proxy → Manager: {"type": "event", "event_type": "...", "data": {...}}
 
 Unknown message types are ignored (forward compatibility).
@@ -20,6 +21,7 @@ Unknown message types are ignored (forward compatibility).
 Example messages:
     {"type":"register","proxy_name":"default","instance_id":"abc123"}\\n
     {"type":"ui_status","browser_connected":true,"subscriber_count":1}\\n
+    {"type":"token_update","access_token":"ey...","expires_at":"2024-01-15T12:00:00Z"}\\n
     {"type":"heartbeat"}\\n
 """
 

@@ -41,9 +41,9 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
-from mcp_acp.constants import APP_NAME
+from mcp_acp.constants import APP_NAME, DEFAULT_APPROVAL_TTL_SECONDS
 from mcp_acp.manager.models import ManagerStatusResponse
-from mcp_acp.manager.registry import ProxyRegistry, get_proxy_registry
+from mcp_acp.manager.registry import ProxyConnection, ProxyRegistry, get_proxy_registry
 
 # Static files directory (built React app)
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
@@ -308,6 +308,47 @@ async def _forward_request_to_proxy(
 
 
 # =============================================================================
+# Default Proxy Resolution
+# =============================================================================
+
+
+async def _get_default_proxy(reg: ProxyRegistry) -> ProxyConnection | JSONResponse:
+    """Get default proxy for fallback routing.
+
+    Multi-proxy routing logic:
+    - If exactly one proxy is registered, return it (convenient default)
+    - If no proxies are registered, return 503 error response
+    - If multiple proxies are registered, return 400 error with list of names
+
+    Args:
+        reg: The proxy registry.
+
+    Returns:
+        ProxyConnection if exactly one proxy is registered,
+        JSONResponse error if zero or multiple proxies.
+    """
+    proxies = await reg.get_all_proxies()
+
+    if len(proxies) == 0:
+        return error_response(
+            503,
+            "No proxies connected",
+            "Start a proxy to enable API access.",
+        )
+
+    if len(proxies) == 1:
+        return proxies[0]
+
+    # Multiple proxies - require explicit proxy name
+    names = sorted(p.proxy_name for p in proxies)
+    return error_response(
+        400,
+        "Multiple proxies available",
+        f"Specify proxy using /api/proxy/{{name}}/... Available: {', '.join(names)}",
+    )
+
+
+# =============================================================================
 # FastAPI Application Factory
 # =============================================================================
 
@@ -374,11 +415,14 @@ def create_manager_api_app(
         reg: ProxyRegistry = request.app.state.registry
 
         async def event_generator() -> Any:
-            # Send initial snapshots from proxy (if connected)
-            proxy_conn = await reg.get_proxy("default")
+            # Send initial snapshots from all connected proxies
+            all_proxies = await reg.get_all_proxies()
             sent_pending_snapshot = False
 
-            if proxy_conn and proxy_conn.socket_path:
+            for proxy_conn in all_proxies:
+                if not proxy_conn.socket_path:
+                    continue
+
                 try:
                     async with create_uds_client(
                         proxy_conn.socket_path,
@@ -386,10 +430,16 @@ def create_manager_api_app(
                     ) as client:
                         snapshots = await fetch_proxy_snapshots(client)
 
-                        # Send pending approvals
+                        # Send pending approvals (include proxy_name for multi-proxy)
                         if snapshots["pending"] is not None:
                             yield {
-                                "data": json.dumps({"type": "snapshot", "approvals": snapshots["pending"]})
+                                "data": json.dumps(
+                                    {
+                                        "type": "snapshot",
+                                        "approvals": snapshots["pending"],
+                                        "proxy_name": proxy_conn.proxy_name,
+                                    }
+                                )
                             }
                             sent_pending_snapshot = True
 
@@ -401,15 +451,26 @@ def create_manager_api_app(
                                     {
                                         "type": "cached_snapshot",
                                         "approvals": cached.get("approvals", []),
-                                        "ttl_seconds": cached.get("ttl_seconds", 600),
+                                        "ttl_seconds": cached.get(
+                                            "ttl_seconds", DEFAULT_APPROVAL_TTL_SECONDS
+                                        ),
                                         "count": cached.get("count", 0),
+                                        "proxy_name": proxy_conn.proxy_name,
                                     }
                                 )
                             }
 
                         # Send stats
                         if snapshots["stats"] is not None:
-                            yield {"data": json.dumps({"type": "stats_updated", "stats": snapshots["stats"]})}
+                            yield {
+                                "data": json.dumps(
+                                    {
+                                        "type": "stats_updated",
+                                        "stats": snapshots["stats"],
+                                        "proxy_name": proxy_conn.proxy_name,
+                                    }
+                                )
+                            }
 
                 except (httpx.ConnectError, OSError):
                     pass  # Expected if proxy not ready
@@ -506,8 +567,7 @@ def create_manager_api_app(
     # Fallback: Route /api/* (non-manager endpoints) to default proxy
     # ==========================================================================
     # Manager-level endpoints: /api/manager/*, /api/proxies, /api/events
-    # Everything else is forwarded to the "default" proxy for backwards compatibility
-    # This allows existing UI code to work without changes in Phase 3
+    # Everything else is forwarded to the default proxy when only one is registered.
 
     @app.api_route(
         "/api/{path:path}",
@@ -516,9 +576,8 @@ def create_manager_api_app(
     async def fallback_to_default_proxy(path: str, request: Request) -> Response:
         """Fallback: route unhandled /api/* requests to default proxy.
 
-        This provides backwards compatibility - existing UI code that uses
-        /api/approvals, /api/policy, etc. is automatically routed to the
-        default proxy without URL changes.
+        When only one proxy is registered, requests to /api/approvals,
+        /api/policy, etc. are automatically routed to it.
 
         Manager-level endpoints (/api/manager/*, /api/proxies, /api/events)
         are handled by explicit routes above and won't hit this fallback.
@@ -537,16 +596,15 @@ def create_manager_api_app(
             if full_path.startswith(prefix):
                 return error_response(404, "Not found")
 
-        # Route to default proxy
+        # Route to default proxy (if exactly one) or return error
         reg: ProxyRegistry = request.app.state.registry
-        proxy_conn = await reg.get_proxy("default")
-        if proxy_conn is None:
-            return error_response(
-                503,
-                "No proxy connected",
-                "Proxy 'default' is not registered with the manager. " "Start a proxy to enable API access.",
-            )
+        result = await _get_default_proxy(reg)
 
+        # If error response, return it directly
+        if isinstance(result, JSONResponse):
+            return result
+
+        proxy_conn = result
         socket_path = proxy_conn.socket_path
         if not socket_path or not Path(socket_path).exists():
             return error_response(503, "Proxy socket not available")
@@ -556,7 +614,7 @@ def create_manager_api_app(
         if request.url.query:
             target_path = f"{target_path}?{request.url.query}"
 
-        return await _forward_request_to_proxy(socket_path, target_path, request)
+        return await _forward_request_to_proxy(socket_path, target_path, request, proxy_conn.proxy_name)
 
     # Serve static files (built React app)
     if STATIC_DIR.exists():
