@@ -156,6 +156,37 @@ class TestProxyRoutingErrors:
         assert response.status_code == 503
         assert "socket not available" in response.json()["error"].lower()
 
+    async def test_fallback_multiple_proxies_returns_400(
+        self,
+        registry: ProxyRegistry,
+    ) -> None:
+        """Fallback routing with multiple proxies returns 400."""
+        # Register two proxies
+        for name in ["proxy-a", "proxy-b"]:
+            reader, writer = AsyncMock(), AsyncMock()
+            writer.close = MagicMock()
+            writer.wait_closed = AsyncMock()
+
+            await registry.register(
+                proxy_name=name,
+                proxy_id=f"px_{name}:{name}",
+                instance_id=f"inst_{name}",
+                config_summary={},
+                socket_path=f"/tmp/{name}.sock",
+                reader=reader,
+                writer=writer,
+            )
+
+        fastapi_app = create_manager_api_app(token="test", registry=registry)
+        client = TestClient(fastapi_app)
+
+        # Request without specifying proxy
+        response = client.get("/api/approvals/pending")
+
+        assert response.status_code == 400
+        error = response.json()["error"].lower()
+        assert "multiple proxies" in error or "specify" in error
+
 
 class TestManagerApiPrefixes:
     """Tests for manager API prefix handling."""
