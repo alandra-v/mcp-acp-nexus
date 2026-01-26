@@ -38,7 +38,6 @@ from pydantic import BaseModel
 
 from mcp_acp.constants import APP_NAME, PROTECTED_CONFIG_DIR
 from mcp_acp.exceptions import AuthenticationError
-from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 if TYPE_CHECKING:
     from cryptography.fernet import Fernet
@@ -372,45 +371,9 @@ def _is_keyring_available() -> bool:
     Returns:
         True if keyring can store/retrieve secrets.
     """
-    logger = get_system_logger()
+    from mcp_acp.security.keyring_utils import is_keyring_available
 
-    try:
-        import keyring
-        from keyring.backends.fail import Keyring as FailKeyring
-
-        # Check if we have a real backend (not the fail backend)
-        backend = keyring.get_keyring()
-        if isinstance(backend, FailKeyring):
-            logger.debug(
-                {
-                    "event": "keyring_unavailable",
-                    "reason": "fail_backend",
-                    "message": "Keyring using FailKeyring backend (no usable backend found)",
-                }
-            )
-            return False
-
-        # Try a test write/read/delete cycle
-        test_service = f"{APP_NAME}-test"
-        test_user = "availability-check"
-        test_value = "test"
-
-        keyring.set_password(test_service, test_user, test_value)
-        result = keyring.get_password(test_service, test_user)
-        keyring.delete_password(test_service, test_user)
-
-        return result == test_value
-
-    except Exception as e:
-        logger.debug(
-            {
-                "event": "keyring_unavailable",
-                "reason": "exception",
-                "error": str(e),
-                "error_type": type(e).__name__,
-            }
-        )
-        return False
+    return is_keyring_available(test_service_suffix="token-test")
 
 
 def create_token_storage(config: "OIDCConfig | None" = None) -> TokenStorage:

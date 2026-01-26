@@ -18,7 +18,6 @@ __all__ = [
 ]
 
 from mcp_acp.constants import APP_NAME
-from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 # Service name for keyring storage
 KEYRING_SERVICE = APP_NAME
@@ -144,43 +143,6 @@ def is_keyring_available() -> bool:
     Returns:
         True if keyring can store/retrieve secrets.
     """
-    logger = get_system_logger()
+    from mcp_acp.security.keyring_utils import is_keyring_available as _is_keyring_available
 
-    try:
-        import keyring
-        from keyring.backends.fail import Keyring as FailKeyring
-        from keyring.errors import KeyringError
-
-        # Check if we have a real backend (not the fail backend)
-        backend = keyring.get_keyring()
-        if isinstance(backend, FailKeyring):
-            logger.debug(
-                {
-                    "event": "keyring_unavailable",
-                    "reason": "fail_backend",
-                    "message": "Keyring using FailKeyring backend (no usable backend found)",
-                }
-            )
-            return False
-
-        # Try a test write/read/delete cycle
-        test_service = f"{APP_NAME}-cred-test"
-        test_user = "availability-check"
-        test_value = "test"
-
-        keyring.set_password(test_service, test_user, test_value)
-        result = keyring.get_password(test_service, test_user)
-        keyring.delete_password(test_service, test_user)
-
-        return result == test_value
-
-    except (KeyringError, ImportError) as e:
-        logger.debug(
-            {
-                "event": "keyring_unavailable",
-                "reason": "exception",
-                "error": str(e),
-                "error_type": type(e).__name__,
-            }
-        )
-        return False
+    return _is_keyring_available(test_service_suffix="cred-test")
