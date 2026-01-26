@@ -18,9 +18,18 @@ Logging Models:
 from __future__ import annotations
 
 __all__ = [
+    # Type Aliases
+    "IncidentType",
+    "ProxyStatus",
+    "TransportType",
     # API Response Models
+    "AggregatedIncidentsResponse",
     "AuthActionResponse",
     "CachedApprovalSummary",
+    "ConfigSnippetResponse",
+    "CreateProxyRequest",
+    "CreateProxyResponse",
+    "EnhancedProxyInfo",
     "FrozenModel",
     "ManagerStatusResponse",
     "PendingApprovalInfo",
@@ -32,9 +41,14 @@ __all__ = [
 ]
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# Type aliases for constrained values
+TransportType = Literal["stdio", "streamablehttp", "auto"]
+ProxyStatus = Literal["running", "stopped"]
+IncidentType = Literal["shutdown", "bootstrap", "emergency"]
 
 
 # =============================================================================
@@ -52,6 +66,26 @@ class FrozenModel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+class AggregatedIncidentsResponse(FrozenModel):
+    """Response model for aggregated incidents endpoint.
+
+    Aggregates incidents from all proxies (shutdowns) plus global
+    incidents (bootstrap, emergency) into a single timeline.
+
+    Attributes:
+        entries: Incident entries sorted by time (newest first).
+            Each entry includes 'incident_type' and 'proxy_name' (for shutdowns).
+        total_returned: Number of entries in this response.
+        has_more: Whether there are more entries to fetch.
+        filters_applied: Active filters (time_range, proxy, incident_type).
+    """
+
+    entries: list[dict[str, Any]]
+    total_returned: int
+    has_more: bool
+    filters_applied: dict[str, Any]
+
+
 class AuthActionResponse(FrozenModel):
     """Response model for auth action endpoints (reload, clear).
 
@@ -62,6 +96,115 @@ class AuthActionResponse(FrozenModel):
 
     ok: bool
     message: str
+
+
+class CreateProxyRequest(BaseModel):
+    """Request model for creating a new proxy.
+
+    Mirrors the CLI 'mcp-acp proxy add' functionality.
+
+    Attributes:
+        name: Proxy name (alphanumeric, hyphens, underscores).
+        server_name: Backend server display name.
+        transport: Transport type (stdio, streamablehttp, auto).
+        command: Command to run (required for stdio/auto).
+        args: Command arguments (for stdio/auto).
+        attestation_slsa_owner: GitHub owner for SLSA attestation (stdio).
+        attestation_sha256: Expected SHA-256 hash of binary (stdio).
+        attestation_require_signature: Require code signature (macOS, stdio).
+        url: Backend URL (required for streamablehttp/auto).
+        timeout: HTTP timeout in seconds (for streamablehttp/auto).
+        api_key: API key for HTTP backend (stored in keychain).
+        mtls_cert: Path to client certificate for mTLS (PEM format).
+        mtls_key: Path to client private key for mTLS (PEM format).
+        mtls_ca: Path to CA bundle for server verification (PEM format).
+    """
+
+    name: str = Field(min_length=1, max_length=64)
+    server_name: str = Field(min_length=1)
+    transport: TransportType = "stdio"
+
+    # STDIO options
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+
+    # STDIO attestation options
+    attestation_slsa_owner: str | None = None
+    attestation_sha256: str | None = None
+    attestation_require_signature: bool = False
+
+    # HTTP options
+    url: str | None = None
+    timeout: int = Field(default=30, ge=1, le=300)
+    api_key: str | None = None  # Will be stored in keychain, not config
+
+    # mTLS options (for HTTPS backends)
+    mtls_cert: str | None = None
+    mtls_key: str | None = None
+    mtls_ca: str | None = None
+
+
+class ConfigSnippetResponse(FrozenModel):
+    """Response model for MCP client configuration snippet.
+
+    Mirrors the CLI 'install mcp-json' output format.
+
+    Attributes:
+        mcpServers: Dictionary mapping proxy names to their config.
+            Each entry contains 'command' and 'args' for MCP client.
+        executable_path: Path to mcp-acp executable used in config.
+    """
+
+    mcpServers: dict[str, dict[str, Any]]
+    executable_path: str
+
+
+class CreateProxyResponse(FrozenModel):
+    """Response model for proxy creation.
+
+    Attributes:
+        ok: Whether creation succeeded.
+        proxy_name: Created proxy name.
+        proxy_id: Generated proxy ID.
+        config_path: Path to config.json.
+        policy_path: Path to policy.json.
+        claude_desktop_snippet: Ready-to-copy JSON for Claude Desktop config.
+        message: Human-readable result message.
+    """
+
+    ok: bool
+    proxy_name: str
+    proxy_id: str | None = None
+    config_path: str | None = None
+    policy_path: str | None = None
+    claude_desktop_snippet: dict[str, Any] | None = None
+    message: str
+
+
+class EnhancedProxyInfo(FrozenModel):
+    """Enhanced proxy information combining config and runtime data.
+
+    Used by GET /api/manager/proxies to provide a complete view of each proxy.
+
+    Attributes:
+        proxy_name: User-defined proxy name (directory name).
+        proxy_id: Stable proxy identifier from config.
+        status: Current status ('running' if registered, 'stopped' otherwise).
+        instance_id: Unique instance ID (None if not running).
+        server_name: Backend server name from config.
+        transport: Transport type (stdio, streamablehttp, auto).
+        created_at: ISO timestamp of proxy creation.
+        stats: Request statistics (None if not running).
+    """
+
+    proxy_name: str
+    proxy_id: str
+    status: ProxyStatus
+    instance_id: str | None = None
+    server_name: str
+    transport: TransportType
+    created_at: str
+    stats: "ProxyStats | None" = None  # Forward reference - ProxyStats defined later
 
 
 class ManagerStatusResponse(FrozenModel):

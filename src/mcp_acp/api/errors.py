@@ -89,6 +89,11 @@ class ErrorCode(str, Enum):
 
     # Conflict errors (409)
     CONFLICT = "CONFLICT"  # Generic 409 for unmapped exceptions
+    PROXY_EXISTS = "PROXY_EXISTS"  # Proxy already exists
+
+    # Proxy creation errors (400, 500)
+    PROXY_INVALID = "PROXY_INVALID"  # Invalid proxy configuration
+    PROXY_CREATION_FAILED = "PROXY_CREATION_FAILED"  # Failed to create proxy
 
     # Validation errors (400, 422)
     VALIDATION_ERROR = "VALIDATION_ERROR"
