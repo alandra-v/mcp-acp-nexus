@@ -35,6 +35,7 @@ import secrets
 import signal
 import socket
 import subprocess
+import time
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -77,6 +78,15 @@ PROXY_REGISTRATION_TIMEOUT_SECONDS = 10.0
 
 # How often to send heartbeats to proxies (seconds)
 PROXY_HEARTBEAT_INTERVAL_SECONDS = 30.0
+
+# How often to check if manager is idle (seconds)
+IDLE_CHECK_INTERVAL_SECONDS = 30.0
+
+# Shutdown manager after this many seconds of inactivity (seconds)
+IDLE_TIMEOUT_SECONDS = 300.0
+
+# Don't check for idle shutdown during startup grace period (seconds)
+STARTUP_GRACE_PERIOD_SECONDS = 60.0
 
 # Get module logger - initially with stderr only
 # File handler added via _configure_manager_logging() after config is loaded
@@ -657,6 +667,54 @@ async def _send_heartbeats_to_proxies(registry: ProxyRegistry) -> None:
                         pass
 
 
+async def _idle_shutdown_checker(
+    registry: ProxyRegistry,
+    shutdown_event: asyncio.Event,
+    startup_time: float,
+) -> None:
+    """Check if manager is idle and trigger shutdown if so.
+
+    Idle conditions (all must be true):
+    - No proxies registered
+    - No browser SSE subscribers
+    - No activity for IDLE_TIMEOUT_SECONDS
+
+    Args:
+        registry: Proxy registry to check for activity.
+        shutdown_event: Event to set when shutdown should occur.
+        startup_time: Monotonic time when manager started (for grace period).
+    """
+    while not shutdown_event.is_set():
+        await asyncio.sleep(IDLE_CHECK_INTERVAL_SECONDS)
+
+        # Grace period: don't check during first 60s after startup
+        if time.monotonic() - startup_time < STARTUP_GRACE_PERIOD_SECONDS:
+            continue
+
+        proxy_count = await registry.proxy_count()
+        sse_count = registry.sse_subscriber_count
+        seconds_idle = registry.seconds_since_last_activity()
+
+        # Idle = no proxies AND no browsers AND no activity for 5 mins
+        is_idle = proxy_count == 0 and sse_count == 0 and seconds_idle >= IDLE_TIMEOUT_SECONDS
+
+        if is_idle:
+            _log_event(
+                logging.INFO,
+                ManagerSystemEvent(
+                    event="idle_shutdown_triggered",
+                    message=f"Manager idle for {seconds_idle:.0f}s, shutting down",
+                    details={
+                        "proxy_count": proxy_count,
+                        "sse_count": sse_count,
+                        "seconds_idle": seconds_idle,
+                    },
+                ),
+            )
+            shutdown_event.set()
+            return
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
@@ -813,6 +871,10 @@ async def run_manager(port: int | None = None) -> None:
     # Start heartbeat task to keep proxy connections alive
     heartbeat_task = asyncio.create_task(_send_heartbeats_to_proxies(registry))
 
+    # Start idle shutdown checker
+    startup_time = time.monotonic()
+    idle_checker_task = asyncio.create_task(_idle_shutdown_checker(registry, shutdown_event, startup_time))
+
     _log_event(
         logging.INFO,
         ManagerSystemEvent(
@@ -860,10 +922,15 @@ async def run_manager(port: int | None = None) -> None:
             ),
         )
 
-        # Cancel heartbeat task
+        # Cancel background tasks
         heartbeat_task.cancel()
+        idle_checker_task.cancel()
         try:
             await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await idle_checker_task
         except asyncio.CancelledError:
             pass
 

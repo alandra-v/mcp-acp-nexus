@@ -17,6 +17,7 @@ time — ISO 8601 timestamp (UTC), e.g.:
 event — short machine-friendly event name, e.g.:
     "manager_started"
     "manager_stopped"
+    "idle_shutdown_triggered"
     "proxy_connection_error"
     "registration_timeout"
     "snapshot_broadcast_failed"
@@ -46,12 +47,18 @@ subscriber_count — current number of SSE subscribers
 error_type — exception class name, e.g. "ConnectionRefusedError", "TimeoutError"
 error_message — short error text from exception
 
+## Idle shutdown context
+proxy_count — number of connected proxies at shutdown check
+sse_count — number of SSE subscribers (browser tabs)
+seconds_idle — seconds since last activity
+
 ## Log levels by event
 
 Daemon lifecycle (start/stop/shutdown) — INFO → console + file
 Token service started — INFO → console + file
 Browser opened — INFO → console + file
 Stale socket/PID cleanup — INFO → console + file
+Idle shutdown triggered — INFO → console + file
 Registration errors — WARNING → console + file
 Proxy connection errors — WARNING → console + file
 Protocol errors (invalid JSON, unknown message) — WARNING → console + file

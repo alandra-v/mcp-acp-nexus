@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator
@@ -73,6 +74,11 @@ STATIC_MEDIA_TYPES: dict[str, str] = {
 
 # Manager API prefixes (not forwarded to proxy)
 MANAGER_API_PREFIXES = ("/api/manager/", "/api/events", "/api/proxy/")
+
+# Paths that should NOT reset the idle shutdown timer
+# - /api/manager/status: CLI health checks (should not keep manager alive)
+# - /api/events: SSE keepalives (connection itself counts, not keepalives)
+IDLE_EXEMPT_PATHS = frozenset({"/api/manager/status", "/api/events"})
 
 _logger = logging.getLogger(f"{APP_NAME}.manager.routes")
 
@@ -386,6 +392,21 @@ def create_manager_api_app(
 
     # Note: Manager API auth uses HttpOnly cookie (api_token) set on index.html load.
     # This is adequate for localhost-only UI. No additional SecurityMiddleware needed.
+
+    @app.middleware("http")
+    async def track_activity(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Track API activity for idle shutdown.
+
+        Records activity timestamp for all requests except those in
+        IDLE_EXEMPT_PATHS (status checks and SSE keepalives), which
+        should not prevent idle shutdown.
+        """
+        response = await call_next(request)
+        if request.url.path not in IDLE_EXEMPT_PATHS:
+            request.app.state.registry.record_activity()
+        return response
 
     @app.get("/api/manager/status", response_model=ManagerStatusResponse)
     async def manager_status(request: Request) -> ManagerStatusResponse:

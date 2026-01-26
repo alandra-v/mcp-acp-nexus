@@ -16,6 +16,7 @@ __all__ = [
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -77,11 +78,21 @@ class ProxyRegistry:
         # SSE subscribers (queues for each connected browser)
         self._sse_subscribers: list[asyncio.Queue[dict[str, Any]]] = []
         self._sse_lock = asyncio.Lock()
+        # Activity tracking for idle shutdown
+        self._last_activity_time: float = time.monotonic()
 
     @property
     def sse_subscriber_count(self) -> int:
         """Return the current number of SSE subscribers."""
         return len(self._sse_subscribers)
+
+    def record_activity(self) -> None:
+        """Record user activity (resets idle timer)."""
+        self._last_activity_time = time.monotonic()
+
+    def seconds_since_last_activity(self) -> float:
+        """Get seconds since last recorded activity."""
+        return time.monotonic() - self._last_activity_time
 
     async def register(
         self,
@@ -136,6 +147,7 @@ class ProxyRegistry:
                 reader=reader,
             )
             self._proxies[proxy_name] = conn
+            self.record_activity()
 
             _logger.info(
                 {
@@ -175,6 +187,7 @@ class ProxyRegistry:
             conn = self._proxies.pop(proxy_name)
             instance_id = conn.instance_id
             await self._close_connection(conn)
+            self.record_activity()
 
             _logger.info(
                 {
@@ -265,6 +278,7 @@ class ProxyRegistry:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         async with self._sse_lock:
             self._sse_subscribers.append(queue)
+            self.record_activity()
 
         # Notify proxies that browser connected
         await self.broadcast_ui_status()
@@ -276,6 +290,7 @@ class ProxyRegistry:
         async with self._sse_lock:
             if queue in self._sse_subscribers:
                 self._sse_subscribers.remove(queue)
+            self.record_activity()
 
         # Notify proxies that browser may have disconnected
         await self.broadcast_ui_status()

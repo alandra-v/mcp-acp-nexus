@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from mcp_acp.manager.registry import ProxyRegistry
 from mcp_acp.manager.routes import (
+    IDLE_EXEMPT_PATHS,
     MANAGER_API_PREFIXES,
     _is_safe_path,
     create_manager_api_app,
@@ -293,3 +295,49 @@ class TestSSEEndpoint:
     def test_manager_api_prefixes_include_events(self) -> None:
         """SSE events endpoint is in manager API prefixes (not forwarded to proxy)."""
         assert "/api/events" in MANAGER_API_PREFIXES
+
+
+class TestActivityTrackingMiddleware:
+    """Tests for HTTP middleware that tracks activity for idle shutdown."""
+
+    def test_idle_exempt_paths_defined(self) -> None:
+        """Idle exempt paths are defined."""
+        assert "/api/manager/status" in IDLE_EXEMPT_PATHS
+        assert "/api/events" in IDLE_EXEMPT_PATHS
+
+    def test_status_endpoint_does_not_record_activity(self, registry: ProxyRegistry) -> None:
+        """Status endpoint requests don't reset idle timer."""
+        fastapi_app = create_manager_api_app(token="test", registry=registry)
+        client = TestClient(fastapi_app)
+
+        # Record activity and wait
+        registry.record_activity()
+        time.sleep(0.02)
+        before = registry.seconds_since_last_activity()
+
+        # Make status request
+        client.get("/api/manager/status")
+
+        # Activity time should NOT have been reset
+        after = registry.seconds_since_last_activity()
+        assert after >= before
+
+    def test_proxies_endpoint_records_activity(self, registry: ProxyRegistry) -> None:
+        """Non-exempt endpoints reset idle timer."""
+        fastapi_app = create_manager_api_app(token="test", registry=registry)
+        client = TestClient(fastapi_app)
+
+        # Wait to ensure time passes
+        time.sleep(0.02)
+        before = registry.seconds_since_last_activity()
+
+        # Make proxies request (not exempt)
+        client.get("/api/manager/proxies")
+
+        # Activity time should have been reset
+        after = registry.seconds_since_last_activity()
+        assert after < before
+
+    def test_idle_exempt_paths_is_frozenset(self) -> None:
+        """IDLE_EXEMPT_PATHS is immutable."""
+        assert isinstance(IDLE_EXEMPT_PATHS, frozenset)

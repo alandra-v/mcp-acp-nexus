@@ -1,13 +1,15 @@
 """Tests for ProxyRegistry.
 
-Tests proxy registration, deregistration, and SSE event broadcasting.
+Tests proxy registration, deregistration, SSE event broadcasting,
+and activity tracking for idle shutdown.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -389,3 +391,106 @@ class TestSSEBroadcasting:
         assert "timestamp" in event
         # Should be ISO format
         assert "T" in event["timestamp"]
+
+
+class TestActivityTracking:
+    """Tests for activity tracking (idle shutdown support)."""
+
+    def test_initial_activity_time_is_set(self, registry: ProxyRegistry) -> None:
+        """Registry initializes with current time as last activity."""
+        # Should be very recent (within last second)
+        assert registry.seconds_since_last_activity() < 1.0
+
+    def test_record_activity_resets_timer(self, registry: ProxyRegistry) -> None:
+        """record_activity resets the idle timer."""
+        # Wait a tiny bit
+        time.sleep(0.01)
+        before = registry.seconds_since_last_activity()
+        assert before >= 0.01
+
+        registry.record_activity()
+
+        after = registry.seconds_since_last_activity()
+        assert after < before
+
+    def test_seconds_since_last_activity_increases(self, registry: ProxyRegistry) -> None:
+        """seconds_since_last_activity increases over time."""
+        registry.record_activity()
+        t1 = registry.seconds_since_last_activity()
+        time.sleep(0.02)
+        t2 = registry.seconds_since_last_activity()
+
+        assert t2 > t1
+
+    async def test_register_records_activity(
+        self,
+        registry: ProxyRegistry,
+        mock_streams: tuple[MagicMock, MagicMock],
+    ) -> None:
+        """Proxy registration records activity."""
+        reader, writer = mock_streams
+
+        # Wait to ensure time passes
+        time.sleep(0.01)
+        before = registry.seconds_since_last_activity()
+
+        await registry.register(
+            proxy_name="test",
+            proxy_id="px_test:test",
+            instance_id="inst_1",
+            config_summary={},
+            socket_path="/tmp/test.sock",
+            reader=reader,
+            writer=writer,
+        )
+
+        after = registry.seconds_since_last_activity()
+        assert after < before
+
+    async def test_deregister_records_activity(
+        self,
+        registry: ProxyRegistry,
+        mock_streams: tuple[MagicMock, MagicMock],
+    ) -> None:
+        """Proxy deregistration records activity."""
+        reader, writer = mock_streams
+
+        await registry.register(
+            proxy_name="test",
+            proxy_id="px_test:test",
+            instance_id="inst_1",
+            config_summary={},
+            socket_path="/tmp/test.sock",
+            reader=reader,
+            writer=writer,
+        )
+
+        time.sleep(0.01)
+        before = registry.seconds_since_last_activity()
+
+        await registry.deregister("test")
+
+        after = registry.seconds_since_last_activity()
+        assert after < before
+
+    async def test_subscribe_sse_records_activity(self, registry: ProxyRegistry) -> None:
+        """SSE subscription records activity."""
+        time.sleep(0.01)
+        before = registry.seconds_since_last_activity()
+
+        await registry.subscribe_sse()
+
+        after = registry.seconds_since_last_activity()
+        assert after < before
+
+    async def test_unsubscribe_sse_records_activity(self, registry: ProxyRegistry) -> None:
+        """SSE unsubscription records activity."""
+        queue = await registry.subscribe_sse()
+
+        time.sleep(0.01)
+        before = registry.seconds_since_last_activity()
+
+        await registry.unsubscribe_sse(queue)
+
+        after = registry.seconds_since_last_activity()
+        assert after < before
