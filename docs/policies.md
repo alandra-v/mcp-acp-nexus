@@ -43,7 +43,7 @@ The proxy builds a `DecisionContext` with four attribute categories:
 
 | Category | Attributes | Source |
 |----------|------------|--------|
-| **Subject** | `id`, `issuer`, `scopes`, `client_id`, `audience` | OIDC token or local identity |
+| **Subject** | `id`, `issuer`, `scopes`, `client_id`, `audience` | OIDC token |
 | **Action** | `mcp_method`, `name`, `intent`, `category` | MCP request |
 | **Resource** | `tool_name`, `path`, `source_path`, `dest_path`, `extension`, `backend_id`, `side_effects` | MCP request arguments |
 | **Environment** | `timestamp`, `session_id`, `request_id`, `mcp_client_name`, `mcp_client_version` | Runtime context |
@@ -52,11 +52,13 @@ The proxy builds a `DecisionContext` with four attribute categories:
 
 ### Policy Engine
 
-Rules are evaluated against the context:
-1. Collect all rules where conditions match the context
-2. Apply combining algorithm: **HITL > DENY > ALLOW** (most restrictive wins)
-3. Within each effect level, select the **most specific rule** (see below)
-4. If no rules match → `default_action` (DENY)
+Evaluation order:
+1. **Protected paths check**: DENY if accessing config or log directories (cannot be overridden by policy)
+2. **Discovery bypass**: ALLOW if discovery method (see [Discovery Bypass](#discovery-bypass))
+3. **Collect matching rules**: Find all rules where conditions match the context
+4. **Apply combining algorithm**: **HITL > DENY > ALLOW** (most restrictive wins)
+5. **Select most specific rule**: Within each effect level, select the most specific rule for logging
+6. **Default action**: If no rules match → DENY
 
 **Fail-closed**: Any error in context building or policy evaluation results in DENY.
 
@@ -90,6 +92,10 @@ Score = (condition_count × 100) + exactness_bonus + path_depth_bonus
 ---
 
 ## Policy File Structure
+
+**Location**: `<config_dir>/proxies/<name>/policy.json`
+
+Each proxy has its own policy file. The path is determined by the manager configuration's `config_dir` setting (default: `~/.config/mcp-acp` on Linux/macOS). Use `mcp-acp proxy show <name>` to see the policy path for a specific proxy.
 
 ### Minimal Valid Policy
 
@@ -396,7 +402,7 @@ A practical policy allowing reads from a project directory, requiring approval f
 **How this works:**
 - Reads from `/home/user/projects/**`: allowed
 - Writes to `/home/user/projects/**`: HITL approval required
-- Any access to `**/secrets/**` or `**/private/**`: denied (deny rules checked first)
+- Any access to `**/secrets/**` or `**/private/**`: denied (DENY beats ALLOW/HITL)
 - Everything else: denied (default action)
 
 ---

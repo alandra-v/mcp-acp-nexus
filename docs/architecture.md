@@ -90,11 +90,11 @@ The proxy implements Zero Trust Architecture based on the seven tenets defined i
 
 | # | NIST Tenet | Status | Implementation | Gaps |
 |---|------------|--------|----------------|------|
-| 1 | "All data sources and computing services are considered resources." | Partial | MCP operations (tools/call, resources/read, prompts/get) require policy evaluation | Discovery methods (`tools/list`, `resources/list`, etc.) bypass policy entirely (`pdp/engine.py:242`) |
-| 2 | "All communication is secured regardless of network location." | Partial | STDIO with binary attestation (hash, codesign, SLSA); Streamable HTTP with mTLS | Post-spawn process verification implemented but **not integrated** into transport (`binary_attestation.py:28`) |
+| 1 | "All data sources and computing services are considered resources." | Partial | MCP operations (tools/call, resources/read, prompts/get) require policy evaluation | Discovery methods (`tools/list`, `resources/list`, etc.) bypass policy entirely |
+| 2 | "All communication is secured regardless of network location." | Partial | STDIO with binary attestation (hash, codesign, SLSA); Streamable HTTP with mTLS | Post-spawn process verification implemented but **not integrated** into transport |
 | 3 | "Access to individual enterprise resources is granted on a per-session basis." | Partial | Policy evaluated for ACTION methods; identity validated per-request; session-scoped approvals | Discovery methods skip per-request authorization; HITL approvals cached (reduces re-auth frequency) |
 | 4 | "Access to resources is determined by dynamic policy..." | Full | ABAC policy engine evaluates subject, action, resource, environment attributes per request | — |
-| 5 | "The enterprise monitors and measures the integrity and security posture of all owned and associated assets." | POC | Audit log integrity (30s interval, fail-closed); device posture (5-min interval) | Device health is **POC only** (`device.py:3-6`): just FileVault/SIP on macOS, no MDM, endpoint agents, or cert attestation; backend→proxy notifications bypass middleware (`proxy.py:775`) |
+| 5 | "The enterprise monitors and measures the integrity and security posture of all owned and associated assets." | POC | Audit log integrity (30s interval, fail-closed); device posture (5-min interval) | Device health is **POC only**: just FileVault/SIP on macOS, no MDM, endpoint agents, or cert attestation |
 | 6 | "All resource authentication and authorization are dynamic and strictly enforced before access is allowed." | Partial | OIDC JWT validated per-request (mandatory); policy enforced before forwarding | Discovery methods bypass authorization entirely |
 | 7 | "The enterprise collects as much information as possible..." | Full | Audit logging (operations, decisions, config/policy history) for forensics | — |
 
@@ -108,10 +108,11 @@ The proxy implements Zero Trust Architecture based on the seven tenets defined i
 | Component | Mechanism | Status |
 |-----------|-----------|--------|
 | Identity | `IdentityProvider` protocol | Pluggable (OIDC implemented) |
+| Token storage | `TokenStorage` ABC | Pluggable (keyring, encrypted file) |
 | Transport | FastMCP transport abstraction | STDIO, streamable HTTP |
 | Middleware | FastMCP middleware stack | Composable ordering |
 | Configuration | Version field, Pydantic models | Schema evolution supported |
-| Policy engine | Class-based, no protocol yet | Future 3rd party integration |
+| Policy engine | `PolicyEngineProtocol` in pdp/ | Pluggable (Casbin, OPA, Cedar) |
 | Logging | Pydantic models, JSONL format | Extensible (SystemEvent allows extra fields) |
 
 
@@ -151,7 +152,7 @@ The codebase is organized by domain with related responsibilities grouped togeth
 | PIP | What it provides | Status |
 |-----|------------------|--------|
 | OIDC Identity Provider | User ID, scopes, token claims from JWT | Implemented |
-| Device Posture | FileVault, SIP status | Implemented |
+| Device Posture | FileVault, SIP status | POC |
 | Tool Registry | Verified side effects, risk tiers | Future |
 | Threat Intel Feed | Known bad IPs, risk scores | Future |
 
@@ -186,7 +187,7 @@ The `manager/` module provides state aggregation for the Management API.
 - **Live updates**: stats_updated, new_log_entries
 - **Critical events**: critical_shutdown, audit_init_failed, device_health_failed, session_hijacking, audit_tampering, audit_missing, audit_permission_denied, health_degraded, health_monitor_failed
 
-See `manager/state.py` for the full `SSEEventType` enum.
+See `manager/events.py` for the full `SSEEventType` enum.
 
 ---
 
@@ -195,7 +196,6 @@ See `manager/state.py` for the full `SSEEventType` enum.
 ### Evolution Stages
 
 **Stage 1: Single Tenant Zero Trust Proxy**
-- Single user (local identity)
 - Single session, single backend server
 - STDIO and Streamable HTTP transports
 

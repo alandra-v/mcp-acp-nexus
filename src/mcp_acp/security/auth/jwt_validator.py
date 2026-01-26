@@ -4,7 +4,7 @@ Validates OAuth access tokens using the JWKS (JSON Web Key Set) from
 the OIDC provider. Implements caching to avoid fetching keys on every
 request while still supporting key rotation.
 
-Zero Trust: Per-request validation with 60-second cache for performance.
+Zero Trust: Per-request validation with 10-minute JWKS cache for performance.
 """
 
 from __future__ import annotations

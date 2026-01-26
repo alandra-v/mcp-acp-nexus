@@ -6,8 +6,7 @@ Authentication supports the Zero Trust security model:
 
 1. **User Identity**: Prove WHO the user is via OAuth/OIDC
 2. **Device Posture**: Validate device meets security requirements (disk encryption, SIP)
-3. **Binary Attestation**: Verify backend binary integrity before spawning (STDIO)
-4. **Session Binding**: Link all requests to authenticated identity
+3. **Session Binding**: Link all requests to authenticated identity
 
 Authentication is **mandatory** - the proxy refuses to start without valid credentials.
 
@@ -65,7 +64,7 @@ Authenticates using OAuth 2.0 Device Flow (RFC 8628):
 3. Opens browser automatically (unless `--no-browser`)
 4. Polls for tokens until user completes authentication
 5. Stores tokens in keychain
-6. Notifies running proxy via API
+6. Notifies running manager to broadcast to proxies
 
 **Timeout**: 5 minutes to complete authentication.
 
@@ -125,106 +124,6 @@ Before proxy startup and every 5 minutes during operation, device security postu
 | System Integrity | `csrutil status` | SIP must be enabled |
 
 If device becomes unhealthy during operation, proxy shuts down immediately.
-
----
-
-## Binary Attestation (STDIO Backends)
-
-For STDIO backends, the proxy can verify the backend binary before spawning it. This prevents execution of tampered or unauthorized binaries.
-
-### Configuration
-
-Add `attestation` to the `stdio` config:
-
-```json
-{
-  "backend": {
-    "transport": "stdio",
-    "stdio": {
-      "command": "node",
-      "args": ["server.js"],
-      "attestation": {
-        "expected_sha256": "3be943172b502b245545fbfd57706c210fabb9ee058829c5bf00c3f67c8fb474",
-        "require_signature": true,
-        "slsa_owner": "github-username"
-      }
-    }
-  }
-}
-```
-
-All attestation fields are optional. If `attestation` is omitted or `null`, no verification is performed.
-
-### Verification Modes
-
-| Field | Description | Platform |
-|-------|-------------|----------|
-| `expected_sha256` | Binary hash must match (hex string, 64 chars) | All |
-| `require_signature` | Require valid code signature via `codesign -v` | macOS only |
-| `slsa_owner` | Verify SLSA provenance via `gh attestation verify --owner` | All (requires `gh` CLI) |
-
-All configured checks must pass. If any check fails, the proxy refuses to start.
-
-### Hash Verification
-
-Verifies the binary hasn't been modified:
-
-```bash
-# Get hash for configuration
-shasum -a 256 $(which node)
-# Output: 3be943172b502b245545fbfd57706c210fabb9ee058829c5bf00c3f67c8fb474  /opt/homebrew/bin/node
-```
-
-The proxy resolves the command via `PATH`, follows symlinks with `realpath()`, then computes SHA-256. Hash comparison uses constant-time `hmac.compare_digest()`.
-
-### Code Signature Verification (macOS)
-
-Verifies the binary has a valid Apple code signature:
-
-```bash
-# What the proxy runs internally
-codesign -v --strict /path/to/binary
-```
-
-System binaries (`/bin/ls`, `/usr/bin/node`) are signed. Scripts and most npm packages are not.
-
-**Default**: `false` (opt-in). Set `require_signature: true` to enable.
-
-### SLSA Provenance Verification
-
-Verifies the binary was built by a trusted CI/CD pipeline using [SLSA](https://slsa.dev/) attestations:
-
-```bash
-# What the proxy runs internally
-gh attestation verify --owner <slsa_owner> /path/to/binary
-```
-
-**Requirements**:
-- `gh` CLI installed and authenticated (`gh auth login`)
-- Binary must have GitHub attestation from the specified owner
-
-**Use case**: Standalone binaries distributed via GitHub releases (e.g., Go/Rust compiled tools). Does not apply to npm packages.
-
-### Applicability
-
-| Binary Type | Hash | Codesign | SLSA |
-|-------------|------|----------|------|
-| System binaries (`/bin/ls`) | Yes | Yes | No |
-| Node.js (`node`) | Yes | Yes (if from official installer) | No |
-| npm packages (via `npx`) | Verify `node` binary | Verify `node` binary | No |
-| GitHub release binaries | Yes | Rarely | Yes |
-
-For npm-based MCP servers, attestation verifies the `node` binary, not the JavaScript package. npm has its own integrity model via `package-lock.json` checksums.
-
-### Failure Behavior
-
-If any configured attestation check fails:
-
-1. Error logged with details (expected vs actual hash, signature error, etc.)
-2. Proxy refuses to start
-3. Human-readable error message displayed
-
-This is fail-closed - the backend is never spawned if attestation fails.
 
 ---
 
@@ -298,14 +197,16 @@ This fail-closed behavior prevents session hijacking if an attacker obtains diff
 
 ## Subject Claims
 
-Validated tokens populate the ABAC Subject model for policy evaluation:
+Validated tokens populate the ABAC Subject model:
 
-| Field | Source | Example Policy Use |
-|-------|--------|-------------------|
-| `id` | JWT `sub` claim | User-specific rules |
-| `issuer` | JWT `iss` claim | Provider restrictions |
-| `scopes` | JWT `scope` claim | `subject.scopes contains "admin"` |
-| `token_age_s` | Computed from `iat` | `subject.token_age_s < 3600` |
+| Field | Source | Description |
+|-------|--------|-------------|
+| `id` | JWT `sub` claim | User identifier (usable in policy via `subject_id` condition) |
+| `issuer` | JWT `iss` claim | Identity provider URL |
+| `scopes` | JWT `scope` claim | Granted OAuth scopes |
+| `token_age_s` | Computed from `iat` | Seconds since token was issued |
+
+**Policy support**: Currently only `subject_id` can be used in policy rules. Other claims are available in the Subject model for audit logging and future policy extensions.
 
 ---
 
@@ -363,7 +264,7 @@ The proxy uses standard protocols and works with any compliant provider:
 
 ## See Also
 
-- [mTLS](mtls.md) for backend authentication
+- [Backend Authentication](backend_auth.md) for mTLS and binary attestation
 - [API Reference](api_reference.md) for auth endpoints
 - [Security](security.md) for security architecture
 - [Configuration](configuration.md) for full config reference

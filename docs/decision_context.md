@@ -15,7 +15,7 @@ The DecisionContext is the core data structure used for policy evaluation. It fo
 
 | Usage | Description |
 |-------|-------------|
-| **Policy rule matching** | Context attributes (tool_name, path, operations, side_effects, subject_id, etc.) are matched against policy rule conditions |
+| **Policy rule matching** | Context attributes (tool_name, path, side_effects, subject_id, etc.) are matched against policy rule conditions |
 | **Audit logging** | All context attributes logged to `decisions.jsonl` for forensics |
 | **HITL dialogs** | Context (tool name, path, side effects, user) displayed for approval decisions |
 | **Discovery bypass** | Discovery methods (tools/list, resources/list, etc.) automatically allowed |
@@ -162,7 +162,7 @@ The target of the operation.
 |------|-----------|
 | `tool` | `tools/call` requests |
 | `resource` | `resources/read` requests |
-| `prompt` | `prompts/*` requests |
+| `prompt` | `prompts/get` requests |
 | `server` | Other MCP methods |
 
 ### Server Info
@@ -178,12 +178,12 @@ The target of the operation.
 |-------|-------------|
 | `name` | Tool name from request |
 | `provenance` | Where we got the tool name (`MCP_REQUEST`) |
-| `side_effects` | Known effects (e.g., `fs_write`, `code_exec`, `network_egress`) |
+| `side_effects` | Known effects (see `context/tool_side_effects.py` for available values) |
 | `side_effects_provenance` | Where side effects came from (`PROXY_CONFIG` from manual map) |
 | `version` | Tool version (future: from registry) |
 | `risk_tier` | Risk classification (future: from registry) |
 
-Side effects are looked up from `context/tool_side_effects.py`. Policies can match on tool names directly or use side effects for broader rules.
+Side effects are looked up from `context/tool_side_effects.py` which maps tool names to their known capabilities. Policies can match on tool names directly or use side effects for broader rules.
 
 ### Resource Info (for file/URI access)
 
@@ -198,6 +198,7 @@ Side effects are looked up from `context/tool_side_effects.py`. Policies can mat
 | `extension` | File extension |
 | `parent_dir` | Parent directory |
 | `provenance` | Where we got this info (`MCP_REQUEST`) |
+| `classification` | Data classification (future: from URI prefix rules) |
 
 ---
 
@@ -229,6 +230,18 @@ A `tools/call` request to `write_file` targeting `/home/user/.env`:
 | **Environment** | `request_id="req-123"`, `session_id="sess-456"` |
 
 Note: `intent=None` for tools/call because we cannot trust tool names to determine intent.
+
+---
+
+## Session Binding
+
+The context builder validates session binding: if a session was established with one user identity, requests from a different identity are rejected. This prevents session hijacking if an attacker obtains different credentials.
+
+---
+
+## Policy Combining Algorithm
+
+When multiple rules match, the policy engine uses this precedence: **HITL > DENY > ALLOW**. If any matching rule requires human approval, the decision is HITL. Otherwise, if any matching rule denies, the decision is DENY. Only if all matching rules allow is the decision ALLOW.
 
 ---
 

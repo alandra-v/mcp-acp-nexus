@@ -20,9 +20,9 @@ The proxy requires the following security features enabled:
 
 Both checks are **hard gates** - the proxy will not start if either is disabled.
 
-### Other Platforms (Untested)
+### Linux/Windows (Experimental)
 
-Only macOS has been tested. The proxy may work on Linux/Windows but device health checks will be skipped.
+The proxy can run on Linux and Windows, but device health checks (FileVault/SIP) are automatically skipped since these are macOS-specific features. This reduces Zero Trust compliance but allows basic operation.
 
 ---
 
@@ -42,30 +42,6 @@ pip install -e .
 # Or with dev dependencies (for testing/linting)
 pip install -e ".[dev]"
 ```
-
-<!--
-## Install from PyPI
-
-When released as a package:
-
-```bash
-# Using pip
-pip install mcp-acp
-
-# Using uv (as a CLI tool)
-uv tool install mcp-acp
-```
-
-## Upgrade
-
-```bash
-# Using pip
-pip install --upgrade mcp-acp
-
-# Using uv
-uv tool upgrade mcp-acp
-```
--->
 
 ## Verify Installation
 
