@@ -22,6 +22,7 @@ from mcp_acp.manager.config import (
     get_manager_config_path,
     get_proxy_config_path,
     get_proxy_policy_path,
+    list_configured_proxies,
     load_manager_config,
 )
 from mcp_acp.utils.policy import load_policy
@@ -139,8 +140,6 @@ def start(headless: bool, proxy_name: str | None) -> None:
     """
     # If no proxy specified, show available proxies and exit
     if not proxy_name:
-        from mcp_acp.manager.config import list_configured_proxies
-
         proxies = list_configured_proxies()
         if proxies:
             click.echo("Available proxies:", err=True)
@@ -164,15 +163,28 @@ def start(headless: bool, proxy_name: str | None) -> None:
     # Check config existence BEFORE setting up bootstrap log path
     # This avoids creating directories for non-existent proxies
     if not manager_config_path.exists():
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Manager not initialized.",
+            detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
+            backoff=True,
+        )
         click.echo(err=True)
         click.echo(style_error("Error: Manager config not found."), err=True)
         click.echo("Run 'mcp-acp init' to create a configuration.", err=True)
         sys.exit(1)
     if not config_path.exists():
+        available = list_configured_proxies()
+        available_hint = f"\n\nAvailable proxies: {', '.join(available)}" if available else ""
+        show_startup_error_popup(
+            title="MCP ACP",
+            message=f"Proxy '{proxy_name}' not found.",
+            detail=f"Run in terminal:\n  mcp-acp proxy add\n\nThen restart your MCP client.{available_hint}",
+            backoff=True,
+        )
         click.echo(err=True)
         click.echo(style_error(f"Error: Proxy '{proxy_name}' not found."), err=True)
         click.echo("Run 'mcp-acp proxy add' to create it.", err=True)
-        available = list_configured_proxies()
         if available:
             click.echo(f"Available proxies: {', '.join(available)}", err=True)
         sys.exit(1)
@@ -288,15 +300,25 @@ def start(headless: bool, proxy_name: str | None) -> None:
                 popup_detail=f"{e}\n\nCheck the mTLS section in:\n  {config_path}",
                 terminal_message=f"Error: mTLS certificate not found: {e}",
             )
+        elif "policy" in error_msg:
+            # Policy file missing (config exists but policy was deleted)
+            _handle_startup_error(
+                bootstrap_log_path,
+                event="policy_not_found",
+                error=e,
+                popup_message=f"Policy not found for proxy '{proxy_name}'.",
+                popup_detail=f"Policy file missing:\n  {policy_path}\n\nThe file may have been deleted.",
+                terminal_message=f"Error: Policy file not found: {e}",
+            )
         else:
+            # Other configuration file not found
             _handle_startup_error(
                 bootstrap_log_path,
                 event="config_not_found",
                 error=e,
-                popup_message="Configuration not found.",
-                popup_detail="Run in terminal:\n  mcp-acp init\n\nThen restart your MCP client.",
+                popup_message=f"Configuration not found for proxy '{proxy_name}'.",
+                popup_detail=f"{e}",
                 terminal_message=f"Error: File not found: {e}",
-                extra_terminal_lines=["Run 'mcp-acp init' to create a configuration."],
             )
 
     except ValueError as e:
@@ -332,7 +354,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
         if is_policy_error:
             show_startup_error_popup(
                 title="MCP ACP",
-                message="Invalid policy.",
+                message=f"Invalid policy for proxy '{proxy_name}'.",
                 detail=f"{error_msg}",
                 backoff=True,
             )
@@ -340,7 +362,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
         else:
             show_startup_error_popup(
                 title="MCP ACP",
-                message="Invalid configuration.",
+                message=f"Invalid configuration for proxy '{proxy_name}'.",
                 detail=f"{error_msg}",
                 backoff=True,
             )

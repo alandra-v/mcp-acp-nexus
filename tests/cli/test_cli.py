@@ -236,9 +236,9 @@ class TestStartCommand:
 
     def test_start_no_proxy_shows_available(self, runner: CliRunner) -> None:
         """Given start without --proxy, shows available proxies."""
-        # Arrange - patch in manager.config where list_configured_proxies is defined
+        # Arrange - patch where the function is imported (start.py module level)
         with patch(
-            "mcp_acp.manager.config.list_configured_proxies",
+            "mcp_acp.cli.commands.start.list_configured_proxies",
             return_value=["test-proxy"],
         ):
             # Act
@@ -251,9 +251,9 @@ class TestStartCommand:
 
     def test_start_no_proxies_shows_help(self, runner: CliRunner) -> None:
         """Given no proxies configured, shows helpful message."""
-        # Arrange
+        # Arrange - patch where the function is imported (start.py module level)
         with patch(
-            "mcp_acp.manager.config.list_configured_proxies",
+            "mcp_acp.cli.commands.start.list_configured_proxies",
             return_value=[],
         ):
             # Act

@@ -148,7 +148,7 @@ def load_policy(path: Path | None = None, *, normalize: bool = True) -> PolicyCo
         raise ValueError(
             f"Invalid policy configuration in {policy_path}:\n"
             + "\n".join(errors)
-            + "\n\nEdit the policy file or run 'mcp-acp init' to recreate."
+            + "\n\nEdit the policy file to fix the errors."
         ) from e
 
     # Auto-normalize: save back if IDs were generated

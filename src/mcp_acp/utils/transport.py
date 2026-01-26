@@ -234,7 +234,7 @@ def check_http_health_with_retry(
                     raise ConnectionError(
                         f"SSL/TLS connection failed: {url}. "
                         "The server may require mTLS (client certificate authentication). "
-                        "Configure mTLS in your config or run 'mcp-acp init'."
+                        "Configure mTLS in your proxy config file."
                     ) from e
                 raise TimeoutError(f"Backend not reachable after {max_attempts} attempts: {url}") from e
 
@@ -287,7 +287,7 @@ def create_backend_transport(
         if http_config is None:
             raise ValueError(
                 "Streamable HTTP transport selected but http configuration is missing. "
-                "Run 'mcp-acp init' to configure the backend URL."
+                "Check the proxy config file (run 'mcp-acp config path --proxy <name>')."
             )
         # Use retry loop - wait for backend to become available
         check_http_health_with_retry(
@@ -299,7 +299,7 @@ def create_backend_transport(
         if stdio_config is None:
             raise ValueError(
                 "STDIO transport selected but stdio configuration is missing. "
-                "Run 'mcp-acp init' to configure the backend command."
+                "Check the proxy config file (run 'mcp-acp config path --proxy <name>')."
             )
         transport_type = "stdio"
     else:
@@ -404,7 +404,9 @@ def _auto_detect(
     if has_stdio:
         return "stdio"
 
-    raise ValueError("No transport configured. Run 'mcp-acp init' to configure a backend server.")
+    raise ValueError(
+        "No transport configured. " "Check the proxy config file (run 'mcp-acp config path --proxy <name>')."
+    )
 
 
 async def _check_async(
@@ -484,7 +486,7 @@ async def _check_async(
                 raise ConnectionError(
                     f"Backend connection failed: {url}. "
                     "The server may require mTLS (client certificate). "
-                    "Configure mTLS in your config or run 'mcp-acp init'."
+                    "Configure mTLS in your proxy config file."
                 ) from e
             else:
                 # mTLS configured but connection failed with empty error = cert rejected
