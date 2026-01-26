@@ -50,7 +50,6 @@ async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
     """List all proxies.
 
     Returns array with single entry for this proxy.
-    In multi-proxy Phase 2, Manager will aggregate from multiple proxies.
     """
     info = state.get_proxy_info()
     stats = state.get_stats()

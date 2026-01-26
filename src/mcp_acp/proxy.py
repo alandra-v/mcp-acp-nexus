@@ -191,7 +191,6 @@ def create_proxy(
     configure_history_logging_hash_chain(integrity_manager, log_dir_path)
 
     # Get system logger early for use throughout startup
-    # (also used later in PHASE 2 for shutdown_coordinator)
     system_logger = get_system_logger()
 
     # Verify hash chain integrity on startup (Zero Trust - hard fail if compromised)
@@ -235,7 +234,7 @@ def create_proxy(
         raise DeviceHealthError(str(device_health))
 
     # =========================================================================
-    # PHASE 2: Security Infrastructure
+    # Security Infrastructure
     # Create fail-closed shutdown system and background health monitors
     # =========================================================================
 

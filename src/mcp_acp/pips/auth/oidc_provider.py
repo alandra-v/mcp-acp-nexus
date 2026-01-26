@@ -7,7 +7,7 @@ Pattern 1: STDIO Transport
 - Logout/revocation takes effect immediately
 
 This provider implements the IdentityProvider protocol, making it interchangeable
-with LocalIdentityProvider (Stage 1) and future HTTPIdentityProvider (Pattern 2).
+with future HTTPIdentityProvider (Pattern 2).
 
 Thread-safety: Uses asyncio.Lock for concurrent request safety.
 

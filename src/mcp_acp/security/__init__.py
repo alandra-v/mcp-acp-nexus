@@ -2,7 +2,7 @@
 
 This module provides:
 - Authentication: token storage, JWT validation (security/auth/)
-- Identity providers (local, OIDC in Stage 2+)
+- Identity providers (local, OIDC)
 - Device health checks (disk encryption, SIP)
 - Binary attestation for STDIO backends (hash, codesign, SLSA)
 - Audit log integrity: fail-closed handlers and health monitoring

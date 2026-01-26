@@ -1,8 +1,7 @@
 """Subject model - WHO is making the request.
 
 The Subject represents the identity of the requester in ABAC terms.
-Stage 1 (local): Only id populated via getpass.getuser()
-Stage 2+ (OIDC): Full token claims populated from FastMCP JWT
+Identity is populated from validated OIDC tokens.
 """
 
 from __future__ import annotations
@@ -33,11 +32,10 @@ class SubjectProvenance(BaseModel):
 class Subject(BaseModel):
     """Identity of the requester (ABAC Subject).
 
-    Stage 1 (local): Only id populated via getpass.getuser()
-    Stage 2+ (OIDC): Full token claims populated
+    Populated from validated OIDC tokens.
 
     Attributes:
-        id: OIDC 'sub' claim or local username
+        id: OIDC 'sub' claim
         issuer: OIDC 'iss' claim (token issuer URL)
         audience: OIDC 'aud' claim (intended recipients)
         client_id: OIDC 'azp' or 'client_id' (requesting application)

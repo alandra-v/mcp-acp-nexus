@@ -26,7 +26,7 @@ class Provenance(str, Enum):
     enabling policies to make trust decisions accordingly.
 
     Attributes:
-        TOKEN: Validated OIDC/OAuth token claim (Stage 2+)
+        TOKEN: Validated OIDC/OAuth token claim
         DIRECTORY: IdP/LDAP/DB lookup
         MTLS: mTLS peer certificate
         PROXY_CONFIG: Static proxy configuration (e.g., server_name)
