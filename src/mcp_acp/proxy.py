@@ -331,7 +331,7 @@ def create_proxy(
     # Create LoggingProxyClient with transport (logs to backend_wire.jsonl)
     logging_backend_client = create_logging_proxy_client(
         transport,
-        log_path=get_log_path(proxy_name, "backend", log_dir),
+        log_path=get_log_path(proxy_name, "backend_wire", log_dir),
         transport_type=transport_type,
         debug_enabled=debug_enabled,
     )
@@ -942,7 +942,7 @@ def create_proxy(
     # exceptions - this is acceptable since they're rare and the raw messages
     # provide useful diagnostic context. See docs/architecture.md for details.
     client_middleware = create_client_logging_middleware(
-        log_path=get_log_path(proxy_name, "client", log_dir),
+        log_path=get_log_path(proxy_name, "client_wire", log_dir),
         transport=transport_type,
         debug_enabled=debug_enabled,
     )

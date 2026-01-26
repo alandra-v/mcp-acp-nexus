@@ -30,9 +30,10 @@ from mcp_acp.utils.file_helpers import (
 
 # Log type to relative path mapping
 # Keys are used as log_type argument in get_log_path()
+# Keys match api/utils/jsonl.py LOG_PATHS for consistency
 LOG_PATHS: dict[str, str] = {
-    "client": "debug/client_wire.jsonl",
-    "backend": "debug/backend_wire.jsonl",
+    "client_wire": "debug/client_wire.jsonl",
+    "backend_wire": "debug/backend_wire.jsonl",
     "system": "system/system.jsonl",
     "config_history": "system/config_history.jsonl",
     "policy_history": "system/policy_history.jsonl",
@@ -43,7 +44,14 @@ LOG_PATHS: dict[str, str] = {
 
 # Type alias for valid log types
 LogType = Literal[
-    "client", "backend", "system", "config_history", "policy_history", "operations", "decisions", "auth"
+    "client_wire",
+    "backend_wire",
+    "system",
+    "config_history",
+    "policy_history",
+    "operations",
+    "decisions",
+    "auth",
 ]
 
 
