@@ -302,6 +302,9 @@ class HttpTransportConfig(BaseModel):
     Attributes:
         url: Backend server URL (e.g., "http://localhost:3010/mcp").
         timeout: Connection timeout in seconds (1-300).
+        credential_key: Keychain key for backend authentication credential.
+            If set, the credential is loaded from OS keychain at runtime.
+            The actual credential is never stored in config files.
     """
 
     url: str = Field(min_length=1, pattern=r"^https?://")
@@ -309,6 +312,10 @@ class HttpTransportConfig(BaseModel):
         default=DEFAULT_HTTP_TIMEOUT_SECONDS,
         ge=MIN_HTTP_TIMEOUT_SECONDS,
         le=MAX_HTTP_TIMEOUT_SECONDS,
+    )
+    credential_key: str | None = Field(
+        default=None,
+        description="Keychain key for backend auth credential (API key, bearer token)",
     )
 
 

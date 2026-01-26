@@ -39,6 +39,7 @@ from mcp_acp.utils.policy import save_policy
 from mcp_acp.utils.transport import check_http_health
 from mcp_acp.utils.validation import validate_sha256_hex
 
+from ..prompts import parse_comma_separated_args
 from ..styling import style_dim, style_error, style_header, style_success, style_warning
 
 
@@ -243,6 +244,7 @@ def proxy_show(name: str) -> None:
     default=None,
     help=f"HTTP connection timeout in seconds (default: {DEFAULT_HTTP_TIMEOUT_SECONDS})",
 )
+@click.option("--api-key", help="API key or bearer token for HTTP backend auth (stored in keychain)")
 # mTLS options (for HTTPS backends)
 @click.option("--mtls-cert", help="Path to client certificate for mTLS (PEM format)")
 @click.option("--mtls-key", help="Path to client private key for mTLS (PEM format)")
@@ -258,6 +260,7 @@ def proxy_add(
     attestation_require_signature: bool | None,
     url: str | None,
     timeout: int | None,
+    api_key: str | None,
     mtls_cert: str | None,
     mtls_key: str | None,
     mtls_ca: str | None,
@@ -345,10 +348,13 @@ def proxy_add(
             interactive=is_interactive,
         )
 
+    # Track API key for keychain storage (after proxy name is known)
+    http_api_key: str | None = None
+
     if connection_type in ("http", "both"):
         click.echo()
         click.echo(style_header("HTTP Transport"))
-        http_config = _build_http_config(url=url, timeout=timeout)
+        http_config, http_api_key = _build_http_config(url=url, timeout=timeout, api_key=api_key)
 
     # Determine transport mode
     if connection_type == "both":
@@ -388,6 +394,21 @@ def proxy_add(
             ca_bundle_path=mtls_ca,
         )
         click.echo(style_success("mTLS configured for HTTPS backend connections."))
+
+    # Store API key in keychain if provided
+    if http_api_key and http_config is not None:
+        from mcp_acp.security.credential_storage import BackendCredentialStorage
+
+        cred_storage = BackendCredentialStorage(name)
+        try:
+            cred_storage.save(http_api_key)
+            # Update configs with credential_key reference using model_copy
+            http_config = http_config.model_copy(update={"credential_key": cred_storage.credential_key})
+            backend_config = backend_config.model_copy(update={"http": http_config})
+            click.echo(style_success("API key stored securely in keychain."))
+        except RuntimeError as e:
+            click.echo(style_warning(f"Failed to store API key in keychain: {e}"))
+            click.echo(style_dim("Continuing without keychain credential storage."))
 
     # Create config
     proxy_config = PerProxyConfig(
@@ -458,11 +479,11 @@ def _build_stdio_config(
     # Get args
     args_list: list[str] = []
     if args:
-        args_list = [a.strip() for a in args.split(",") if a.strip()]
+        args_list = parse_comma_separated_args(args)
     elif interactive and click.confirm("Add command arguments?", default=False):
         args_str = click.prompt("Arguments (comma-separated)", type=str, default="")
         if args_str:
-            args_list = [a.strip() for a in args_str.split(",") if a.strip()]
+            args_list = parse_comma_separated_args(args_str)
 
     # Build attestation config if any flags provided or user wants to configure
     attestation_config: StdioAttestationConfig | None = None
@@ -537,15 +558,18 @@ def _build_stdio_config(
 def _build_http_config(
     url: str | None,
     timeout: int | None,
-) -> HttpTransportConfig:
+    api_key: str | None = None,
+) -> tuple[HttpTransportConfig, str | None]:
     """Build HTTP transport configuration with health check.
 
     Args:
         url: Backend URL (prompts if None).
         timeout: Connection timeout (uses default if None).
+        api_key: API key for backend auth (prompts if None and user wants).
 
     Returns:
-        HttpTransportConfig with validated URL and timeout.
+        Tuple of (HttpTransportConfig, api_key or None).
+        The api_key is returned separately for keychain storage.
 
     Raises:
         SystemExit: If URL is invalid or user aborts after connection failure.
@@ -594,7 +618,18 @@ def _build_http_config(
         elif choice == 3:
             raise SystemExit(0)
 
-    return HttpTransportConfig(url=url, timeout=http_timeout)
+    # Prompt for API key if not provided and user wants to configure
+    if api_key is None:
+        click.echo()
+        if click.confirm("Configure API key for backend authentication?", default=False):
+            api_key = click.prompt(
+                "API key (will be stored securely in keychain)",
+                type=str,
+                hide_input=True,
+            )
+
+    # Note: credential_key is set later after we know the proxy name
+    return HttpTransportConfig(url=url, timeout=http_timeout), api_key
 
 
 def _validate_http_url(url: str) -> bool:

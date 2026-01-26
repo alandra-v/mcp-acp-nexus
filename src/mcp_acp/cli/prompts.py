@@ -6,6 +6,7 @@ Provides reusable prompt utilities for gathering user input.
 from __future__ import annotations
 
 __all__ = [
+    "parse_comma_separated_args",
     "prompt_auth_config",
     "prompt_http_config",
     "prompt_optional",
@@ -34,6 +35,41 @@ from mcp_acp.utils.validation import (
     is_valid_oidc_issuer,
     validate_sha256_hex,
 )
+
+
+def _strip_surrounding_quotes(value: str) -> str:
+    """Strip matching surrounding quotes from a string.
+
+    Handles both single and double quotes. Only strips if quotes match
+    at both ends.
+
+    Examples:
+        '"value"' -> 'value'
+        "'value'" -> 'value'
+        '"value'  -> '"value' (no change, mismatched)
+        'value'   -> 'value' (no change, no quotes)
+    """
+    if len(value) >= 2:
+        if (value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'"):
+            return value[1:-1]
+    return value
+
+
+def parse_comma_separated_args(args_str: str) -> list[str]:
+    """Parse comma-separated arguments, stripping whitespace and quotes.
+
+    Users often copy args from JSON examples with quotes included.
+    This function strips matching surrounding quotes from each arg.
+
+    Args:
+        args_str: Comma-separated string like '-y, "@scope/pkg", /path'
+
+    Returns:
+        List of clean args: ['-y', '@scope/pkg', '/path']
+    """
+    if not args_str:
+        return []
+    return [_strip_surrounding_quotes(arg.strip()) for arg in args_str.split(",") if arg.strip()]
 
 
 def prompt_with_retry(prompt_text: str) -> str:
@@ -76,7 +112,7 @@ def prompt_stdio_config() -> StdioTransportConfig:
     click.echo(style_header("STDIO Configuration"))
     command = prompt_with_retry("Command to run")
     args_str = prompt_with_retry("Arguments (comma-separated)")
-    args_list = [arg.strip() for arg in args_str.split(",") if arg.strip()]
+    args_list = parse_comma_separated_args(args_str)
 
     # Optional attestation configuration
     attestation_config = prompt_stdio_attestation_config()

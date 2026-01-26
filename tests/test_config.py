@@ -399,12 +399,14 @@ class TestConfigHelpers:
         from mcp_acp.utils.config import get_log_dir
 
         config = AppConfig.model_validate(valid_config_dict)
+        proxy_name = config.proxy.name
+        log_dir = config.logging.log_dir
 
         # Act
-        result = get_log_dir(config)
+        result = get_log_dir(proxy_name, log_dir)
 
-        # Assert - path should end with mcp-acp/proxies/default
-        assert result.name == "default"
+        # Assert - path should end with mcp-acp/proxies/<proxy_name>
+        assert result.name == proxy_name
         assert result.parent.name == "proxies"
         assert result.parent.parent.name == "mcp-acp"
 
@@ -425,10 +427,12 @@ class TestConfigHelpers:
         from mcp_acp.utils import config as config_module
 
         config = AppConfig.model_validate(valid_config_dict)
+        proxy_name = config.proxy.name
+        log_dir = config.logging.log_dir
         helper = getattr(config_module, helper_name)
 
         # Act
-        result = helper(config)
+        result = helper(proxy_name, log_dir)
 
         # Assert
         assert result.name == expected_file
@@ -471,12 +475,15 @@ class TestConfigHelpers:
         valid_config_dict["logging"]["log_dir"] = str(tmp_path)
         valid_config_dict["logging"]["log_level"] = "INFO"
         config = AppConfig.model_validate(valid_config_dict)
+        proxy_name = config.proxy.name
+        log_dir = config.logging.log_dir
+        log_level = config.logging.log_level
 
-        ensure_directories(config)
+        ensure_directories(proxy_name, log_dir, log_level)
 
-        assert (tmp_path / "mcp-acp" / "proxies" / "default" / "audit").is_dir()
-        assert (tmp_path / "mcp-acp" / "proxies" / "default" / "system").is_dir()
-        assert not (tmp_path / "mcp-acp" / "proxies" / "default" / "debug").exists()
+        assert (tmp_path / "mcp-acp" / "proxies" / proxy_name / "audit").is_dir()
+        assert (tmp_path / "mcp-acp" / "proxies" / proxy_name / "system").is_dir()
+        assert not (tmp_path / "mcp-acp" / "proxies" / proxy_name / "debug").exists()
 
     def test_ensure_directories_creates_debug_dir_when_debug_level(
         self, tmp_path: Path, valid_config_dict: dict
@@ -487,9 +494,12 @@ class TestConfigHelpers:
         valid_config_dict["logging"]["log_dir"] = str(tmp_path)
         valid_config_dict["logging"]["log_level"] = "DEBUG"
         config = AppConfig.model_validate(valid_config_dict)
+        proxy_name = config.proxy.name
+        log_dir = config.logging.log_dir
+        log_level = config.logging.log_level
 
-        ensure_directories(config)
+        ensure_directories(proxy_name, log_dir, log_level)
 
-        assert (tmp_path / "mcp-acp" / "proxies" / "default" / "audit").is_dir()
-        assert (tmp_path / "mcp-acp" / "proxies" / "default" / "system").is_dir()
-        assert (tmp_path / "mcp-acp" / "proxies" / "default" / "debug").is_dir()
+        assert (tmp_path / "mcp-acp" / "proxies" / proxy_name / "audit").is_dir()
+        assert (tmp_path / "mcp-acp" / "proxies" / proxy_name / "system").is_dir()
+        assert (tmp_path / "mcp-acp" / "proxies" / proxy_name / "debug").is_dir()
