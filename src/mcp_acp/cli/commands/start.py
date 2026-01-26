@@ -122,9 +122,9 @@ def _handle_startup_error(
 
 
 @click.command()
-@click.option("--no-ui", is_flag=True, help="Disable web UI completely (no HTTP server)")
+@click.option("--headless", is_flag=True, help="Run without web UI (no manager auto-start, CLI-only mode)")
 @click.option("--proxy", "-p", "proxy_name", help="Proxy name to start (required for multi-proxy mode)")
-def start(no_ui: bool, proxy_name: str | None) -> None:
+def start(headless: bool, proxy_name: str | None) -> None:
     """Start the proxy server manually (for testing).
 
     Loads configuration from the OS-appropriate location.
@@ -241,7 +241,7 @@ def start(no_ui: bool, proxy_name: str | None) -> None:
             loaded_config,
             config_version=config_version,
             policy_version=policy_version,
-            enable_ui=not no_ui,
+            enable_ui=not headless,
         )
 
         # Display actual transport used (after detection)

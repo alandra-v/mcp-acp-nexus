@@ -545,7 +545,7 @@ def create_proxy(
                             raise RuntimeError(
                                 f"Port {DEFAULT_API_PORT} is already in use.\n"
                                 f"Another process is using this port. "
-                                f"Stop it or use --no-ui to disable the management UI."
+                                f"Stop it or use --headless to disable the management UI."
                             ) from e
                         raise
                     http_socket.listen(HTTP_SERVER_BACKLOG)
@@ -694,10 +694,10 @@ def create_proxy(
                             pass  # Non-fatal
 
             # ===================================================================
-            # ALWAYS: Manager Registration (for mcp-acp status with --no-ui)
+            # ALWAYS: Manager Registration (for mcp-acp status with --headless)
             # ===================================================================
             # Connect to manager for event aggregation if manager is available
-            # This runs regardless of enable_ui so CLI commands work with --no-ui
+            # This runs regardless of enable_ui so CLI commands work with --headless
             manager_client = ManagerClient(
                 proxy_name=proxy_name,
                 instance_id=proxy_state.proxy_id,
