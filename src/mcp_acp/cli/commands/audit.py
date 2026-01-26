@@ -423,7 +423,8 @@ def _backup_and_reset_file(
     "--yes",
     "-y",
     is_flag=True,
-    help="Skip confirmation prompt",
+    hidden=True,
+    help="Skip confirmation prompt (for testing/automation)",
 )
 def repair(proxy_name: str, log_file: str, yes: bool) -> None:
     """Repair integrity state after crash or verification failure.

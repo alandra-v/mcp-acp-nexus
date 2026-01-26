@@ -254,8 +254,8 @@ def proxy_show(name: str) -> None:
 @click.option("--mtls-cert", help="Path to client certificate for mTLS (PEM format)")
 @click.option("--mtls-key", help="Path to client private key for mTLS (PEM format)")
 @click.option("--mtls-ca", help="Path to CA bundle for server verification (PEM format)")
-# Confirmation
-@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
+# Confirmation (hidden, for testing/automation)
+@click.option("--yes", "-y", is_flag=True, hidden=True, help="Skip confirmation prompt")
 def proxy_add(
     name: str | None,
     server_name: str | None,
