@@ -110,13 +110,11 @@ No new dependencies needed - just wire up existing library.
 
 ## Phase 3: Manager Introduction
 
-**Status: In Progress (Implementation Complete, Tests + UI Polish Pending)**
+**Status: Complete**
 
 Manager daemon that serves UI and observes STDIO proxies (does not own lifecycle).
 
-See [docs/design/multi.md](docs/design/multi.md#phase-3-implementation-details) for architecture and implementation details.
-
-### Step 3.1: Manager Daemon Skeleton — Complete
+### Step 3.1: Manager Daemon Skeleton
 
 - [x] Manager process (daemon, PID file, graceful shutdown)
 - [x] HTTP server (port 8765, static UI)
@@ -127,7 +125,7 @@ See [docs/design/multi.md](docs/design/multi.md#phase-3-implementation-details) 
 - [x] Manager logging (system.jsonl)
 - [x] Tests (covered by routes tests: status endpoint, static serving)
 
-### Step 3.2: Proxy Registration — Complete
+### Step 3.2: Proxy Registration
 
 - [x] Registration protocol (NDJSON over UDS)
 - [x] Manager tracks proxies (in-memory dict)
@@ -136,7 +134,7 @@ See [docs/design/multi.md](docs/design/multi.md#phase-3-implementation-details) 
 - [x] API endpoints (/api/proxies, /api/manager/proxies)
 - [x] Tests (test_protocol.py, test_registry.py, test_client.py)
 
-### Step 3.3: Event Forwarding — Complete
+### Step 3.3: Event Forwarding
 
 - [x] Event protocol (NDJSON, fire-and-forget)
 - [x] Manager event aggregation (adds proxy_name, broadcasts)
@@ -144,7 +142,7 @@ See [docs/design/multi.md](docs/design/multi.md#phase-3-implementation-details) 
 - [x] Proxy state snapshot on registration
 - [x] Tests (test_registry.py: SSE broadcasting, test_client.py: push_event)
 
-### Step 3.4: API Routing — Complete
+### Step 3.4: API Routing
 
 - [x] Routing logic (httpx UDS transport)
 - [x] Fallback routing (/api/* → default proxy)
@@ -154,134 +152,156 @@ See [docs/design/multi.md](docs/design/multi.md#phase-3-implementation-details) 
 
 ### Step 3.5: UI Polish
 
-**Status: In Progress**
+- [x] Browser auto-open (manager opens browser on start, macOS notification fallback)
+- [x] UI SSE integration (connects to `/api/events`, handles proxy lifecycle events)
+- [x] Pending approvals on reload (snapshot sent before live events)
+- [x] Browser connectivity tracking (HITL fallback to osascript when no browser)
+- [x] Proxy status indicator (running/inactive) in detail view
 
-Final UI integration for manager-served UI.
-
-- [x] **Browser auto-open**
-  - Manager opens browser on `manager start` command
-  - URL: `http://127.0.0.1:{port}`
-  - macOS fallback: displays notification with URL if browser open fails
-
-- [x] **UI SSE integration**
-  - UI connects to `/api/events` (manager's aggregated endpoint)
-  - Added `proxy_registered` / `proxy_disconnected` event handlers
-  - Auto-refresh proxy list when proxies connect/disconnect
-  - Added TypeScript types for new SSE events
-
-- [x] **Pending approvals on reload**
-  - Manager fetches initial snapshot on SSE connect
-  - Properly sent before subscribing to live events
-
-- [x] **Browser connectivity tracking**
-  - Manager sends `ui_status` messages to proxies when browser connects/disconnects
-  - Proxy tracks `browser_connected` state (accurate, not just manager registration)
-  - `is_ui_connected` now reflects actual browser connectivity
-  - HITL correctly falls back to osascript when no browser connected
-  - HITL immediately falls back to osascript if manager disconnects mid-wait
-  - Heartbeat mechanism (30s interval, 45s timeout) detects stale connections
-  - Periodic reconnection (10s interval) after manager restart
-  - System log events: `browser_status_changed`, `manager_connection_closed`, `manager_reconnected`
-  - See [docs/demo-testing-guide/manager-ui-coupling-tests.md](docs/demo-testing-guide/manager-ui-coupling-tests.md)
-
-- [ ] **UI updates**
-  - [x] Basic proxy status indicator (running/inactive) in detail view
-  - [ ] "No proxies connected" message when manager has no registrations
-  - [ ] Enhanced proxy status indicators (connected/disconnected)
-  - [ ] "Restart Claude Desktop to reconnect" message
-
-- [ ] **Tests**
-  - UI shows correct proxy states
-  - Browser open logic
-
-- **Known issue (deferred to Phase 4)**: Auth status in navbar doesn't update live on SSE reconnect—shows "not logged in" until page reload. Stats update correctly because they're stored directly in AppStateContext, but auth uses window events which have timing issues. This will be resolved naturally when auth moves to manager in Phase 4 (manager will own auth state and push updates natively).
+**Note**: Multi-proxy UI enhancements (proxy list view, "No proxies connected" message, enhanced status indicators) are in Phase 5.
 
 ---
 
 ## Phase 4: Multi-Proxy Core
 
-**Status: Not Started**
+**Status: Complete (CLI fully functional)**
 
-Multiple STDIO proxies with per-proxy configuration, credential isolation, and centralized auth.
+Multi-proxy CLI support is complete. Users can configure multiple proxies and test them via CLI with `--headless`. The web UI still uses single-proxy patterns and will be updated in Phase 5.
 
-### Auth Migration
+### Step 4.1: Configuration Schema
 
-Move authentication from proxy to manager:
-- Manager handles OIDC device flow (login)
-- Manager stores tokens in keychain
-- Manager handles token refresh
-- Manager distributes identity tokens to proxies
-- `auth.jsonl` moves from proxy logs to `logs/manager/auth.jsonl`
+**Status: Complete**
 
-Proxies receive identity token from manager and validate per-request, but don't handle login/refresh.
+- [x] `PerProxyConfig` model (backend + hitl + proxy_id + mtls)
+- [x] `ManagerConfig` model (auth + ui_port + log_dir + log_level)
+- [x] `build_app_config_from_per_proxy()` helper
+- [x] Per-proxy config paths (`get_proxy_config_dir()`, `get_proxy_config_path()`)
+- [x] Config loading/saving functions
+- [x] Removed legacy single-proxy config support (`mcp_acp_config.json`)
 
-### Tasks
+### Step 4.2: CLI Commands
 
-- [ ] **Per-proxy directory structure**
-  ```
-  ~/.mcp-acp/
-  ├── manager.json
-  ├── proxies/
-  │   ├── filesystem/
-  │   │   ├── config.json
-  │   │   └── policy.json
-  │   └── github/
-  │       ├── config.json
-  │       └── policy.json
-  └── logs/proxies/{name}/
-  ```
+**Status: Complete**
 
-- [ ] **Proxy identity**
-  - `proxy_name`: User-facing, CLI/UI reference (e.g., "filesystem")
-  - `proxy_id`: Stable internal identifier (e.g., "px_a1b2c3d4")
-  - `instance_id`: Per-start ephemeral ID (e.g., "inst_x9y8z7")
-  - Wire up `Environment.proxy_instance` in DecisionContext
+- [x] **`mcp-acp init`** (restructured)
+  - Creates `manager.json` with OIDC auth config ONLY
+  - No more backend/logging prompts (moved to `proxy add`)
+  - Tells user to run `auth login` then `proxy add`
 
-- [ ] **Socket naming transition**
-  - Switch from `api.sock` to `proxy_{name}.sock`
-  - CLI commands use `--proxy` flag or default to single proxy
-  - Manager routes to correct proxy socket by name
+- [x] **`mcp-acp auth login/logout/status`**
+  - Reads OIDC config from `manager.json`
+  - Stores tokens in OS keychain
+  - Works without running proxy
 
-- [ ] **Multiple proxy tracking**
-  - Manager tracks all registered proxies
-  - Per-proxy status (connected/disconnected)
-  - Aggregate view across all proxies
+- [x] **`mcp-acp proxy add`**
+  - Requires init first (manager.json exists)
+  - Prompts for: proxy name, server name, connection type, command/URL
+  - Supports mTLS configuration for HTTP backends
+  - Generates `proxy_id` (e.g., "px_a1b2c3d4:filesystem-server")
+  - Creates `proxies/{name}/config.json` and `policy.json`
+  - Confirmation step with inline edit capability before saving
+  - Shows Claude Desktop config snippet
 
-- [ ] **Credential isolation**
-  - Generate unique encryption key per backend
-  - Store encrypted credentials in proxy config
-  - Store encryption keys in OS keychain
-  - Proxy decrypts own credentials on startup
-  - Each proxy only has access to own backend credentials
+- [x] **`mcp-acp proxy list`** - List all configured proxies + running status
+- [x] **`mcp-acp proxy show <name>`** - Show proxy config details
 
-- [ ] **Identity token handling**
-  - Manager handles OIDC token refresh centrally
-  - Proxies receive identity token on registration
-  - Manager broadcasts token updates to connected proxies
+- [x] **`mcp-acp start --proxy <name> [--headless]`** - Start specific proxy (required flag), `--headless` disables UI
+- [x] **`mcp-acp status --proxy <name>`** - Per-proxy or all proxies summary
+- [x] **`mcp-acp policy reload --proxy <name>`** - Requires proxy name
+- [x] **`mcp-acp install mcp-json [--proxy <name>]`** - Generate Claude Desktop config
 
-- [ ] **Proxy CLI commands**
-  - `mcp-acp proxy list` - List all configured proxies
-  - `mcp-acp proxy add [--name, --backend]` - Add new proxy config
-    - Validate name doesn't already exist
-    - Validate backend name is unique across proxies
-  - `mcp-acp proxy remove <name>` - Remove proxy config
-  - `mcp-acp proxy show <name>` - Show proxy config
-  - Note: No start/stop/restart commands (client owns lifecycle)
+- [x] **`mcp-acp logs list/view/tail --proxy <name>`** - Per-proxy log access
+- [x] **`mcp-acp audit verify/status/repair --proxy <name>`** - Per-proxy audit
+- [x] **`mcp-acp config show --manager|--proxy <name>`** - Show manager or proxy config
 
-- [ ] **Per-proxy policy/config commands**
-  - `mcp-acp proxy config <name> show`
-  - `mcp-acp proxy policy <name> show`
-  - `mcp-acp proxy policy <name> reload`
+- [x] **`api_client.py`** - Updated with `proxy_name` parameter, uses `get_proxy_socket_path()`
 
-- [ ] **Login/logout flow updates**
-  - Login: Manager handles OIDC, distributes tokens to proxies
-  - Logout: Manager broadcasts logout, proxies zeroize credentials
-  - Token refresh failure: Re-authentication required
+- [x] **CLI help updated** - Shows new multi-proxy flow (init → proxy add → start --proxy)
 
-- [ ] **Tests**
-  - Multi-proxy registration tests
-  - Credential isolation tests
-  - Token distribution tests
+- [x] **Shared CLI helpers** - `require_proxy_name()`, `validate_proxy_if_provided()` in utils/cli/helpers.py
+
+**Later Commands (Phase 7+):**
+
+- [ ] **`mcp-acp proxy remove <name>`** - Remove proxy with archiving
+
+### Step 4.3: Infrastructure Changes
+
+**Status: Complete**
+
+- [x] **Log path refactoring**
+  - Changed `get_log_dir(config)` to `get_log_dir(proxy_name, log_dir=None)`
+  - Updated all dependent log path functions
+  - Updated all callers in proxy.py, init.py, CLI commands, tests
+
+- [x] **Per-proxy log levels**
+  - Each proxy can have independent log level (DEBUG or INFO)
+  - Configured in per-proxy `config.json`
+  - Allows verbose debugging for specific proxies without affecting others
+
+- [x] **Socket path changes**
+  - Replaced `SOCKET_PATH` constant with `get_proxy_socket_path(proxy_name)`
+  - Updated all references in proxy.py
+  - `api_client.py` accepts `proxy_name` parameter
+
+- [x] **Manager routing**
+  - Added `_get_default_proxy()` helper in routes.py
+  - 0 proxies → 503 "No proxies connected"
+  - 1 proxy → use it (backward compat for UI)
+  - 2+ proxies → 400 error listing available proxies
+  - SSE events include `proxy_name` and iterate all proxies
+
+- [x] **Registration protocol**
+  - Added `proxy_id` to registration message
+  - Updated `ProxyConnection` dataclass with `proxy_id` field
+  - Added `get_all_proxies()` method to registry
+
+- [x] **Environment.proxy_instance**
+  - Added `proxy_name` parameter through middleware chain
+  - `build_decision_context()` accepts `proxy_name`
+  - `Environment.proxy_instance` populated in policy context
+
+- [x] **Crash breadcrumb path**
+  - Uses per-proxy log_dir (already works)
+
+- [x] **Token distribution protocol**
+  - Message type documented: `{"type": "token_update", "access_token": "...", "expires_at": "..."}`
+  - Stub handler in ManagerClient (logs receipt)
+
+### Step 4.4: Auth Migration
+
+**Status: Complete**
+
+OIDC config moved to manager.json. CLI auth commands work. Manager owns token lifecycle and distributes to proxies.
+
+- [x] **CLI reads OIDC from manager.json**
+  - `auth login` triggers device flow, reads OIDC from manager.json
+  - CLI stores tokens in OS keychain
+  - CLI notifies manager to reload and broadcast tokens
+
+- [x] **Manager handles token refresh**
+  - `ManagerTokenService` loads tokens from keychain on startup
+  - Monitors expiry, proactively refreshes (5 min before expiry)
+  - Broadcasts updates to all connected proxies
+
+- [x] **Token distribution implementation**
+  - Proxies receive token from manager on registration
+  - Manager broadcasts token updates to all connected proxies
+  - `OIDCIdentityProvider` prefers manager-provided tokens
+
+- [x] **Backend credentials in keychain**
+  - `BackendCredentialStorage` for API keys/tokens
+  - `credential_key` field in `HttpTransportConfig`
+  - `proxy add` prompts for API key, stores in keychain
+
+### Tests
+
+- [x] Manager registry tests (with proxy_id)
+- [x] Manager routes tests (updated error messages)
+- [x] Policy reload CLI tests (with --proxy flag)
+- [x] Context tests (proxy_name parameter)
+- [x] CLI command tests (init, proxy add, auth, logs, audit)
+- [x] Auth token distribution tests
+- [x] Multi-proxy routing tests (fallback behavior with 0/1/2+ proxies)
 
 ---
 
@@ -291,57 +311,88 @@ Proxies receive identity token from manager and validate per-request, but don't 
 
 UI enhancements for multi-proxy observation (no lifecycle control).
 
-- [ ] **Proxy list view (new landing page)**
-  - List all registered proxies
-  - Show status indicator (connected/disconnected)
-  - Show backend info
-  - Show stats per proxy (requests count, median response time)
-  - No start/stop buttons (client owns lifecycle)
-  - "Add New" button (creates config, user must configure client)
+**Prerequisite cleanup from Phase 4:** ✅ Complete
+- [x] Update `api/routes/config.py` to use per-proxy config paths
+- [x] Update `api/deps.py` to load OIDC from manager.json
+- [x] Remove `get_config_path()` returning legacy `mcp_acp_config.json`
 
-- [ ] **Proxy detail view (enhanced)**
+**Already implemented (from Phase 3/4):**
+- [x] Global approval notifications (header badge + PendingDrawer with `showProxyId`)
+- [x] SSE multi-proxy events (`proxy_name` field, `proxy_registered`/`proxy_disconnected` handlers)
+- [x] Manager settings page - **Not needed** (auth configured via CLI `mcp-acp init`)
+
+**Backend work required:**
+- [ ] Fix `get_log_base_path()` hardcoded "default" path in `utils/api/log_reader.py`
+- [ ] Add `GET /api/manager/incidents` - aggregated incidents endpoint with `?proxy=` filter
+- [ ] Enhance `GET /api/manager/proxies` - include config data (backend type, server_name, stats)
+- [ ] Add `POST /api/manager/proxies` - proxy creation endpoint (mirrors CLI `proxy add`)
+
+**UI work required:**
+- [ ] **Proxy list view (new landing page at `/`)**
+  - Grid of proxy cards with name, backend type, status, stats
+  - "Add Proxy" button
+  - Empty state for no proxies configured
+  - Click card → `/proxy/:name`
+
+- [ ] **Proxy detail view (route `/proxy/:name`)**
   - Back navigation to list
-  - Status + connected clients count
-  - No start/stop/restart buttons (observe only)
-  - Tabs: Overview, Logs, Policy, Config, Incidents
+  - URL param selects proxy (not hardcoded `proxies[0]`)
+  - Filter pending/cached/stats by proxy_id
 
 - [ ] **Add proxy flow**
-  - Name input
-  - Backend type selection (STDIO command or HTTP URL)
-  - Command/URL configuration
-  - Creates config file
-  - Shows instructions to add to Claude Desktop config
+  - Form: name, server_name, connection type, command/URL, API key
+  - POST to `/api/manager/proxies`
+  - Show Claude Desktop snippet on success
 
-- [ ] **Manager settings page**
-  - Authentication settings (OIDC, mTLS)
-  - Storage backend settings
-  - Warning: "Changes require client restart to apply"
-  - Save/discard buttons
-
-- [ ] **Global approval notifications**
-  - Notification banner visible from any page
-  - Shows proxy name + tool + args summary
-  - Quick actions (Approve/Deny) or "View" for details
-  - Badge in header with pending count across all proxies
-
-- [ ] **Incidents aggregator**
-  - Global `/incidents` page aggregates across all proxies
-  - Filter by proxy name
-  - Each incident shows which proxy it belongs to
-  - Per-proxy Incidents tab in detail view
-
-- [ ] **SSE updates for multi-proxy**
-  - Proxy registration/deregistration events
-  - Per-proxy event routing
-  - Manager-level events
+- [ ] **Incidents proxy filtering**
+  - Add proxy dropdown filter to existing IncidentsPage
+  - Pass filter to aggregated incidents API
 
 - [ ] **Tests**
-  - UI component tests
-  - SSE event handling tests
+  - Backend: incidents aggregation, proxy creation endpoint
+  - Frontend: proxy list, detail routing, add flow
 
 ---
 
-## Phase 6: Proxy Deletion
+## Phase 6: Security Hardening (Credential Isolation)
+
+**Status: Not Started**
+
+Encrypt backend credentials per-proxy with spawn-time key injection. Each proxy can only decrypt its own backend credentials.
+
+- [ ] **Per-proxy encryption keys**
+  - Generate unique encryption key per proxy on `proxy add`
+  - Store encryption keys in OS keychain (manager's keychain service)
+  - Key ID stored in proxy config, references keychain entry
+
+- [ ] **Backend credential encryption**
+  - Backend credentials (API keys, tokens) encrypted in proxy config
+  - `credentials.encrypted` blob in config.json
+  - Only decryptable with proxy's specific key
+
+- [ ] **Spawn-time key injection**
+  - When proxy starts, manager injects decryption key via secure IPC
+  - Proxy decrypts credentials on startup
+  - Key held in memory only (not written to disk)
+  - Manager forgets key after injection (zero-knowledge after spawn)
+
+- [ ] **Security properties**
+  - Compromised proxy A cannot decrypt proxy B's credentials
+  - Stolen config files are useless without keychain access
+  - Manager doesn't retain decryption keys after spawn
+
+- [ ] **CLI updates**
+  - `proxy add` prompts for backend credentials, encrypts them
+  - `proxy credentials <name> update` - update encrypted credentials
+
+- [ ] **Tests**
+  - Credential encryption/decryption tests
+  - Key injection tests
+  - Isolation verification tests
+
+---
+
+## Phase 7: Proxy Deletion
 
 **Status: Not Started**
 
@@ -352,6 +403,7 @@ Proxy deletion with audit trail preservation and recovery support.
   - Archive audit + system logs to `logs/proxies/.deleted/{name}_{timestamp}/`
   - Delete debug logs immediately (no security value)
   - Remove encryption key from keychain
+  - Remove backend credential from keychain (`proxy:{name}:backend` key)
   - Write README.txt with deletion metadata and recovery instructions
 
 - [ ] **Purge command**
@@ -383,7 +435,7 @@ Proxy deletion with audit trail preservation and recovery support.
 
 ---
 
-## Phase 7: Stability & Polish
+## Phase 8: Stability & Polish
 
 **Status: Not Started**
 
@@ -421,7 +473,7 @@ Toast notifications and crash handling.
 
 ---
 
-## Phase 8: Performance Metrics (POC)
+## Phase 9: Performance Metrics (POC)
 
 **Status: Not Started**
 
@@ -430,7 +482,7 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
 2. **HITL overhead** - Additional delay when human approval is required
 3. **Total proxy overhead** - End-to-end time through proxy (feasibility indicator)
 
-### Step 8.1: LatencyTracker Implementation
+### Step 9.1: LatencyTracker Implementation
 
 - [ ] **LatencyTracker class** (in `manager/state.py` or separate file)
   - Circular buffer for recent N samples (`LATENCY_BUFFER_SIZE = 1000` in constants.py)
@@ -465,7 +517,7 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
   - `proxy_latency`: Measure total time in ContextMiddleware (outermost)
   - Timing data already captured: `eval_duration_ms`, `hitl_result.response_time_ms`
 
-### Step 8.2: API and UI
+### Step 9.2: API and UI
 
 - [ ] **Expanded `/api/stats` endpoint**
   ```json
@@ -489,7 +541,7 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
   - Tooltip or expandable detail: policy eval ~2ms, HITL ~8.5s
   - Multi-proxy list view: show median on each proxy card
 
-### Step 8.3: Thesis Benchmark Script
+### Step 9.3: Thesis Benchmark Script
 
 Hybrid approach: log parsing for metrics already captured, live benchmark for proxy overhead comparison.
 
@@ -572,16 +624,19 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
 
 ## Stage 3 Completion Criteria
 
-- [x] Audit logs protected by hash chain with between-run verification
-- [x] Manager daemon serves UI and observes proxies (Phase 3 core complete)
-- [ ] Multiple STDIO proxies can register with manager (Phase 4)
-- [ ] Credential isolation per proxy (Phase 4)
-- [ ] CLI commands for proxy configuration (not lifecycle) (Phase 4)
+- [x] Audit logs protected by hash chain with between-run verification (Phase 1)
+- [x] Manager daemon serves UI and observes proxies (Phase 3)
+- [x] Multiple STDIO proxies can register with manager (Phase 4 Steps 1-3)
+- [x] CLI commands for proxy configuration (Phase 4 Step 2)
+- [x] CLI fully functional for multi-proxy testing (Phase 4 Complete)
+- [x] Auth commands read OIDC from manager.json (Phase 4 Step 4 partial)
+- [x] Full manager-owned auth lifecycle with token distribution (Phase 4 Step 4)
 - [ ] UI updated for multi-proxy observation (Phase 5)
-- [ ] Proxy deletion with audit trail preservation (Phase 6)
-- [ ] Toast notifications for proxy events (Phase 7)
-- [ ] Crash detection with UI notification (Phase 7)
-- [ ] Basic performance metrics displayed in UI (Phase 8)
+- [ ] Credential isolation per proxy (Phase 6 - Security Hardening)
+- [ ] Proxy deletion with audit trail preservation (Phase 7)
+- [ ] Toast notifications for proxy events (Phase 8)
+- [ ] Crash detection with UI notification (Phase 8)
+- [ ] Basic performance metrics displayed in UI (Phase 9)
 
 ---
 
