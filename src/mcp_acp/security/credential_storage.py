@@ -14,7 +14,6 @@ from __future__ import annotations
 __all__ = [
     "BackendCredentialStorage",
     "get_credential_storage",
-    "is_keyring_available",
 ]
 
 from mcp_acp.constants import APP_NAME
@@ -137,12 +136,12 @@ def get_credential_storage(proxy_name: str) -> BackendCredentialStorage:
     return BackendCredentialStorage(proxy_name)
 
 
-def is_keyring_available() -> bool:
+def _is_keyring_available() -> bool:
     """Check if keyring backend is available and functional.
 
     Returns:
         True if keyring can store/retrieve secrets.
     """
-    from mcp_acp.security.keyring_utils import is_keyring_available as _is_keyring_available
+    from mcp_acp.security.keyring_utils import is_keyring_available
 
-    return _is_keyring_available(test_service_suffix="cred-test")
+    return is_keyring_available(test_service_suffix="cred-test")
