@@ -22,9 +22,10 @@ __all__ = ["router"]
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 
 from mcp_acp.api.deps import ConfigDep
+from mcp_acp.api.utils.query_params import BeforeQuery, LimitQuery, time_range_query
 from mcp_acp.api.schemas import IncidentsSummary, LogsResponse
 from mcp_acp.api.utils.jsonl import (
     get_cutoff_time,
@@ -54,19 +55,12 @@ def _get_bootstrap_path() -> Path:
 
 
 # =============================================================================
-# Shared Query Parameters
+# Query Parameters
 # =============================================================================
 
-TimeRangeQuery = Query(
-    default="all",
-    description="Time range: 5m, 1h, 24h, or all",
-    pattern="^(5m|1h|24h|all)$",
-)
-LimitQuery = Query(default=100, ge=1, le=1000, description="Max entries to return")
-BeforeQuery = Query(
-    default=None,
-    description="Cursor for pagination: ISO timestamp to get entries older than this",
-)
+# Shared params from api/utils/query_params: LimitQuery, BeforeQuery, time_range_query
+# TimeRangeQuery uses "all" default for incidents (historical view)
+TimeRangeQuery = time_range_query(default="all")
 
 
 # =============================================================================

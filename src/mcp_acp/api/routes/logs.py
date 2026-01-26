@@ -32,6 +32,7 @@ from fastapi import APIRouter, Query
 
 from mcp_acp.api.deps import ConfigDep
 from mcp_acp.api.errors import APIError, ErrorCode
+from mcp_acp.api.utils.query_params import BeforeQuery, LimitQuery, time_range_query
 from mcp_acp.api.schemas import (
     LogFileInfo,
     LogFolderInfo,
@@ -54,19 +55,14 @@ router = APIRouter()
 
 
 # =============================================================================
-# Shared Query Parameters
+# Query Parameters
 # =============================================================================
 
-TimeRangeQuery = Query(
-    default="5m",
-    description="Time range: 5m, 1h, 24h, or all",
-    pattern="^(5m|1h|24h|all)$",
-)
-LimitQuery = Query(default=100, ge=1, le=1000, description="Max entries to return")
-BeforeQuery = Query(
-    default=None,
-    description="Cursor for pagination: ISO timestamp to get entries older than this",
-)
+# Shared params from api/utils/query_params: LimitQuery, BeforeQuery, time_range_query
+# TimeRangeQuery uses "5m" default for logs (recent activity focus)
+TimeRangeQuery = time_range_query(default="5m")
+
+# Log-specific filter params
 SessionIdQuery = Query(default=None, description="Filter by MCP session ID")
 BoundSessionIdQuery = Query(default=None, description="Filter by bound (auth) session ID")
 RequestIdQuery = Query(default=None, description="Filter by request ID")
