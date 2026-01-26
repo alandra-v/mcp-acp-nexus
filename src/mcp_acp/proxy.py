@@ -44,6 +44,7 @@ from mcp_acp.constants import (
     DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
     HTTP_SERVER_BACKLOG,
     PROTECTED_CONFIG_DIR,
+    SKIP_DEVICE_HEALTH_CHECK,
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
 from mcp_acp.exceptions import (
@@ -228,10 +229,12 @@ def create_proxy(
 
     # Run device health check (hard gate - proxy won't start if unhealthy)
     # Zero Trust: device posture must be verified before accepting any requests
-    device_health = check_device_health()
-    if not device_health.is_healthy:
-        # No popup here - start.py handles user-facing popups to avoid duplicates
-        raise DeviceHealthError(str(device_health))
+    # Skip on non-macOS platforms where checks are unavailable
+    if not SKIP_DEVICE_HEALTH_CHECK:
+        device_health = check_device_health()
+        if not device_health.is_healthy:
+            # No popup here - start.py handles user-facing popups to avoid duplicates
+            raise DeviceHealthError(str(device_health))
 
     # =========================================================================
     # Security Infrastructure
@@ -307,11 +310,14 @@ def create_proxy(
 
     # Create DeviceHealthMonitor for periodic device posture verification
     # Device state can change during operation (e.g., user disables SIP)
-    device_monitor = DeviceHealthMonitor(
-        shutdown_coordinator=shutdown_coordinator,
-        auth_logger=auth_logger,
-        check_interval_seconds=DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
-    )
+    # Skip on non-macOS platforms where checks are unavailable
+    device_monitor: DeviceHealthMonitor | None = None
+    if not SKIP_DEVICE_HEALTH_CHECK:
+        device_monitor = DeviceHealthMonitor(
+            shutdown_coordinator=shutdown_coordinator,
+            auth_logger=auth_logger,
+            check_interval_seconds=DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
+        )
 
     # =========================================================================
     # PHASE 3: Backend Connection
@@ -368,7 +374,8 @@ def create_proxy(
 
         try:
             await audit_monitor.start()
-            await device_monitor.start()
+            if device_monitor is not None:
+                await device_monitor.start()
         except Exception as e:
             # Log failure and re-raise - Zero Trust requires monitoring
             system_logger.error(
@@ -839,7 +846,8 @@ def create_proxy(
                 proxy_state.set_manager_client(None)  # Stop event forwarding
                 await manager_client.disconnect()
 
-            await device_monitor.stop()
+            if device_monitor is not None:
+                await device_monitor.stop()
             await audit_monitor.stop()
             # Log session_ended with bound session ID and MCP session for correlation
             if bound_session_id:
@@ -863,7 +871,7 @@ def create_proxy(
                         "message": "Monitor crashed during shutdown check",
                     }
                 )
-            if device_monitor._crashed:
+            if device_monitor is not None and device_monitor._crashed:
                 system_logger.error(
                     {
                         "event": "device_health_monitor_crash_detected",

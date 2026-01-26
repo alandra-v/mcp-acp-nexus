@@ -5,6 +5,7 @@ For user-configurable settings per deployment, see config.py.
 """
 
 import os
+import platform
 
 __all__ = [
     # Application identity
@@ -163,9 +164,9 @@ DEVICE_HEALTH_CHECK_INTERVAL_SECONDS: float = 300.0
 DEFAULT_DEVICE_FAILURE_THRESHOLD: int = 1
 
 # Skip device health checks (FileVault/SIP verification)
-# Set to True on Linux/Windows where these macOS-specific checks are unavailable.
-# WARNING: Disabling this reduces Zero Trust compliance - use only on non-macOS.
-SKIP_DEVICE_HEALTH_CHECK: bool = False
+# Auto-enabled on Linux/Windows where these macOS-specific checks are unavailable.
+# On macOS, this is False and checks are enforced.
+SKIP_DEVICE_HEALTH_CHECK: bool = platform.system() != "Darwin"
 
 # ============================================================================
 # OAuth Device Flow (RFC 8628)
