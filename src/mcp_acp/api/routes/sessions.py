@@ -37,8 +37,6 @@ async def list_auth_sessions(
         List of active auth sessions.
     """
 
-    # In single-proxy, proxy_id filter is ignored (all sessions are ours)
-    # In multi-proxy Phase 2, Manager will filter by proxy
     sessions = state.get_sessions()
 
     return [

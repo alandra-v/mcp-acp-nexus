@@ -13,24 +13,17 @@ const INITIAL_DELAY_MS = 1000
 // In dev mode, Vite runs on :3000 while API runs on :8765 (cross-origin).
 // Cookies with SameSite=Strict won't be sent cross-origin, so we fall back
 // to token fetch + Authorization header for dev mode.
-//
-// Legacy: window.__API_TOKEN__ was used for token injection, but Vite serves
-// its own index.html so the API server can't inject there. We still check it
-// for backwards compatibility and tests.
-declare global {
-  interface Window {
-    __API_TOKEN__?: string
-  }
-}
 
-// Token storage - captured from window or fetched from dev-token endpoint
+// Token storage - fetched from dev-token endpoint in dev mode
 let API_TOKEN: string | null = null
 let tokenPromise: Promise<void> | null = null
 
-// Capture token if present (legacy injection or test mode)
-if (window.__API_TOKEN__) {
-  API_TOKEN = window.__API_TOKEN__
-  delete window.__API_TOKEN__
+/**
+ * Set the API token directly (for tests only).
+ */
+export function setApiToken(token: string | null): void {
+  API_TOKEN = token
+  tokenPromise = null
 }
 
 /**
@@ -89,12 +82,11 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Parse error response from backend.
- * Handles both old (string detail) and new (structured detail) formats.
  *
  * Response formats:
  * - Structured: {"detail": {"code": "...", "message": "...", "details": {...}}}
- * - Legacy string: {"detail": "message"}
- * - Legacy Pydantic: {"detail": [{loc: [...], msg: "..."}]}
+ * - String: {"detail": "message"}
+ * - Pydantic validation: {"detail": [{loc: [...], msg: "..."}]}
  */
 async function parseErrorResponse(res: Response): Promise<ApiError> {
   const text = await res.text()
@@ -102,18 +94,18 @@ async function parseErrorResponse(res: Response): Promise<ApiError> {
   try {
     const json = JSON.parse(text)
 
-    // New structured format: {"detail": {"code": "...", "message": "...", ...}}
+    // Structured format: {"detail": {"code": "...", "message": "...", ...}}
     if (json.detail && typeof json.detail === 'object' && 'code' in json.detail) {
       const errorDetail = json.detail as ErrorDetail
       return new ApiError(res.status, res.statusText, errorDetail.message, errorDetail)
     }
 
-    // Legacy string format: {"detail": "string message"}
+    // String format: {"detail": "string message"}
     if (typeof json.detail === 'string') {
       return new ApiError(res.status, res.statusText, json.detail)
     }
 
-    // Legacy Pydantic validation error format: {"detail": [{msg: "..."}]}
+    // Pydantic validation error format: {"detail": [{msg: "..."}]}
     if (Array.isArray(json.detail)) {
       const messages = json.detail.map((e: { msg?: string }) => e.msg || JSON.stringify(e)).join(', ')
       return new ApiError(res.status, res.statusText, messages)

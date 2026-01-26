@@ -158,7 +158,7 @@ def get_proxy_name(request: Request) -> str | None:
     """Get proxy name from app.state.
 
     Returns:
-        Proxy name if set, None otherwise (legacy mode).
+        Proxy name if set, None otherwise.
     """
     name: str | None = getattr(request.app.state, "proxy_name", None)
     return name
@@ -167,22 +167,21 @@ def get_proxy_name(request: Request) -> str | None:
 def get_policy_path_for_proxy(request: Request) -> Path:
     """Get the policy path for the current proxy.
 
-    Uses per-proxy path if proxy_name is set, otherwise falls back
-    to global policy path (legacy single-proxy mode).
-
     Args:
         request: FastAPI request object.
 
     Returns:
         Path to the policy.json file.
+
+    Raises:
+        RuntimeError: If proxy_name is not set on app.state.
     """
     from mcp_acp.manager.config import get_proxy_policy_path
-    from mcp_acp.utils.policy import get_policy_path
 
     proxy_name = getattr(request.app.state, "proxy_name", None)
-    if proxy_name:
-        return get_proxy_policy_path(proxy_name)
-    return get_policy_path()
+    if not proxy_name:
+        raise RuntimeError("proxy_name not set on app.state")
+    return get_proxy_policy_path(proxy_name)
 
 
 def _load_oidc_config_from_file() -> "OIDCConfig | None":

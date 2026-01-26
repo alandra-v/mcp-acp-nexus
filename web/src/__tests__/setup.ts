@@ -1,12 +1,9 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
+import { setApiToken } from '@/api/client'
 
-// Mock window.__API_TOKEN__
-Object.defineProperty(window, '__API_TOKEN__', {
-  value: 'test-token-1234567890abcdef1234567890abcdef1234567890abcdef',
-  writable: true,
-  configurable: true,
-})
+// Set API token for tests
+setApiToken('test-token-1234567890abcdef1234567890abcdef1234567890abcdef')
 
 // Mock window.open
 vi.stubGlobal('open', vi.fn())

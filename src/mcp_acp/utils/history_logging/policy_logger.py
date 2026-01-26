@@ -26,7 +26,6 @@ __all__ = [
     "log_policy_created",
     "log_policy_loaded",
     "log_policy_validation_failed",
-    "get_policy_history_path_from_config_dir",
 ]
 
 
@@ -134,16 +133,3 @@ def log_policy_validation_failed(
         component,
         source,
     )
-
-
-def get_policy_history_path_from_config_dir() -> Path:
-    """Get policy history path in config directory (fallback location).
-
-    Used when we can't read log_dir from config (e.g., validation failure).
-
-    Returns:
-        Path to policy_history.jsonl in config directory.
-    """
-    from mcp_acp.utils.policy import get_policy_dir
-
-    return get_policy_dir() / "logs" / "system" / "policy_history.jsonl"

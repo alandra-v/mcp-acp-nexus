@@ -102,7 +102,7 @@ def create_api_app(
             UDS apps skip token/host/origin validation but keep size limits
             and security headers.
         proxy_name: Name of the proxy this API serves. Required for per-proxy
-            policy paths. If None, falls back to global paths (legacy mode).
+            policy and config paths.
 
     Returns:
         Configured FastAPI application.

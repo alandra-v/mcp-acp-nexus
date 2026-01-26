@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from mcp_acp.utils.policy import load_policy, get_policy_path
+from mcp_acp.utils.policy import load_policy
 
 if TYPE_CHECKING:
     import logging
@@ -69,7 +69,7 @@ class PolicyReloader:
         self,
         middleware: "PolicyEnforcementMiddleware",
         system_logger: "logging.Logger",
-        policy_path: Path | None = None,
+        policy_path: Path,
         policy_history_path: Path | None = None,
         initial_version: str | None = None,
     ) -> None:
@@ -78,13 +78,13 @@ class PolicyReloader:
         Args:
             middleware: The enforcement middleware to reload policy into.
             system_logger: Logger for reload events.
-            policy_path: Path to policy.json. If None, uses default.
+            policy_path: Path to policy.json.
             policy_history_path: Path to policy_history.jsonl for versioning.
             initial_version: Initial policy version (from startup).
         """
         self._middleware = middleware
         self._logger = system_logger
-        self._policy_path = policy_path or get_policy_path()
+        self._policy_path = policy_path
         self._policy_history_path = policy_history_path
 
         # State for status endpoint

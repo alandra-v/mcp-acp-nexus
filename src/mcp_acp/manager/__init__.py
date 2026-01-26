@@ -1,6 +1,6 @@
 """Manager package for MCP-ACP proxy coordination.
 
-Phase 3+: Manager daemon serves UI and coordinates proxies.
+Manager daemon serves UI and coordinates proxies.
 - daemon.py: Manager daemon process (HTTP + UDS servers)
 - registry.py: Proxy registry for tracking connected proxies
 - client.py: Manager client for proxy-to-manager communication
@@ -11,7 +11,7 @@ Phase 3+: Manager daemon serves UI and coordinates proxies.
 - pending.py: Pending approval request handling
 - routes.py: FastAPI routes and HTTP helpers
 
-Architecture (Phase 3):
+Architecture:
     - Manager serves UI and routes API requests
     - Proxies register with manager via UDS
     - Manager aggregates SSE events from all proxies

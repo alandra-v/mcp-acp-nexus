@@ -1,7 +1,7 @@
 """Policy loader - load and save policy configuration.
 
-This module provides functions to load policy.json from the config directory
-and save policy changes (e.g., when user adds "Always Deny" rules via HITL).
+This module provides functions to load and save policy.json files.
+Policy files are stored per-proxy at: <config_dir>/proxies/{name}/policy.json
 
 Features:
 - Secure file permissions (0o700 for directory, 0o600 for file)
@@ -22,44 +22,17 @@ from pydantic import ValidationError
 from mcp_acp.pdp.policy import PolicyConfig, PolicyRule, create_default_policy
 from mcp_acp.utils.file_helpers import (
     compute_file_checksum,
-    get_app_dir,
     require_file_exists,
     set_secure_permissions,
 )
 
-# Re-export for convenience
 __all__ = [
-    "get_policy_dir",
-    "get_policy_path",
     "compute_policy_checksum",
     "load_policy",
     "save_policy",
     "policy_exists",
     "create_default_policy_file",
 ]
-
-
-def get_policy_dir() -> Path:
-    """Get the OS-appropriate config directory for policy files.
-
-    Uses the same directory as manager.json:
-    - macOS: ~/Library/Application Support/mcp-acp
-    - Linux: ~/.config/mcp-acp (XDG compliant)
-    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp
-
-    Returns:
-        Path to the config directory.
-    """
-    return get_app_dir()
-
-
-def get_policy_path() -> Path:
-    """Get the full path to the policy file.
-
-    Returns:
-        Path to policy.json in the config directory.
-    """
-    return get_policy_dir() / "policy.json"
 
 
 def compute_policy_checksum(policy_path: Path) -> str:
@@ -104,14 +77,14 @@ def _needs_normalization(raw_rules: list[dict[str, object]], validated_rules: li
     return False
 
 
-def load_policy(path: Path | None = None, *, normalize: bool = True) -> PolicyConfig:
+def load_policy(path: Path, *, normalize: bool = True) -> PolicyConfig:
     """Load policy configuration from file.
 
     Automatically normalizes the policy file by generating missing rule IDs.
     This keeps the file in sync with the runtime representation.
 
     Args:
-        path: Path to policy.json. If None, uses default location.
+        path: Path to policy.json file.
         normalize: If True (default), save back to file if IDs were generated.
                    Set to False to skip normalization (e.g., for read-only checks).
 
@@ -127,7 +100,7 @@ def load_policy(path: Path | None = None, *, normalize: bool = True) -> PolicyCo
         but the valid policy is still returned. The file will be normalized on
         the next successful save.
     """
-    policy_path = path or get_policy_path()
+    policy_path = path
     require_file_exists(policy_path, file_type="policy")
 
     # Load raw JSON (single read)
@@ -170,7 +143,7 @@ def load_policy(path: Path | None = None, *, normalize: bool = True) -> PolicyCo
     return policy
 
 
-def save_policy(policy: PolicyConfig, path: Path | None = None) -> None:
+def save_policy(policy: PolicyConfig, path: Path) -> None:
     """Save policy configuration to file atomically.
 
     Uses atomic write pattern: write to temp file, then rename.
@@ -181,9 +154,9 @@ def save_policy(policy: PolicyConfig, path: Path | None = None) -> None:
 
     Args:
         policy: PolicyConfig to save.
-        path: Path to save to. If None, uses default location.
+        path: Path to save to.
     """
-    policy_path = path or get_policy_path()
+    policy_path = path
 
     # Ensure parent directory exists with secure permissions
     policy_path.parent.mkdir(parents=True, exist_ok=True)
@@ -222,24 +195,23 @@ def save_policy(policy: PolicyConfig, path: Path | None = None) -> None:
         raise
 
 
-def policy_exists(path: Path | None = None) -> bool:
+def policy_exists(path: Path) -> bool:
     """Check if policy file exists.
 
     Args:
-        path: Path to check. If None, uses default location.
+        path: Path to check.
 
     Returns:
         True if policy file exists.
     """
-    policy_path = path or get_policy_path()
-    return policy_path.exists()
+    return path.exists()
 
 
-def create_default_policy_file(path: Path | None = None) -> PolicyConfig:
+def create_default_policy_file(path: Path) -> PolicyConfig:
     """Create a default policy file if it doesn't exist.
 
     Args:
-        path: Path to create. If None, uses default location.
+        path: Path to create.
 
     Returns:
         The PolicyConfig that was created.
@@ -247,11 +219,9 @@ def create_default_policy_file(path: Path | None = None) -> PolicyConfig:
     Raises:
         FileExistsError: If policy file already exists.
     """
-    policy_path = path or get_policy_path()
-
-    if policy_path.exists():
-        raise FileExistsError(f"Policy file already exists: {policy_path}")
+    if path.exists():
+        raise FileExistsError(f"Policy file already exists: {path}")
 
     policy = create_default_policy()
-    save_policy(policy, policy_path)
+    save_policy(policy, path)
     return policy

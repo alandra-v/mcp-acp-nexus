@@ -277,7 +277,7 @@ def _show_proxy_audit_status(proxy_name: str, log_dir_str: str) -> None:
                             status_str = style_error("BROKEN")
                             info = f"{len(lines)} entries - chain integrity failed"
                     else:
-                        status_str = style_warning("legacy format")
+                        status_str = style_warning("unprotected")
                         info = f"{len(lines)} entries (no hash chain)"
             except (json.JSONDecodeError, OSError):
                 status_str = style_error("error reading")
@@ -298,7 +298,7 @@ def _check_chain_integrity(log_path: Path) -> tuple[bool, list[str]]:
 
     Returns:
         Tuple of (is_valid, error_messages). Returns (True, []) for empty
-        files or legacy files without hash chain entries.
+        files or files without hash chain entries.
     """
     try:
         with log_path.open(encoding="utf-8") as f:
@@ -311,7 +311,7 @@ def _check_chain_integrity(log_path: Path) -> tuple[bool, list[str]]:
         try:
             last_entry = json.loads(lines[-1])
             if "sequence" not in last_entry or "entry_hash" not in last_entry:
-                return True, []  # Legacy format, no chain to verify
+                return True, []  # No hash chain entries, nothing to verify
         except json.JSONDecodeError:
             return False, ["Last entry is not valid JSON"]
 

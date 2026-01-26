@@ -404,7 +404,7 @@ RUNTIME_DIR: Path = Path(user_runtime_dir(APP_NAME))
 SOCKET_PATH: Path = RUNTIME_DIR / "api.sock"
 
 # Manager daemon paths
-# Manager serves UI and aggregates proxy state (Phase 3+)
+# Manager serves UI and aggregates proxy state
 MANAGER_SOCKET_PATH: Path = RUNTIME_DIR / "manager.sock"
 MANAGER_PID_PATH: Path = RUNTIME_DIR / "manager.pid"
 MANAGER_LOCK_PATH: Path = RUNTIME_DIR / "manager.lock"

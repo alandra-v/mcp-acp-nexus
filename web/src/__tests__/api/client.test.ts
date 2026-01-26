@@ -24,12 +24,27 @@ describe('API Client', () => {
     vi.useRealTimers()
   })
 
+  // Helper to create mock Response with headers
+  const mockResponse = (opts: {
+    ok?: boolean
+    status?: number
+    statusText?: string
+    json?: () => Promise<unknown>
+    text?: () => Promise<string>
+  }) => ({
+    ok: opts.ok ?? true,
+    status: opts.status ?? 200,
+    statusText: opts.statusText ?? 'OK',
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: opts.json ?? (() => Promise.resolve({})),
+    text: opts.text ?? (() => Promise.resolve('')),
+  })
+
   describe('apiGet', () => {
     it('makes GET request with auth header', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
+      mockFetch.mockResolvedValueOnce(mockResponse({
         json: () => Promise.resolve({ data: 'test' }),
-      })
+      }))
 
       const result = await apiGet('/test')
 
@@ -46,21 +61,20 @@ describe('API Client', () => {
     })
 
     it('throws ApiError on non-ok response', async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValueOnce(mockResponse({
         ok: false,
         status: 404,
         statusText: 'Not Found',
         text: () => Promise.resolve('Resource not found'),
-      })
+      }))
 
       await expect(apiGet('/missing')).rejects.toThrow(ApiError)
     })
 
     it('throws ApiError with invalid JSON response', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
+      mockFetch.mockResolvedValueOnce(mockResponse({
         json: () => Promise.reject(new Error('Invalid JSON')),
-      })
+      }))
 
       await expect(apiGet('/test')).rejects.toThrow(ApiError)
     })
@@ -75,10 +89,9 @@ describe('API Client', () => {
 
   describe('apiPost', () => {
     it('makes POST request with JSON body', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
+      mockFetch.mockResolvedValueOnce(mockResponse({
         json: () => Promise.resolve({ created: true }),
-      })
+      }))
 
       const result = await apiPost('/create', { name: 'test' })
 
@@ -96,10 +109,9 @@ describe('API Client', () => {
     })
 
     it('makes POST request without body', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
+      mockFetch.mockResolvedValueOnce(mockResponse({
         json: () => Promise.resolve({ status: 'ok' }),
-      })
+      }))
 
       await apiPost('/action')
 
@@ -115,10 +127,9 @@ describe('API Client', () => {
 
   describe('apiPut', () => {
     it('makes PUT request with JSON body', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
+      mockFetch.mockResolvedValueOnce(mockResponse({
         json: () => Promise.resolve({ updated: true }),
-      })
+      }))
 
       await apiPut('/update/1', { name: 'updated' })
 
@@ -134,10 +145,9 @@ describe('API Client', () => {
 
   describe('apiDelete', () => {
     it('makes DELETE request', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
+      mockFetch.mockResolvedValueOnce(mockResponse({
         json: () => Promise.resolve({}),
-      })
+      }))
 
       await apiDelete('/item/1')
 
@@ -156,10 +166,9 @@ describe('API Client', () => {
       mockFetch
         .mockRejectedValueOnce(new TypeError('Network error'))
         .mockRejectedValueOnce(new TypeError('Network error'))
-        .mockResolvedValueOnce({
-          ok: true,
+        .mockResolvedValueOnce(mockResponse({
           json: () => Promise.resolve({ data: 'success' }),
-        })
+        }))
 
       const promise = apiGet('/test')
 
@@ -174,16 +183,15 @@ describe('API Client', () => {
 
     it('retries on 5xx server error', async () => {
       mockFetch
-        .mockResolvedValueOnce({
+        .mockResolvedValueOnce(mockResponse({
           ok: false,
           status: 503,
           statusText: 'Service Unavailable',
           text: () => Promise.resolve('Server overloaded'),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
+        }))
+        .mockResolvedValueOnce(mockResponse({
           json: () => Promise.resolve({ data: 'recovered' }),
-        })
+        }))
 
       const promise = apiGet('/test')
 
@@ -194,12 +202,12 @@ describe('API Client', () => {
     })
 
     it('does not retry on 4xx client error', async () => {
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockResolvedValueOnce(mockResponse({
         ok: false,
         status: 400,
         statusText: 'Bad Request',
         text: () => Promise.resolve('Invalid input'),
-      })
+      }))
 
       await expect(apiGet('/test')).rejects.toThrow(ApiError)
       expect(mockFetch).toHaveBeenCalledTimes(1)

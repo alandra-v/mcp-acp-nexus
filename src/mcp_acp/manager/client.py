@@ -605,7 +605,7 @@ class ManagerClient:
             pass
 
         elif msg_type == "token_update":
-            # Token update from manager (Phase 4 - multi-proxy token distribution)
+            # Token update from manager
             await self._handle_token_update(msg)
 
         elif msg_type == "token_cleared":

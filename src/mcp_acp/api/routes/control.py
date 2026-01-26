@@ -3,9 +3,6 @@
 Provides:
 - GET /status - Current proxy and policy status
 - POST /reload-policy - Hot reload policy from disk
-
-Note: Proxy lifecycle management (start/stop/restart) will be added
-in the multi-proxy Manager phase. See ui-progress.md.
 """
 
 __all__ = ["router"]

@@ -6,7 +6,7 @@ The ManagerTokenService centralizes token lifecycle management:
 - Broadcasts token updates to all connected proxies
 - Sends initial token when proxy registers
 
-This implements Phase 4's token distribution requirement, ensuring all proxies
+This implements token distribution, ensuring all proxies
 share the same token state without each independently managing refresh.
 
 Protocol:

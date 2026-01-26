@@ -138,12 +138,13 @@ class TestPolicyEngineReload:
 class TestPolicyReloader:
     """Tests for PolicyReloader class."""
 
-    def test_initial_state(self, mock_middleware: MagicMock, mock_logger: MagicMock) -> None:
+    def test_initial_state(self, mock_middleware: MagicMock, mock_logger: MagicMock, tmp_path: Path) -> None:
         """Given new reloader, initial state is correct."""
         # Arrange & Act
         reloader = PolicyReloader(
             middleware=mock_middleware,
             system_logger=mock_logger,
+            policy_path=tmp_path / "policy.json",
             initial_version="v1",
         )
 
@@ -154,13 +155,14 @@ class TestPolicyReloader:
         assert reloader.uptime_seconds >= 0
 
     def test_current_rules_count(
-        self, mock_middleware: MagicMock, mock_logger: MagicMock, sample_policy: PolicyConfig
+        self, mock_middleware: MagicMock, mock_logger: MagicMock, sample_policy: PolicyConfig, tmp_path: Path
     ) -> None:
         """Given reloader, current_rules_count returns correct count."""
         # Arrange
         reloader = PolicyReloader(
             middleware=mock_middleware,
             system_logger=mock_logger,
+            policy_path=tmp_path / "policy.json",
         )
 
         # Act & Assert
