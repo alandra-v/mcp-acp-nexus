@@ -687,34 +687,35 @@ def create_proxy(
                             pass  # Non-fatal
 
             # ===================================================================
-            # ALWAYS: Manager Registration (for mcp-acp status with --headless)
+            # Manager Registration (only when UI enabled, skip in headless mode)
             # ===================================================================
-            # Connect to manager for event aggregation if manager is available
-            # This runs regardless of enable_ui so CLI commands work with --headless
-            manager_client = ManagerClient(
-                proxy_name=proxy_name,
-                instance_id=proxy_state.proxy_id,
-                proxy_api_socket_path=str(socket_path),
-                proxy_id=config.proxy.proxy_id,
-            )
-            if await manager_client.connect():
-                config_summary = {
-                    "backend_id": config.backend.server_name,
-                    "transport": transport_type,
-                    "api_port": DEFAULT_API_PORT if not manager_serves_ui else None,
-                }
-                if await manager_client.register(config_summary=config_summary):
-                    proxy_state.set_manager_client(manager_client)
-                    # Wire HITL handler for disconnect notifications
-                    # This allows pending web UI approvals to fall back to osascript
-                    manager_client.set_hitl_handler(enforcement_middleware.hitl_handler)
-                else:
-                    system_logger.warning(
-                        {
-                            "event": "manager_registration_failed",
-                            "message": "Failed to register with manager",
-                        }
-                    )
+            # Connect to manager for event aggregation and centralized UI.
+            # In headless mode, proxy runs fully standalone without manager.
+            if enable_ui:
+                manager_client = ManagerClient(
+                    proxy_name=proxy_name,
+                    instance_id=proxy_state.proxy_id,
+                    proxy_api_socket_path=str(socket_path),
+                    proxy_id=config.proxy.proxy_id,
+                )
+                if await manager_client.connect():
+                    config_summary = {
+                        "backend_id": config.backend.server_name,
+                        "transport": transport_type,
+                        "api_port": DEFAULT_API_PORT if not manager_serves_ui else None,
+                    }
+                    if await manager_client.register(config_summary=config_summary):
+                        proxy_state.set_manager_client(manager_client)
+                        # Wire HITL handler for disconnect notifications
+                        # This allows pending web UI approvals to fall back to osascript
+                        manager_client.set_hitl_handler(enforcement_middleware.hitl_handler)
+                    else:
+                        system_logger.warning(
+                            {
+                                "event": "manager_registration_failed",
+                                "message": "Failed to register with manager",
+                            }
+                        )
 
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:

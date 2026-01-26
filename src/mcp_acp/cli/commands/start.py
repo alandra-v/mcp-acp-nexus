@@ -122,7 +122,7 @@ def _handle_startup_error(
 
 
 @click.command()
-@click.option("--headless", is_flag=True, help="Run without web UI (no manager auto-start, CLI-only mode)")
+@click.option("--headless", is_flag=True, help="Run fully standalone (no manager, no UI, HITL via osascript)")
 @click.option("--proxy", "-p", "proxy_name", help="Proxy name to start (required for multi-proxy mode)")
 def start(headless: bool, proxy_name: str | None) -> None:
     """Start the proxy server manually (for testing).
