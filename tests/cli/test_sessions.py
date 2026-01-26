@@ -52,7 +52,7 @@ class TestSessionsListCommand:
             return_value=mock_sessions_response,
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -68,7 +68,7 @@ class TestSessionsListCommand:
             return_value=mock_sessions_response,
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -84,7 +84,7 @@ class TestSessionsListCommand:
             return_value=mock_sessions_response,
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -99,7 +99,7 @@ class TestSessionsListCommand:
             return_value=[],
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -110,10 +110,10 @@ class TestSessionsListCommand:
         # Arrange
         with patch(
             "mcp_acp.cli.commands.sessions.api_request",
-            side_effect=ProxyNotRunningError(),
+            side_effect=ProxyNotRunningError("test"),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
@@ -127,11 +127,19 @@ class TestSessionsListCommand:
             side_effect=APIError("Unauthorized", status_code=401),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
         assert "401" in result.output
+
+    def test_sessions_list_requires_proxy_flag(self, runner: CliRunner) -> None:
+        """Given no --proxy flag, shows error."""
+        # Act
+        result = runner.invoke(cli, ["sessions", "list"])
+
+        # Assert
+        assert result.exit_code == 2  # Click exits with 2 for missing required option
 
 
 class TestSessionsListJsonOutput:
@@ -145,7 +153,7 @@ class TestSessionsListJsonOutput:
             return_value=mock_sessions_response,
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--json"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test", "--json"])
 
         # Assert
         assert result.exit_code == 0
@@ -163,7 +171,7 @@ class TestSessionsListJsonOutput:
             return_value=mock_sessions_response,
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--json"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test", "--json"])
 
         # Assert
         data = json.loads(result.output)
@@ -182,7 +190,7 @@ class TestSessionsListJsonOutput:
             return_value=[],
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--json"])
+            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test", "--json"])
 
         # Assert
         assert result.exit_code == 0

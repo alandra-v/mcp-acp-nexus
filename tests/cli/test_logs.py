@@ -72,10 +72,11 @@ def sample_system_log() -> str:
 
 
 @pytest.fixture
-def mock_config() -> MagicMock:
-    """Create a mock config object."""
+def mock_manager_config() -> MagicMock:
+    """Create a mock manager config object."""
     config = MagicMock()
-    config.logging.log_dir = "/tmp/test-logs"
+    config.log_dir = "/tmp/test-logs"
+    config.auth = MagicMock()  # Auth is required by load_manager_config_or_exit
     return config
 
 
@@ -83,7 +84,7 @@ class TestLogsShowCommand:
     """Tests for logs show command (JSON output)."""
 
     def test_show_outputs_jsonl(
-        self, runner: CliRunner, sample_decisions_log: str, mock_config: MagicMock
+        self, runner: CliRunner, sample_decisions_log: str, mock_manager_config: MagicMock
     ) -> None:
         """Given log file exists, outputs JSONL."""
         # Arrange
@@ -92,15 +93,19 @@ class TestLogsShowCommand:
             log_path.write_text(sample_decisions_log)
 
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
                 with patch(
-                    "mcp_acp.cli.commands.logs._get_log_path",
-                    return_value=log_path,
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    return_value=mock_manager_config,
                 ):
-                    # Act
-                    result = runner.invoke(cli, ["logs", "show", "--type=decisions"])
+                    with patch(
+                        "mcp_acp.cli.commands.logs._get_log_path",
+                        return_value=log_path,
+                    ):
+                        # Act
+                        result = runner.invoke(cli, ["logs", "show", "--proxy", "test", "--type=decisions"])
 
         # Assert
         assert result.exit_code == 0
@@ -112,7 +117,7 @@ class TestLogsShowCommand:
             assert "decision" in data
 
     def test_show_respects_limit(
-        self, runner: CliRunner, sample_decisions_log: str, mock_config: MagicMock
+        self, runner: CliRunner, sample_decisions_log: str, mock_manager_config: MagicMock
     ) -> None:
         """Given --limit flag, shows only that many entries."""
         # Arrange
@@ -121,44 +126,54 @@ class TestLogsShowCommand:
             log_path.write_text(sample_decisions_log)
 
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
                 with patch(
-                    "mcp_acp.cli.commands.logs._get_log_path",
-                    return_value=log_path,
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    return_value=mock_manager_config,
                 ):
-                    # Act
-                    result = runner.invoke(cli, ["logs", "show", "--type=decisions", "--limit=1"])
+                    with patch(
+                        "mcp_acp.cli.commands.logs._get_log_path",
+                        return_value=log_path,
+                    ):
+                        # Act
+                        result = runner.invoke(
+                            cli, ["logs", "show", "--proxy", "test", "--type=decisions", "--limit=1"]
+                        )
 
         # Assert
         assert result.exit_code == 0
         lines = [l for l in result.output.strip().split("\n") if l]
         assert len(lines) == 1
 
-    def test_show_missing_log_file(self, runner: CliRunner, mock_config: MagicMock) -> None:
+    def test_show_missing_log_file(self, runner: CliRunner, mock_manager_config: MagicMock) -> None:
         """Given missing log file, shows JSON error."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
             log_path = Path(tmpdir) / "nonexistent.jsonl"
 
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
                 with patch(
-                    "mcp_acp.cli.commands.logs._get_log_path",
-                    return_value=log_path,
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    return_value=mock_manager_config,
                 ):
-                    # Act
-                    result = runner.invoke(cli, ["logs", "show", "--type=decisions"])
+                    with patch(
+                        "mcp_acp.cli.commands.logs._get_log_path",
+                        return_value=log_path,
+                    ):
+                        # Act
+                        result = runner.invoke(cli, ["logs", "show", "--proxy", "test", "--type=decisions"])
 
         # Assert
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "error" in data
 
-    def test_show_empty_log_file(self, runner: CliRunner, mock_config: MagicMock) -> None:
+    def test_show_empty_log_file(self, runner: CliRunner, mock_manager_config: MagicMock) -> None:
         """Given empty log file, shows JSON with empty entries."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
@@ -166,15 +181,19 @@ class TestLogsShowCommand:
             log_path.write_text("")
 
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
                 with patch(
-                    "mcp_acp.cli.commands.logs._get_log_path",
-                    return_value=log_path,
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    return_value=mock_manager_config,
                 ):
-                    # Act
-                    result = runner.invoke(cli, ["logs", "show", "--type=decisions"])
+                    with patch(
+                        "mcp_acp.cli.commands.logs._get_log_path",
+                        return_value=log_path,
+                    ):
+                        # Act
+                        result = runner.invoke(cli, ["logs", "show", "--proxy", "test", "--type=decisions"])
 
         # Assert
         assert result.exit_code == 0
@@ -188,13 +207,17 @@ class TestLogsShowCommand:
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                side_effect=click.ClickException(
-                    "Configuration not found at nonexistent.json\nRun 'mcp-acp init' to create configuration."
-                ),
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
-                # Act
-                result = runner.invoke(cli, ["logs", "show", "--type=decisions"])
+                with patch(
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    side_effect=click.ClickException(
+                        "Configuration not found at nonexistent.json\nRun 'mcp-acp init' to create configuration."
+                    ),
+                ):
+                    # Act
+                    result = runner.invoke(cli, ["logs", "show", "--proxy", "test", "--type=decisions"])
 
         # Assert
         assert result.exit_code == 1
@@ -203,42 +226,61 @@ class TestLogsShowCommand:
     def test_show_requires_type_flag(self, runner: CliRunner) -> None:
         """Given no --type flag, shows error."""
         # Act
-        result = runner.invoke(cli, ["logs", "show"])
+        result = runner.invoke(cli, ["logs", "show", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 2  # Click error for missing required option
         assert "--type" in result.output
 
+    def test_show_requires_proxy_flag(self, runner: CliRunner) -> None:
+        """Given no --proxy flag, shows error listing available proxies."""
+        # Arrange
+        with patch(
+            "mcp_acp.utils.cli.helpers.list_configured_proxies",
+            return_value=["proxy1", "proxy2"],
+        ):
+            # Act
+            result = runner.invoke(cli, ["logs", "show", "--type=decisions"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "--proxy is required" in result.output
+        assert "proxy1" in result.output
+
 
 class TestLogsListCommand:
     """Tests for logs list command."""
 
-    def test_list_shows_available_types(self, runner: CliRunner, mock_config: MagicMock) -> None:
+    def test_list_shows_available_types(self, runner: CliRunner, mock_manager_config: MagicMock) -> None:
         """Given config, shows all log types."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
                 with patch(
-                    "mcp_acp.cli.commands.logs.get_decisions_log_path",
-                    return_value=Path(tmpdir) / "decisions.jsonl",
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs.get_audit_log_path",
-                        return_value=Path(tmpdir) / "operations.jsonl",
+                        "mcp_acp.cli.commands.logs.get_decisions_log_path",
+                        return_value=Path(tmpdir) / "decisions.jsonl",
                     ):
                         with patch(
-                            "mcp_acp.cli.commands.logs.get_auth_log_path",
-                            return_value=Path(tmpdir) / "auth.jsonl",
+                            "mcp_acp.cli.commands.logs.get_audit_log_path",
+                            return_value=Path(tmpdir) / "operations.jsonl",
                         ):
                             with patch(
-                                "mcp_acp.cli.commands.logs.get_system_log_path",
-                                return_value=Path(tmpdir) / "system.jsonl",
+                                "mcp_acp.cli.commands.logs.get_auth_log_path",
+                                return_value=Path(tmpdir) / "auth.jsonl",
                             ):
-                                # Act
-                                result = runner.invoke(cli, ["logs", "list"])
+                                with patch(
+                                    "mcp_acp.cli.commands.logs.get_system_log_path",
+                                    return_value=Path(tmpdir) / "system.jsonl",
+                                ):
+                                    # Act
+                                    result = runner.invoke(cli, ["logs", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -254,7 +296,7 @@ class TestLogsTailCommand:
     def test_tail_requires_type_flag(self, runner: CliRunner) -> None:
         """Given no --type flag, shows error."""
         # Act
-        result = runner.invoke(cli, ["logs", "tail"])
+        result = runner.invoke(cli, ["logs", "tail", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 2  # Click error for missing required option
@@ -268,6 +310,7 @@ class TestLogsTailCommand:
         # Assert
         assert result.exit_code == 0
         assert "--type" in result.output
+        assert "--proxy" in result.output
 
 
 class TestLogsHelp:
@@ -293,6 +336,7 @@ class TestLogsHelp:
         assert result.exit_code == 0
         assert "--type" in result.output
         assert "--limit" in result.output
+        assert "--proxy" in result.output
 
 
 class TestLogsTypeValidation:
@@ -301,7 +345,7 @@ class TestLogsTypeValidation:
     def test_show_invalid_type_shows_error(self, runner: CliRunner) -> None:
         """Given invalid log type, shows error."""
         # Act
-        result = runner.invoke(cli, ["logs", "show", "--type=invalid"])
+        result = runner.invoke(cli, ["logs", "show", "--proxy", "test", "--type=invalid"])
 
         # Assert
         assert result.exit_code == 2
@@ -309,7 +353,7 @@ class TestLogsTypeValidation:
 
     @pytest.mark.parametrize("log_type", ["decisions", "operations", "auth", "system"])
     def test_show_valid_types_accepted(
-        self, runner: CliRunner, log_type: str, mock_config: MagicMock
+        self, runner: CliRunner, log_type: str, mock_manager_config: MagicMock
     ) -> None:
         """Given valid log types, command proceeds."""
         # Arrange
@@ -318,15 +362,19 @@ class TestLogsTypeValidation:
             log_path.write_text("")
 
             with patch(
-                "mcp_acp.cli.commands.logs.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.utils.cli.helpers.list_configured_proxies",
+                return_value=["test"],
             ):
                 with patch(
-                    "mcp_acp.cli.commands.logs._get_log_path",
-                    return_value=log_path,
+                    "mcp_acp.cli.commands.logs.load_manager_config_or_exit",
+                    return_value=mock_manager_config,
                 ):
-                    # Act
-                    result = runner.invoke(cli, ["logs", "show", f"--type={log_type}"])
+                    with patch(
+                        "mcp_acp.cli.commands.logs._get_log_path",
+                        return_value=log_path,
+                    ):
+                        # Act
+                        result = runner.invoke(cli, ["logs", "show", "--proxy", "test", f"--type={log_type}"])
 
         # Assert - should not fail due to invalid type
         assert result.exit_code == 0

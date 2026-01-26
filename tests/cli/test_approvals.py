@@ -66,7 +66,7 @@ class TestApprovalsCacheCommand:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -82,7 +82,7 @@ class TestApprovalsCacheCommand:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -97,7 +97,7 @@ class TestApprovalsCacheCommand:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -113,7 +113,7 @@ class TestApprovalsCacheCommand:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -128,7 +128,7 @@ class TestApprovalsCacheCommand:
             return_value=mock_empty_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -139,14 +139,23 @@ class TestApprovalsCacheCommand:
         # Arrange
         with patch(
             "mcp_acp.cli.commands.approvals.api_request",
-            side_effect=ProxyNotRunningError(),
+            side_effect=ProxyNotRunningError("test"),
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
         assert "not running" in result.output.lower()
+
+    def test_cache_requires_proxy_flag(self, runner: CliRunner) -> None:
+        """Given no --proxy flag, shows error."""
+        # Act
+        result = runner.invoke(cli, ["approvals", "cache"])
+
+        # Assert
+        assert result.exit_code == 2  # Click exits with 2 for missing required option
+        assert "--proxy" in result.output.lower() or "required" in result.output.lower()
 
 
 class TestApprovalsCacheJsonOutput:
@@ -160,7 +169,7 @@ class TestApprovalsCacheJsonOutput:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache", "--json"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test", "--json"])
 
         # Assert
         assert result.exit_code == 0
@@ -177,7 +186,7 @@ class TestApprovalsCacheJsonOutput:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "cache", "--json"])
+            result = runner.invoke(cli, ["approvals", "cache", "--proxy", "test", "--json"])
 
         # Assert
         data = json.loads(result.output)
@@ -192,9 +201,9 @@ class TestApprovalsClearCommand:
     """Tests for approvals clear command."""
 
     def test_clear_requires_flag(self, runner: CliRunner) -> None:
-        """Given no flags, shows error."""
+        """Given no --all or --entry flags, shows error."""
         # Act
-        result = runner.invoke(cli, ["approvals", "clear"])
+        result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
@@ -203,7 +212,7 @@ class TestApprovalsClearCommand:
     def test_clear_rejects_both_flags(self, runner: CliRunner) -> None:
         """Given both --all and --entry, shows error."""
         # Act
-        result = runner.invoke(cli, ["approvals", "clear", "--all", "--entry=1"])
+        result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--all", "--entry=1"])
 
         # Assert
         assert result.exit_code == 1
@@ -219,7 +228,7 @@ class TestApprovalsClearCommand:
             ]
 
             # Act - confirm with 'y'
-            result = runner.invoke(cli, ["approvals", "clear", "--all"], input="y\n")
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--all"], input="y\n")
 
         # Assert
         assert result.exit_code == 0
@@ -233,7 +242,7 @@ class TestApprovalsClearCommand:
             return_value=mock_cache_response,
         ):
             # Act - decline with 'n'
-            result = runner.invoke(cli, ["approvals", "clear", "--all"], input="n\n")
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--all"], input="n\n")
 
         # Assert
         assert result.exit_code == 0
@@ -249,7 +258,7 @@ class TestApprovalsClearCommand:
             ]
 
             # Act - Enter accepts default (yes)
-            result = runner.invoke(cli, ["approvals", "clear", "--all"], input="\n")
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--all"], input="\n")
 
         # Assert
         assert result.exit_code == 0
@@ -265,7 +274,7 @@ class TestApprovalsClearCommand:
             ]
 
             # Act - Enter accepts default (yes)
-            result = runner.invoke(cli, ["approvals", "clear", "--entry=1"], input="\n")
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--entry=1"], input="\n")
 
         # Assert
         assert result.exit_code == 0
@@ -279,7 +288,7 @@ class TestApprovalsClearCommand:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "clear", "--entry=10"])
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--entry=10"])
 
         # Assert
         assert result.exit_code == 1
@@ -294,7 +303,7 @@ class TestApprovalsClearCommand:
             return_value=mock_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "clear", "--entry=0"])
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--entry=0"])
 
         # Assert
         assert result.exit_code == 1
@@ -308,7 +317,7 @@ class TestApprovalsClearCommand:
             return_value=mock_empty_cache_response,
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "clear", "--all"])
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--all"])
 
         # Assert
         assert result.exit_code == 0
@@ -319,14 +328,22 @@ class TestApprovalsClearCommand:
         # Arrange
         with patch(
             "mcp_acp.cli.commands.approvals.api_request",
-            side_effect=ProxyNotRunningError(),
+            side_effect=ProxyNotRunningError("test"),
         ):
             # Act
-            result = runner.invoke(cli, ["approvals", "clear", "--all"])
+            result = runner.invoke(cli, ["approvals", "clear", "--proxy", "test", "--all"])
 
         # Assert
         assert result.exit_code == 1
         assert "not running" in result.output.lower()
+
+    def test_clear_requires_proxy_flag(self, runner: CliRunner) -> None:
+        """Given no --proxy flag, shows error."""
+        # Act
+        result = runner.invoke(cli, ["approvals", "clear", "--all"])
+
+        # Assert
+        assert result.exit_code == 2  # Click exits with 2 for missing required option
 
 
 class TestApprovalsHelp:

@@ -57,7 +57,9 @@ def mock_config() -> MagicMock:
     config.auth.oidc.client_id = "test-client-id"
     config.auth.oidc.audience = "test-audience"
     config.auth.oidc.scopes = ["openid", "profile"]
-    config.auth.mtls = None
+
+    # mTLS is per-proxy, stored at config.mtls (not config.auth.mtls)
+    config.mtls = None
 
     # HITL config
     config.hitl = MagicMock()
@@ -123,7 +125,7 @@ class TestGetConfig:
         """Given config with auth, returns full config details."""
         # Arrange
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/config/app.json"),
         ):
             # Act
@@ -150,7 +152,7 @@ class TestGetConfig:
         client = TestClient(app)
 
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/config/app.json"),
         ):
             # Act
@@ -165,7 +167,7 @@ class TestGetConfig:
         """Config response includes full transport configuration."""
         # Arrange
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/config/app.json"),
         ):
             # Act
@@ -228,7 +230,7 @@ class TestUpdateConfig:
         with patch("mcp_acp.config.AppConfig.load_from_files", return_value=mock_config):
             with patch("mcp_acp.config.AppConfig.model_validate", return_value=new_config):
                 with patch(
-                    "mcp_acp.api.routes.config.get_config_path",
+                    "mcp_acp.api.routes.config.get_proxy_config_path",
                     return_value=config_path,
                 ):
                     # Act
@@ -250,7 +252,7 @@ class TestUpdateConfig:
             side_effect=FileNotFoundError,
         ):
             with patch(
-                "mcp_acp.api.routes.config.get_config_path",
+                "mcp_acp.api.routes.config.get_proxy_config_path",
                 return_value=tmp_path / "missing.json",
             ):
                 # Act
@@ -295,7 +297,7 @@ class TestUpdateConfig:
         with patch("mcp_acp.config.AppConfig.load_from_files", return_value=mock_config):
             with patch("mcp_acp.config.AppConfig.model_validate", return_value=mock_config):
                 with patch(
-                    "mcp_acp.api.routes.config.get_config_path",
+                    "mcp_acp.api.routes.config.get_proxy_config_path",
                     return_value=tmp_path / "config.json",
                 ):
                     # Act
@@ -317,7 +319,7 @@ class TestBuildConfigResponse:
         """Given config with auth, builds complete response."""
         # Arrange
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/test/config.json"),
         ):
             # Act
@@ -336,7 +338,7 @@ class TestBuildConfigResponse:
         """Given config without auth, builds response with null auth."""
         # Arrange
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/test/config.json"),
         ):
             # Act
@@ -346,21 +348,21 @@ class TestBuildConfigResponse:
         assert response.auth is None
 
     def test_includes_mtls_when_present(self, mock_config: MagicMock) -> None:
-        """Given config with mTLS, includes full mTLS details."""
-        # Arrange
-        mock_config.auth.mtls = MagicMock()
-        mock_config.auth.mtls.client_cert_path = "/path/to/cert.pem"
-        mock_config.auth.mtls.client_key_path = "/path/to/key.pem"
-        mock_config.auth.mtls.ca_bundle_path = "/path/to/ca.pem"
+        """Given config with mTLS (per-proxy), includes full mTLS details in auth response."""
+        # Arrange - mTLS is per-proxy at config.mtls, not config.auth.mtls
+        mock_config.mtls = MagicMock()
+        mock_config.mtls.client_cert_path = "/path/to/cert.pem"
+        mock_config.mtls.client_key_path = "/path/to/key.pem"
+        mock_config.mtls.ca_bundle_path = "/path/to/ca.pem"
 
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/test/config.json"),
         ):
             # Act
             response = _build_config_response(mock_config)
 
-        # Assert
+        # Assert - mTLS is included in auth response (API schema nests it there)
         assert response.auth is not None
         assert response.auth.mtls is not None
         assert response.auth.mtls.client_cert_path == "/path/to/cert.pem"
@@ -373,7 +375,7 @@ class TestBuildConfigResponse:
         mock_config.backend.http.timeout = 60
 
         with patch(
-            "mcp_acp.api.routes.config.get_config_path",
+            "mcp_acp.api.routes.config.get_proxy_config_path",
             return_value=Path("/test/config.json"),
         ):
             # Act

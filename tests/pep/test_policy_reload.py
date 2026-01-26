@@ -331,14 +331,14 @@ class TestCLIPolicyReload:
         # Mock api_request to simulate proxy not running
         with patch(
             "mcp_acp.cli.commands.policy.api_request",
-            side_effect=ProxyNotRunningError(),
+            side_effect=ProxyNotRunningError("default"),
         ):
             # Act
-            result = runner.invoke(policy, ["reload"])
+            result = runner.invoke(policy, ["reload", "--proxy", "default"])
 
         # Assert
         assert result.exit_code == 1
-        assert "Proxy not running" in result.output or "Error" in result.output
+        assert "not running" in result.output.lower() or "error" in result.output.lower()
 
     def test_reload_success(self) -> None:
         """Given running proxy, shows success message."""
@@ -361,7 +361,7 @@ class TestCLIPolicyReload:
             return_value=mock_response,
         ):
             # Act
-            result = runner.invoke(policy, ["reload"])
+            result = runner.invoke(policy, ["reload", "--proxy", "default"])
 
         # Assert
         assert result.exit_code == 0
@@ -390,7 +390,7 @@ class TestCLIPolicyReload:
             return_value=mock_response,
         ):
             # Act
-            result = runner.invoke(policy, ["reload"])
+            result = runner.invoke(policy, ["reload", "--proxy", "default"])
 
         # Assert
         assert result.exit_code == 1

@@ -67,6 +67,7 @@ def app(mock_reloader: MagicMock) -> FastAPI:
     app.include_router(router, prefix="/api/policy")
     # Set app.state for dependency injection
     app.state.policy_reloader = mock_reloader
+    app.state.proxy_name = "test-proxy"  # For per-proxy policy path
     return app
 
 
@@ -91,7 +92,7 @@ class TestGetPolicy:
         # Arrange
         with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
             with patch(
-                "mcp_acp.api.routes.policy.get_policy_path",
+                "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=Path("/config/policy.json"),
             ):
                 # Act
@@ -198,7 +199,7 @@ class TestAddPolicyRule:
 
         with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
             with patch(
-                "mcp_acp.api.routes.policy.get_policy_path",
+                "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=policy_file,
             ):
                 # Act
@@ -287,7 +288,7 @@ class TestUpdatePolicyRule:
 
         with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
             with patch(
-                "mcp_acp.api.routes.policy.get_policy_path",
+                "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=policy_file,
             ):
                 # Act
@@ -350,7 +351,7 @@ class TestDeletePolicyRule:
 
         with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
             with patch(
-                "mcp_acp.api.routes.policy.get_policy_path",
+                "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=policy_file,
             ):
                 # Act
@@ -383,9 +384,10 @@ class TestLoadPolicyOrRaise:
     def test_returns_policy_on_success(self, sample_policy: PolicyConfig) -> None:
         """Given valid policy, returns it."""
         # Arrange
+        policy_path = Path("/config/policy.json")
         with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
             # Act
-            result = _load_policy_or_raise()
+            result = _load_policy_or_raise(policy_path)
 
         # Assert
         assert result == sample_policy
@@ -393,26 +395,28 @@ class TestLoadPolicyOrRaise:
     def test_raises_404_on_file_not_found(self) -> None:
         """Given missing file, raises 404."""
         # Arrange
+        policy_path = Path("/config/policy.json")
         with patch(
             "mcp_acp.api.routes.policy.load_policy",
             side_effect=FileNotFoundError,
         ):
             # Act & Assert
             with pytest.raises(APIError) as exc_info:
-                _load_policy_or_raise()
+                _load_policy_or_raise(policy_path)
 
         assert exc_info.value.status_code == 404
 
     def test_raises_500_on_invalid_policy(self) -> None:
         """Given invalid policy, raises 500."""
         # Arrange
+        policy_path = Path("/config/policy.json")
         with patch(
             "mcp_acp.api.routes.policy.load_policy",
             side_effect=ValueError("Invalid"),
         ):
             # Act & Assert
             with pytest.raises(APIError) as exc_info:
-                _load_policy_or_raise()
+                _load_policy_or_raise(policy_path)
 
         assert exc_info.value.status_code == 500
 

@@ -6,7 +6,7 @@ Tests use the AAA pattern (Arrange-Act-Assert) for clarity.
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 from click.testing import CliRunner
@@ -21,14 +21,12 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture
-def valid_config() -> dict:
-    """Return a minimal valid configuration."""
+def valid_manager_config() -> dict:
+    """Return a minimal valid manager configuration."""
     return {
-        "logging": {"log_dir": "/tmp/test-logs", "log_level": "INFO"},
-        "backend": {
-            "server_name": "test-server",
-            "stdio": {"command": "echo", "args": ["test"]},
-        },
+        "ui_port": 8765,
+        "log_dir": "/tmp/test-logs",
+        "log_level": "INFO",
         "auth": {
             "oidc": {
                 "issuer": "https://test.auth0.com",
@@ -39,16 +37,25 @@ def valid_config() -> dict:
     }
 
 
-from typing import Generator
-
-
 @pytest.fixture
-def isolated_config(runner: CliRunner, valid_config: dict) -> Generator[tuple[Path, dict], None, None]:
-    """Create an isolated filesystem with a valid config file."""
-    with runner.isolated_filesystem() as tmpdir:
-        config_path = Path(tmpdir) / "config.json"
-        config_path.write_text(json.dumps(valid_config, indent=2))
-        yield config_path, valid_config
+def valid_proxy_config() -> dict:
+    """Return a minimal valid proxy configuration."""
+    return {
+        "proxy_id": "px_12345678:test-server",
+        "created_at": "2024-01-01T00:00:00Z",
+        "backend": {
+            "server_name": "test-server",
+            "transport": "stdio",
+            "stdio": {"command": "echo", "args": ["test"]},
+        },
+        "hitl": {
+            "timeout_seconds": 60,
+            "approval_ttl_seconds": 600,
+        },
+    }
+
+
+from typing import Generator
 
 
 class TestVersion:
@@ -102,526 +109,285 @@ class TestHelp:
 class TestConfigPath:
     """Tests for config path command."""
 
-    def test_config_path_returns_path(self, runner: CliRunner) -> None:
-        """Given config path command, returns a path string."""
+    def test_config_path_returns_paths(self, runner: CliRunner) -> None:
+        """Given config path command, returns manager path and shows proxies."""
         # Act
         result = runner.invoke(cli, ["config", "path"])
 
         # Assert
         assert result.exit_code == 0
-        assert "mcp-acp" in result.output
+        assert "Manager" in result.output
+
+    def test_config_path_manager_flag(self, runner: CliRunner) -> None:
+        """Given config path --manager, returns manager path."""
+        # Act
+        result = runner.invoke(cli, ["config", "path", "--manager"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "mcp-acp" in result.output or "manager" in result.output.lower()
+
+
+class TestConfigShow:
+    """Tests for config show command."""
+
+    def test_show_without_flag_shows_error(self, runner: CliRunner) -> None:
+        """Given config show without flag, shows error."""
+        # Act
+        result = runner.invoke(cli, ["config", "show"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "--manager" in result.output or "--proxy" in result.output
+
+    def test_show_manager_missing_config_shows_error(self, runner: CliRunner) -> None:
+        """Given no manager config file, shows helpful error."""
+        # Arrange
+        with runner.isolated_filesystem():
+            with patch(
+                "mcp_acp.cli.commands.config.get_manager_config_path",
+                return_value=Path("nonexistent.json"),
+            ):
+                # Act
+                result = runner.invoke(cli, ["config", "show", "--manager"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+        assert "init" in result.output.lower()
+
+    def test_show_manager_displays_config(self, runner: CliRunner, valid_manager_config: dict) -> None:
+        """Given valid manager config, displays it."""
+        # Arrange
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "manager.json"
+            config_path.write_text(json.dumps(valid_manager_config, indent=2))
+
+            with patch(
+                "mcp_acp.cli.commands.config.get_manager_config_path",
+                return_value=config_path,
+            ):
+                # Act
+                result = runner.invoke(cli, ["config", "show", "--manager"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "Manager Configuration" in result.output
+        assert "8765" in result.output  # ui_port
 
 
 class TestConfigEdit:
     """Tests for config edit command."""
 
-    def test_edit_missing_config_shows_error(self, runner: CliRunner) -> None:
-        """Given no config file exists, shows helpful error."""
+    def test_edit_without_flag_shows_error(self, runner: CliRunner) -> None:
+        """Given config edit without flag, shows error."""
+        # Act
+        result = runner.invoke(cli, ["config", "edit"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "--manager" in result.output or "--proxy" in result.output
+
+    def test_edit_manager_missing_config_shows_error(self, runner: CliRunner) -> None:
+        """Given no manager config file, shows helpful error."""
         # Arrange
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
+                "mcp_acp.cli.commands.config.get_manager_config_path",
                 return_value=Path("nonexistent.json"),
             ):
                 # Act
-                result = runner.invoke(cli, ["config", "edit"])
+                result = runner.invoke(cli, ["config", "edit", "--manager"])
 
         # Assert
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
-        assert "init" in result.output  # Suggests running init
+        assert "init" in result.output.lower()
 
-    def test_edit_cancelled_when_no_changes(self, runner: CliRunner, valid_config: dict) -> None:
-        """Given user saves without changes, exits gracefully."""
+
+class TestConfigValidate:
+    """Tests for config validate command."""
+
+    def test_validate_all_shows_results(self, runner: CliRunner, valid_manager_config: dict) -> None:
+        """Given config validate, validates manager and proxies."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
-
-            # Load config to get the exact content that will be shown in editor
-            # (model_dump adds default fields like proxy.name)
-            from mcp_acp.config import AppConfig
-
-            loaded = AppConfig.load_from_files(config_path)
-            editor_content = json.dumps(loaded.model_dump(), indent=2)
+            manager_path = Path(tmpdir) / "manager.json"
+            manager_path.write_text(json.dumps(valid_manager_config, indent=2))
 
             with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.config.get_manager_config_path",
+                return_value=manager_path,
             ):
-                # Mock click.edit to return unchanged content (exact same as shown)
-                with patch("click.edit", return_value=editor_content):
-                    with patch("click.pause"):  # Skip "Press Enter" prompt
-                        # Act
-                        result = runner.invoke(cli, ["config", "edit"])
+                with patch(
+                    "mcp_acp.cli.commands.config.list_configured_proxies",
+                    return_value=[],
+                ):
+                    # Act
+                    result = runner.invoke(cli, ["config", "validate"])
 
         # Assert
         assert result.exit_code == 0
-        assert "No changes made" in result.output
+        assert "valid" in result.output.lower()
 
-    def test_edit_cancelled_when_user_quits(self, runner: CliRunner, valid_config: dict) -> None:
-        """Given user quits editor without saving, exits gracefully."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
 
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
-            ):
-                # Mock click.edit to return None (user quit)
-                with patch("click.edit", return_value=None):
-                    with patch("click.pause"):
-                        # Act
-                        result = runner.invoke(cli, ["config", "edit"])
+class TestStartCommand:
+    """Tests for start command."""
 
-        # Assert
-        assert result.exit_code == 0
-        assert "cancelled" in result.output.lower()
-
-    @pytest.mark.parametrize(
-        "invalid_json,expected_error",
-        [
-            ("{ invalid }", "Invalid JSON"),
-            ('{"unclosed": "brace"', "Invalid JSON"),
-            ("not json at all", "Invalid JSON"),
-        ],
-    )
-    def test_edit_invalid_json_shows_error(
-        self,
-        runner: CliRunner,
-        valid_config: dict,
-        invalid_json: str,
-        expected_error: str,
-    ) -> None:
-        """Given invalid JSON, shows error and offers re-edit."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
-
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
-            ):
-                with patch("click.edit", return_value=invalid_json):
-                    with patch("click.pause"):
-                        # Act - user declines re-edit
-                        result = runner.invoke(cli, ["config", "edit"], input="n\n")
+    def test_start_no_proxy_shows_available(self, runner: CliRunner) -> None:
+        """Given start without --proxy, shows available proxies."""
+        # Arrange - patch in manager.config where list_configured_proxies is defined
+        with patch(
+            "mcp_acp.manager.config.list_configured_proxies",
+            return_value=["test-proxy"],
+        ):
+            # Act
+            result = runner.invoke(cli, ["start"])
 
         # Assert
         assert result.exit_code == 1
-        assert expected_error in result.output
+        assert "test-proxy" in result.output
+        assert "--proxy" in result.output
 
-    @pytest.mark.parametrize(
-        "invalid_value,expected_error",
-        [
-            ({"logging": {"log_dir": "/tmp", "log_level": "INVALID"}}, "log_level"),
-            ({"logging": {"log_dir": "", "log_level": "INFO"}}, "log_dir"),  # Empty string fails min_length
-        ],
-    )
-    def test_edit_invalid_field_shows_error(
-        self,
-        runner: CliRunner,
-        valid_config: dict,
-        invalid_value: dict,
-        expected_error: str,
-    ) -> None:
-        """Given valid JSON with invalid field values, shows validation error."""
-        # Arrange - use valid_config fixture which includes auth
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
-
-            # Merge invalid values
-            edited = {**valid_config, **invalid_value}
-            edited_json = json.dumps(edited, indent=2)
-
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
-            ):
-                with patch("click.edit", return_value=edited_json):
-                    with patch("click.pause"):
-                        # Act - user declines re-edit
-                        result = runner.invoke(cli, ["config", "edit"], input="n\n")
+    def test_start_no_proxies_shows_help(self, runner: CliRunner) -> None:
+        """Given no proxies configured, shows helpful message."""
+        # Arrange
+        with patch(
+            "mcp_acp.manager.config.list_configured_proxies",
+            return_value=[],
+        ):
+            # Act
+            result = runner.invoke(cli, ["start"])
 
         # Assert
         assert result.exit_code == 1
-        assert expected_error in result.output.lower()
-
-    def test_edit_preserves_user_formatting(self, runner: CliRunner, valid_config: dict) -> None:
-        """Given valid edit, preserves user's JSON formatting."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
-
-            # User adds extra spacing and changes a value
-            edited_config = valid_config.copy()
-            edited_config["logging"] = {**valid_config["logging"], "log_level": "DEBUG"}
-            # Custom formatting with extra newlines
-            user_formatted = json.dumps(edited_config, indent=4)  # 4-space indent
-
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
-            ):
-                with patch(
-                    "mcp_acp.cli.commands.config.get_config_history_path",
-                    return_value=Path(tmpdir) / "history.jsonl",
-                ):
-                    with patch("click.edit", return_value=user_formatted):
-                        with patch("click.pause"):
-                            # Act
-                            result = runner.invoke(cli, ["config", "edit"])
-
-            # Assert
-            assert result.exit_code == 0
-            saved_content = config_path.read_text()
-            # Should preserve 4-space indent, not reformat to 2-space
-            assert "    " in saved_content  # 4-space indent preserved
-
-    def test_edit_creates_backup_before_save(self, runner: CliRunner, valid_config: dict) -> None:
-        """Given successful edit, backup is created then removed."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
-            backup_path = config_path.with_suffix(".json.bak")
-
-            edited_config = {**valid_config}
-            edited_config["logging"]["log_level"] = "DEBUG"
-            edited_json = json.dumps(edited_config, indent=2)
-
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
-            ):
-                with patch(
-                    "mcp_acp.cli.commands.config.get_config_history_path",
-                    return_value=Path(tmpdir) / "history.jsonl",
-                ):
-                    with patch("click.edit", return_value=edited_json):
-                        with patch("click.pause"):
-                            # Act
-                            result = runner.invoke(cli, ["config", "edit"])
-
-            # Assert
-            assert result.exit_code == 0
-            # Backup should be removed after successful save
-            assert not backup_path.exists()
-
-
-class TestStartCorruptConfig:
-    """Tests for start command handling of corrupt configs."""
-
-    def test_start_corrupt_json_shows_error(self, runner: CliRunner) -> None:
-        """Given corrupt JSON config, shows clear error."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text("{ not valid json }")
-
-            with (
-                patch(
-                    "mcp_acp.cli.commands.start.get_config_path",
-                    return_value=config_path,
-                ),
-                patch("mcp_acp.cli.commands.start.show_startup_error_popup"),
-            ):
-                # Act
-                result = runner.invoke(cli, ["start"])
-
-        # Assert
-        assert result.exit_code == 1
-        assert "Invalid" in result.output
-
-    def test_start_corrupt_json_with_backup_shows_restore_hint(self, runner: CliRunner) -> None:
-        """Given corrupt config with backup file, shows restore command."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            backup_path = config_path.with_suffix(".json.bak")
-
-            config_path.write_text("{ corrupt }")
-            backup_path.write_text('{"valid": "backup"}')
-
-            with (
-                patch(
-                    "mcp_acp.cli.commands.start.get_config_path",
-                    return_value=config_path,
-                ),
-                patch("mcp_acp.cli.commands.start.show_startup_error_popup"),
-            ):
-                # Act
-                result = runner.invoke(cli, ["start"])
-
-        # Assert
-        assert result.exit_code == 1
-        assert "backup" in result.output.lower()
-        assert "restore" in result.output.lower() or "cp" in result.output
-
-    def test_start_invalid_field_no_backup_hint(self, runner: CliRunner) -> None:
-        """Given valid JSON with invalid field (not corrupt), no backup hint."""
-        # Arrange
-        invalid_config = {
-            "logging": {"log_dir": "/tmp", "log_level": "INVALID"},
-            "backend": {"server_name": "test"},
-        }
-
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            backup_path = config_path.with_suffix(".json.bak")
-
-            config_path.write_text(json.dumps(invalid_config))
-            backup_path.write_text('{"some": "backup"}')  # Backup exists
-
-            with (
-                patch(
-                    "mcp_acp.cli.commands.start.get_config_path",
-                    return_value=config_path,
-                ),
-                patch("mcp_acp.cli.commands.start.show_startup_error_popup"),
-            ):
-                # Act
-                result = runner.invoke(cli, ["start"])
-
-        # Assert
-        assert result.exit_code == 1
-        # Should NOT show backup hint for validation errors (not corruption)
-        assert "backup" not in result.output.lower()
+        assert "No proxies configured" in result.output or "proxy add" in result.output
 
 
 class TestInitCommand:
-    """Tests for init command."""
+    """Tests for init command.
 
-    def test_init_non_interactive_missing_log_dir_shows_error(self, runner: CliRunner) -> None:
-        """Given --non-interactive without --log-dir, shows error."""
-        # Arrange - use isolated filesystem to avoid existing file conflicts
+    The init command creates manager.json with auth config (OIDC, log_level).
+    mTLS is now per-proxy, configured in 'proxy add'.
+    """
+
+    def test_init_non_interactive_missing_oidc_issuer_shows_error(self, runner: CliRunner) -> None:
+        """Given --non-interactive without --oidc-issuer, shows error."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
+            manager_path = Path(tmpdir) / "manager.json"
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--server-name",
-                            "test",
-                            "--connection-type",
-                            "stdio",
-                            "--command",
-                            "echo",
-                            "--args",
-                            "test",
-                        ],
-                    )
+                result = runner.invoke(
+                    cli,
+                    [
+                        "init",
+                        "--non-interactive",
+                        "--oidc-client-id",
+                        "test-client",
+                        "--oidc-audience",
+                        "https://api.example.com",
+                    ],
+                )
 
-        # Assert
         assert result.exit_code == 1
-        assert "--log-dir" in result.output.lower() or "log-dir" in result.output.lower()
+        assert "--oidc-issuer" in result.output.lower()
 
-    def test_init_non_interactive_missing_server_name_shows_error(self, runner: CliRunner) -> None:
-        """Given --non-interactive without --server-name, shows error."""
-        # Arrange - use isolated filesystem to avoid existing file conflicts
+    def test_init_non_interactive_missing_oidc_client_id_shows_error(self, runner: CliRunner) -> None:
+        """Given --non-interactive without --oidc-client-id, shows error."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            log_dir = Path(tmpdir) / "logs"
+            manager_path = Path(tmpdir) / "manager.json"
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--log-dir",
-                            str(log_dir),
-                            "--connection-type",
-                            "stdio",
-                            "--command",
-                            "echo",
-                            "--args",
-                            "test",
-                        ],
-                    )
+                result = runner.invoke(
+                    cli,
+                    [
+                        "init",
+                        "--non-interactive",
+                        "--oidc-issuer",
+                        "https://test.auth0.com",
+                        "--oidc-audience",
+                        "https://api.example.com",
+                    ],
+                )
 
-        # Assert
         assert result.exit_code == 1
-        assert "--server-name" in result.output.lower() or "server-name" in result.output.lower()
+        assert "--oidc-client-id" in result.output.lower()
 
-    def test_init_non_interactive_missing_connection_type_shows_error(self, runner: CliRunner) -> None:
-        """Given --non-interactive without --connection-type, shows error."""
-        # Arrange - use isolated filesystem to avoid existing file conflicts
+    def test_init_non_interactive_missing_oidc_audience_shows_error(self, runner: CliRunner) -> None:
+        """Given --non-interactive without --oidc-audience, shows error."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            log_dir = Path(tmpdir) / "logs"
+            manager_path = Path(tmpdir) / "manager.json"
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--log-dir",
-                            str(log_dir),
-                            "--server-name",
-                            "test",
-                        ],
-                    )
+                result = runner.invoke(
+                    cli,
+                    [
+                        "init",
+                        "--non-interactive",
+                        "--oidc-issuer",
+                        "https://test.auth0.com",
+                        "--oidc-client-id",
+                        "test-client",
+                    ],
+                )
 
-        # Assert
         assert result.exit_code == 1
-        assert "--connection-type" in result.output.lower() or "connection-type" in result.output.lower()
+        assert "--oidc-audience" in result.output.lower()
 
-    def test_init_non_interactive_stdio_missing_command_shows_error(self, runner: CliRunner) -> None:
-        """Given stdio connection without --command, shows error."""
-        # Arrange - use isolated filesystem to avoid existing file conflicts
+    def test_init_non_interactive_invalid_oidc_issuer_shows_error(self, runner: CliRunner) -> None:
+        """Given --oidc-issuer without https://, shows error."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            log_dir = Path(tmpdir) / "logs"
+            manager_path = Path(tmpdir) / "manager.json"
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--log-dir",
-                            str(log_dir),
-                            "--server-name",
-                            "test",
-                            "--connection-type",
-                            "stdio",
-                            "--args",
-                            "test",
-                            # OIDC flags (required for Zero Trust)
-                            "--oidc-issuer",
-                            "https://test.auth0.com",
-                            "--oidc-client-id",
-                            "test-client",
-                            "--oidc-audience",
-                            "https://api.example.com",
-                        ],
-                    )
+                result = runner.invoke(
+                    cli,
+                    [
+                        "init",
+                        "--non-interactive",
+                        "--oidc-issuer",
+                        "http://test.auth0.com",  # Should be https
+                        "--oidc-client-id",
+                        "test-client",
+                        "--oidc-audience",
+                        "https://api.example.com",
+                    ],
+                )
 
-        # Assert
         assert result.exit_code == 1
-        assert "--command" in result.output.lower() or "command" in result.output.lower()
+        assert "https://" in result.output.lower()
 
-    def test_init_non_interactive_http_missing_url_shows_error(self, runner: CliRunner) -> None:
-        """Given http connection without --url, shows error."""
-        # Arrange - use isolated filesystem to avoid existing file conflicts
+    def test_init_non_interactive_creates_manager_config(self, runner: CliRunner) -> None:
+        """Given valid OIDC flags, creates manager.json."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            log_dir = Path(tmpdir) / "logs"
+            manager_path = Path(tmpdir) / "manager.json"
 
+            # Patch in both modules: init.py (for path display) and manager/config.py (for save)
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
                 with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
+                    "mcp_acp.manager.config.get_manager_config_path",
+                    return_value=manager_path,
                 ):
-                    # Act
                     result = runner.invoke(
                         cli,
                         [
                             "init",
                             "--non-interactive",
-                            "--log-dir",
-                            str(log_dir),
-                            "--server-name",
-                            "test",
-                            "--connection-type",
-                            "http",
-                            # OIDC flags (required for Zero Trust)
-                            "--oidc-issuer",
-                            "https://test.auth0.com",
-                            "--oidc-client-id",
-                            "test-client",
-                            "--oidc-audience",
-                            "https://api.example.com",
-                        ],
-                    )
-
-        # Assert
-        assert result.exit_code == 1
-        assert "--url" in result.output.lower() or "url" in result.output.lower()
-
-    def test_init_non_interactive_stdio_creates_config(self, runner: CliRunner) -> None:
-        """Given valid stdio flags, creates config file."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            log_dir = Path(tmpdir) / "logs"
-
-            with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
-            ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--log-dir",
-                            str(log_dir),
-                            "--server-name",
-                            "test-server",
-                            "--connection-type",
-                            "stdio",
-                            "--command",
-                            "echo",
-                            "--args",
-                            "arg1,arg2",
-                            # OIDC flags (required for Zero Trust)
                             "--oidc-issuer",
                             "https://test.auth0.com",
                             "--oidc-client-id",
@@ -633,301 +399,140 @@ class TestInitCommand:
 
             # Assert
             assert result.exit_code == 0
-            assert config_path.exists()
-            assert policy_path.exists()
+            assert manager_path.exists()
 
             # Verify config content
             import json
 
-            config = json.loads(config_path.read_text())
-            assert config["backend"]["server_name"] == "test-server"
-            assert config["backend"]["stdio"]["command"] == "echo"
-            assert config["backend"]["stdio"]["args"] == ["arg1", "arg2"]
+            config = json.loads(manager_path.read_text())
             assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
+            assert config["auth"]["oidc"]["client_id"] == "test-client"
+            assert config["auth"]["oidc"]["audience"] == "https://api.example.com"
+            assert config["log_level"] == "INFO"  # Default
 
-    def test_init_non_interactive_http_creates_config(self, runner: CliRunner) -> None:
-        """Given valid http flags, creates config file."""
-        # Arrange
+    def test_init_non_interactive_with_log_level(self, runner: CliRunner) -> None:
+        """Given --log-level DEBUG, saves DEBUG in config."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            log_dir = Path(tmpdir) / "logs"
+            manager_path = Path(tmpdir) / "manager.json"
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
                 with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
+                    "mcp_acp.manager.config.get_manager_config_path",
+                    return_value=manager_path,
                 ):
-                    with patch(
-                        "mcp_acp.cli.commands.init.check_http_health",
-                        side_effect=ConnectionError("Server offline"),
-                    ):
-                        # Act
-                        result = runner.invoke(
-                            cli,
-                            [
-                                "init",
-                                "--non-interactive",
-                                "--log-dir",
-                                str(log_dir),
-                                "--server-name",
-                                "test-server",
-                                "--connection-type",
-                                "http",
-                                "--url",
-                                "http://localhost:3000/mcp",
-                                "--timeout",
-                                "60",
-                                # OIDC flags (required for Zero Trust)
-                                "--oidc-issuer",
-                                "https://test.auth0.com",
-                                "--oidc-client-id",
-                                "test-client",
-                                "--oidc-audience",
-                                "https://api.example.com",
-                            ],
-                        )
-
-            # Assert
-            assert result.exit_code == 0
-            assert config_path.exists()
-
-            # Verify config content
-            import json
-
-            config = json.loads(config_path.read_text())
-            assert config["backend"]["server_name"] == "test-server"
-            assert config["backend"]["http"]["url"] == "http://localhost:3000/mcp"
-            assert config["backend"]["http"]["timeout"] == 60
-            assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
-
-    def test_init_existing_files_without_force_fails(self, runner: CliRunner) -> None:
-        """Given existing files without --force in non-interactive mode, fails."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text("{}")
-
-            with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
-            ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=Path(tmpdir) / "policy.json",
-                ):
-                    # Act
                     result = runner.invoke(
                         cli,
                         [
                             "init",
                             "--non-interactive",
-                            "--log-dir",
-                            "/tmp/test",
-                            "--server-name",
-                            "test",
-                            "--connection-type",
-                            "stdio",
-                            "--command",
-                            "echo",
-                            "--args",
-                            "test",
-                            # OIDC flags (required for Zero Trust)
                             "--oidc-issuer",
                             "https://test.auth0.com",
                             "--oidc-client-id",
                             "test-client",
                             "--oidc-audience",
                             "https://api.example.com",
+                            "--log-level",
+                            "DEBUG",
                         ],
                     )
 
-        # Assert
+            assert result.exit_code == 0
+            import json
+
+            config = json.loads(manager_path.read_text())
+            assert config["log_level"] == "DEBUG"
+
+    def test_init_existing_file_without_force_fails(self, runner: CliRunner) -> None:
+        """Given existing config without --force in non-interactive mode, fails."""
+        with runner.isolated_filesystem() as tmpdir:
+            manager_path = Path(tmpdir) / "manager.json"
+            manager_path.write_text("{}")
+
+            with patch(
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
+            ):
+                result = runner.invoke(
+                    cli,
+                    [
+                        "init",
+                        "--non-interactive",
+                        "--oidc-issuer",
+                        "https://test.auth0.com",
+                        "--oidc-client-id",
+                        "test-client",
+                        "--oidc-audience",
+                        "https://api.example.com",
+                    ],
+                )
+
         assert result.exit_code == 1
         assert "--force" in result.output.lower() or "exist" in result.output.lower()
 
-    def test_init_existing_files_with_force_succeeds(self, runner: CliRunner) -> None:
-        """Given existing files with --force, overwrites successfully."""
-        # Arrange
+    def test_init_existing_file_with_force_succeeds(self, runner: CliRunner) -> None:
+        """Given existing config with --force, overwrites successfully."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-            # Create both files to avoid hitting the upgrade path (config-only scenario)
-            config_path.write_text('{"old": "config"}')
-            policy_path.write_text('{"old": "policy"}')
-            log_dir = Path(tmpdir) / "logs"
+            manager_path = Path(tmpdir) / "manager.json"
+            manager_path.write_text('{"old": "config"}')
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
                 with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
+                    "mcp_acp.manager.config.get_manager_config_path",
+                    return_value=manager_path,
                 ):
-                    # Act
                     result = runner.invoke(
                         cli,
                         [
                             "init",
                             "--non-interactive",
                             "--force",
-                            "--log-dir",
-                            str(log_dir),
-                            "--server-name",
-                            "new-server",
-                            "--connection-type",
-                            "stdio",
-                            "--command",
-                            "echo",
-                            "--args",
-                            "test",
-                            # OIDC flags (required for Zero Trust)
                             "--oidc-issuer",
-                            "https://test.auth0.com",
+                            "https://new.auth0.com",
                             "--oidc-client-id",
-                            "test-client",
+                            "new-client",
                             "--oidc-audience",
-                            "https://api.example.com",
+                            "https://new-api.example.com",
                         ],
                     )
 
-            # Assert
             assert result.exit_code == 0
-
             import json
 
-            config = json.loads(config_path.read_text())
-            assert config["backend"]["server_name"] == "new-server"
-            assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
+            config = json.loads(manager_path.read_text())
+            assert config["auth"]["oidc"]["issuer"] == "https://new.auth0.com"
 
-    def test_init_non_interactive_partial_mtls_shows_error(self, runner: CliRunner) -> None:
-        """Given partial mTLS config (1-2 of 3 options), shows error."""
-        # Arrange
+    def test_init_shows_next_steps(self, runner: CliRunner) -> None:
+        """After successful init, shows auth login and proxy add instructions."""
         with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
+            manager_path = Path(tmpdir) / "manager.json"
 
             with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
+                "mcp_acp.cli.commands.init.get_manager_config_path",
+                return_value=manager_path,
             ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--log-dir",
-                            str(tmpdir),
-                            "--server-name",
-                            "test-server",
-                            "--connection-type",
-                            "http",
-                            "--url",
-                            "http://localhost:3000/mcp",
-                            "--oidc-issuer",
-                            "https://test.auth0.com",
-                            "--oidc-client-id",
-                            "test-client",
-                            "--oidc-audience",
-                            "https://api.example.com",
-                            "--mtls-cert",
-                            "/path/to/cert.pem",
-                            # Missing --mtls-key and --mtls-ca
-                        ],
-                    )
+                result = runner.invoke(
+                    cli,
+                    [
+                        "init",
+                        "--non-interactive",
+                        "--oidc-issuer",
+                        "https://test.auth0.com",
+                        "--oidc-client-id",
+                        "test-client",
+                        "--oidc-audience",
+                        "https://api.example.com",
+                    ],
+                )
 
-        # Assert
-        assert result.exit_code == 1
-        assert "mTLS requires all three options" in result.output
-
-    def test_init_non_interactive_invalid_url_format_shows_error(self, runner: CliRunner) -> None:
-        """Given invalid URL format, shows clear error before health check."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            policy_path = Path(tmpdir) / "policy.json"
-
-            with patch(
-                "mcp_acp.cli.commands.init.get_config_path",
-                return_value=config_path,
-            ):
-                with patch(
-                    "mcp_acp.cli.commands.init.get_policy_path",
-                    return_value=policy_path,
-                ):
-                    # Act
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--log-dir",
-                            str(tmpdir),
-                            "--server-name",
-                            "test-server",
-                            "--connection-type",
-                            "http",
-                            "--url",
-                            "not-a-valid-url",  # Invalid format
-                            "--oidc-issuer",
-                            "https://test.auth0.com",
-                            "--oidc-client-id",
-                            "test-client",
-                            "--oidc-audience",
-                            "https://api.example.com",
-                        ],
-                    )
-
-        # Assert
-        assert result.exit_code == 1
-        assert "--url must start with http:// or https://" in result.output
-
-
-class TestConfigShow:
-    """Tests for config show command."""
-
-    def test_show_missing_config_shows_error(self, runner: CliRunner) -> None:
-        """Given no config file, shows helpful error."""
-        # Arrange
-        with runner.isolated_filesystem():
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=Path("nonexistent.json"),
-            ):
-                # Act
-                result = runner.invoke(cli, ["config", "show"])
-
-        # Assert
-        assert result.exit_code == 1
-
-    def test_show_displays_config_sections(self, runner: CliRunner, valid_config: dict) -> None:
-        """Given valid config, displays all sections."""
-        # Arrange
-        with runner.isolated_filesystem() as tmpdir:
-            config_path = Path(tmpdir) / "config.json"
-            config_path.write_text(json.dumps(valid_config, indent=2))
-
-            with patch(
-                "mcp_acp.cli.commands.config.get_config_path",
-                return_value=config_path,
-            ):
-                # Act
-                result = runner.invoke(cli, ["config", "show"])
-
-        # Assert
         assert result.exit_code == 0
-        assert "Logging" in result.output
-        assert "Backend" in result.output
-        assert "test-server" in result.output
+        assert "auth login" in result.output
+        assert "proxy add" in result.output
 
 
 class TestAuthHelp:
@@ -964,7 +569,7 @@ class TestAuthLogin:
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
                 side_effect=click.ClickException(
                     "Configuration not found at nonexistent.json\nRun 'mcp-acp init' to create configuration."
                 ),
@@ -979,23 +584,22 @@ class TestAuthLogin:
 
     def test_login_no_oidc_config_shows_error(self, runner: CliRunner) -> None:
         """Given config without OIDC settings, shows error."""
-        # Arrange - mock config without auth section
-        from unittest.mock import MagicMock
-
-        mock_config = MagicMock()
-        mock_config.auth = None
+        # Arrange - load_manager_config_or_exit raises when auth is None
+        import click
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
+                side_effect=click.ClickException(
+                    "Authentication not configured.\nRun 'mcp-acp init' to configure OIDC authentication."
+                ),
             ):
                 # Act
                 result = runner.invoke(cli, ["auth", "login"])
 
         # Assert
         assert result.exit_code == 1
-        assert "not configured" in result.output.lower() or "oidc" in result.output.lower()
+        assert "not configured" in result.output.lower()
 
 
 class TestAuthLogout:
@@ -1008,7 +612,7 @@ class TestAuthLogout:
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
                 side_effect=click.ClickException(
                     "Configuration not found at nonexistent.json\nRun 'mcp-acp init' to create configuration."
                 ),
@@ -1020,11 +624,9 @@ class TestAuthLogout:
         assert result.exit_code == 1
         assert "not found" in result.output.lower() or "configuration" in result.output.lower()
 
-    def test_logout_no_credentials_shows_message(self, runner: CliRunner, valid_config: dict) -> None:
+    def test_logout_no_credentials_shows_message(self, runner: CliRunner) -> None:
         """Given no stored credentials, shows appropriate message."""
         # Arrange
-        from unittest.mock import MagicMock
-
         mock_config = MagicMock()
         mock_config.auth = MagicMock()
         mock_config.auth.oidc = MagicMock()
@@ -1034,7 +636,7 @@ class TestAuthLogout:
             mock_storage = patch("mcp_acp.cli.commands.auth.create_token_storage")
 
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
                 return_value=mock_config,
             ):
                 with mock_storage as storage_mock:
@@ -1059,7 +661,7 @@ class TestAuthStatus:
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
                 side_effect=click.ClickException(
                     "Configuration not found at nonexistent.json\nRun 'mcp-acp init' to create configuration."
                 ),
@@ -1073,40 +675,36 @@ class TestAuthStatus:
 
     def test_status_no_oidc_config_shows_not_configured(self, runner: CliRunner) -> None:
         """Given config without OIDC settings, shows not configured."""
-        # Arrange - mock config without auth section
-        from unittest.mock import MagicMock
-
-        mock_config = MagicMock()
-        mock_config.auth = None
+        # Arrange - load_manager_config_or_exit raises when auth is None
+        import click
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
-                return_value=mock_config,
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
+                side_effect=click.ClickException(
+                    "Authentication not configured.\nRun 'mcp-acp init' to configure OIDC authentication."
+                ),
             ):
                 # Act
                 result = runner.invoke(cli, ["auth", "status"])
 
         # Assert
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert "not configured" in result.output.lower()
 
-    def test_status_not_authenticated(self, runner: CliRunner, valid_config: dict) -> None:
+    def test_status_not_authenticated(self, runner: CliRunner) -> None:
         """Given no stored token, shows not authenticated."""
         # Arrange
-        from unittest.mock import MagicMock
-
         mock_config = MagicMock()
         mock_config.auth = MagicMock()
         mock_config.auth.oidc = MagicMock()
         mock_config.auth.oidc.issuer = "https://test.auth0.com"
         mock_config.auth.oidc.client_id = "test-client-id"
         mock_config.auth.oidc.audience = "https://test-api.example.com"
-        mock_config.auth.mtls = None
 
         with runner.isolated_filesystem():
             with patch(
-                "mcp_acp.cli.commands.auth.load_config_or_exit",
+                "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
                 return_value=mock_config,
             ):
                 with patch("mcp_acp.cli.commands.auth.create_token_storage") as storage_mock:

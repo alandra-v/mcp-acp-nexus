@@ -23,18 +23,25 @@ class TestProxyNotRunningError:
 
     def test_has_helpful_message(self) -> None:
         """Error message suggests how to start proxy."""
-        error = ProxyNotRunningError()
+        error = ProxyNotRunningError("filesystem")
 
         assert "not running" in str(error).lower()
         assert "start" in str(error).lower()
+        assert "filesystem" in str(error)
 
     def test_is_click_exception(self) -> None:
         """Exception inherits from ClickException."""
         import click
 
-        error = ProxyNotRunningError()
+        error = ProxyNotRunningError("test")
 
         assert isinstance(error, click.ClickException)
+
+    def test_stores_proxy_name(self) -> None:
+        """Proxy name is accessible as attribute."""
+        error = ProxyNotRunningError("myproxy")
+
+        assert error.proxy_name == "myproxy"
 
 
 class TestAPIError:
@@ -75,9 +82,9 @@ class TestApiRequest:
     @pytest.fixture
     def mock_socket_exists(self, tmp_path: Path) -> Generator[Path, None, None]:
         """Mock socket path to exist."""
-        socket_path = tmp_path / "api.sock"
+        socket_path = tmp_path / "proxy_testproxy.sock"
         socket_path.touch()  # Create a file to simulate socket existence
-        with patch("mcp_acp.cli.api_client.SOCKET_PATH", socket_path):
+        with patch("mcp_acp.cli.api_client.get_proxy_socket_path", return_value=socket_path):
             yield socket_path
 
     @pytest.fixture
@@ -105,15 +112,17 @@ class TestApiRequest:
         """Given no socket file, raises ProxyNotRunningError."""
         socket_path = tmp_path / "nonexistent.sock"
 
-        with patch("mcp_acp.cli.api_client.SOCKET_PATH", socket_path):
-            with pytest.raises(ProxyNotRunningError):
-                api_request("GET", "/api/status")
+        with patch("mcp_acp.cli.api_client.get_proxy_socket_path", return_value=socket_path):
+            with pytest.raises(ProxyNotRunningError) as exc_info:
+                api_request("GET", "/api/status", proxy_name="testproxy")
+
+            assert exc_info.value.proxy_name == "testproxy"
 
     def test_get_request_success(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given successful GET request, returns parsed JSON."""
         mock_uds_client["response"].json.return_value = {"status": "ok", "data": [1, 2, 3]}
 
-        result = api_request("GET", "/api/test")
+        result = api_request("GET", "/api/test", proxy_name="testproxy")
 
         assert result == {"status": "ok", "data": [1, 2, 3]}
 
@@ -121,7 +130,7 @@ class TestApiRequest:
         """Given POST with JSON body, sends correct request."""
         mock_uds_client["response"].json.return_value = {"created": True}
 
-        result = api_request("POST", "/api/create", json_data={"name": "test"})
+        result = api_request("POST", "/api/create", proxy_name="testproxy", json_data={"name": "test"})
 
         # Verify request was made with JSON body
         call_args = mock_uds_client["client_instance"].request.call_args
@@ -131,7 +140,7 @@ class TestApiRequest:
         """Given 204 response, returns empty dict."""
         mock_uds_client["response"].status_code = 204
 
-        result = api_request("DELETE", "/api/item/1")
+        result = api_request("DELETE", "/api/item/1", proxy_name="testproxy")
 
         assert result == {}
 
@@ -144,7 +153,7 @@ class TestApiRequest:
                 )
 
                 with pytest.raises(ProxyNotRunningError):
-                    api_request("GET", "/api/test")
+                    api_request("GET", "/api/test", proxy_name="testproxy")
 
     def test_raises_api_error_on_http_error(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given HTTP error status, raises APIError with status code."""
@@ -159,14 +168,14 @@ class TestApiRequest:
         mock_uds_client["response"].raise_for_status.side_effect = error
 
         with pytest.raises(APIError) as exc_info:
-            api_request("GET", "/api/missing")
+            api_request("GET", "/api/missing", proxy_name="testproxy")
 
         assert exc_info.value.status_code == 404
         assert "Resource not found" in str(exc_info.value)
 
     def test_no_auth_header_sent(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """UDS requests don't include Authorization header (OS permissions = auth)."""
-        api_request("GET", "/api/test")
+        api_request("GET", "/api/test", proxy_name="testproxy")
 
         call_args = mock_uds_client["client_instance"].request.call_args
         # No headers parameter or no Authorization header
@@ -175,7 +184,7 @@ class TestApiRequest:
 
     def test_uses_uds_transport(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Request uses UDS transport with correct socket path."""
-        api_request("GET", "/api/test")
+        api_request("GET", "/api/test", proxy_name="testproxy")
 
         # Verify HTTPTransport was created with uds parameter
         mock_uds_client["transport"].assert_called_once()
@@ -187,14 +196,14 @@ class TestApiRequest:
         """Given params dict, passes as query parameters."""
         mock_uds_client["response"].json.return_value = {"entries": []}
 
-        api_request("GET", "/api/logs", params={"limit": 50, "offset": 10})
+        api_request("GET", "/api/logs", proxy_name="testproxy", params={"limit": 50, "offset": 10})
 
         call_args = mock_uds_client["client_instance"].request.call_args
         assert call_args[1]["params"] == {"limit": 50, "offset": 10}
 
     def test_respects_custom_timeout(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Given custom timeout, uses it for client."""
-        api_request("GET", "/api/test", timeout=60.0)
+        api_request("GET", "/api/test", proxy_name="testproxy", timeout=60.0)
 
         # Verify client was created with custom timeout
         mock_uds_client["client"].assert_called_once()
@@ -216,7 +225,7 @@ class TestApiRequest:
         mock_uds_client["response"].raise_for_status.side_effect = error
 
         with pytest.raises(APIError) as exc_info:
-            api_request("POST", "/api/data", json_data={})
+            api_request("POST", "/api/data", proxy_name="testproxy", json_data={})
 
         assert "Invalid input data" in str(exc_info.value)
 
@@ -233,14 +242,14 @@ class TestApiRequest:
         mock_uds_client["response"].raise_for_status.side_effect = error
 
         with pytest.raises(APIError) as exc_info:
-            api_request("GET", "/api/test")
+            api_request("GET", "/api/test", proxy_name="testproxy")
 
         assert exc_info.value.status_code == 500
 
     def test_supports_all_http_methods(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
         """Supports GET, POST, PUT, DELETE methods."""
         for method in ["GET", "POST", "PUT", "DELETE"]:
-            api_request(method, "/api/test")
+            api_request(method, "/api/test", proxy_name="testproxy")
 
             call_args = mock_uds_client["client_instance"].request.call_args
             assert call_args[0][0] == method
@@ -253,19 +262,19 @@ class TestConnectionRetry:
         """Given socket never appears, raises ProxyNotRunningError."""
         socket_path = tmp_path / "never_exists.sock"
 
-        with patch("mcp_acp.cli.api_client.SOCKET_PATH", socket_path):
+        with patch("mcp_acp.cli.api_client.get_proxy_socket_path", return_value=socket_path):
             with patch("mcp_acp.cli.api_client.time.sleep"):  # Speed up test
                 with pytest.raises(ProxyNotRunningError):
-                    api_request("GET", "/api/test")
+                    api_request("GET", "/api/test", proxy_name="testproxy")
 
     def test_retry_backoff_is_used(self, tmp_path: Path) -> None:
         """Retry uses exponential backoff."""
         socket_path = tmp_path / "never_exists.sock"
 
-        with patch("mcp_acp.cli.api_client.SOCKET_PATH", socket_path):
+        with patch("mcp_acp.cli.api_client.get_proxy_socket_path", return_value=socket_path):
             with patch("mcp_acp.cli.api_client.time.sleep") as mock_sleep:
                 with pytest.raises(ProxyNotRunningError):
-                    api_request("GET", "/api/test")
+                    api_request("GET", "/api/test", proxy_name="testproxy")
 
                 # Should have called sleep for backoff (retries - 1 times)
                 # With 3 retries: 2 sleep calls (100ms, 200ms)

@@ -56,7 +56,7 @@ class TestStatusCommand:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
 
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -72,7 +72,7 @@ class TestStatusCommand:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
 
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -88,7 +88,7 @@ class TestStatusCommand:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
 
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -100,10 +100,10 @@ class TestStatusCommand:
         # Arrange
         with patch(
             "mcp_acp.cli.commands.status.api_request",
-            side_effect=ProxyNotRunningError(),
+            side_effect=ProxyNotRunningError("test"),
         ):
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
@@ -117,11 +117,25 @@ class TestStatusCommand:
             side_effect=APIError("Connection refused"),
         ):
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
         assert "Connection refused" in result.output
+
+    def test_status_without_proxy_shows_all(self, runner: CliRunner) -> None:
+        """Given no --proxy flag, shows all proxies summary."""
+        # Arrange
+        with patch("mcp_acp.cli.commands.status.list_configured_proxies", return_value=["proxy1", "proxy2"]):
+            with patch("mcp_acp.cli.commands.status.check_proxy_running", side_effect=[True, False]):
+                # Act
+                result = runner.invoke(cli, ["status"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "proxy1" in result.output
+        assert "proxy2" in result.output
+        assert "1/2" in result.output
 
 
 class TestStatusJsonOutput:
@@ -136,7 +150,7 @@ class TestStatusJsonOutput:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
 
             # Act
-            result = runner.invoke(cli, ["status", "--json"])
+            result = runner.invoke(cli, ["status", "--proxy", "test", "--json"])
 
         # Assert
         assert result.exit_code == 0
@@ -155,7 +169,7 @@ class TestStatusJsonOutput:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
 
             # Act
-            result = runner.invoke(cli, ["status", "--json"])
+            result = runner.invoke(cli, ["status", "--proxy", "test", "--json"])
 
         # Assert
         data = json.loads(result.output)
@@ -171,7 +185,7 @@ class TestStatusJsonOutput:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
 
             # Act
-            result = runner.invoke(cli, ["status", "--json"])
+            result = runner.invoke(cli, ["status", "--proxy", "test", "--json"])
 
         # Assert
         data = json.loads(result.output)
@@ -208,7 +222,7 @@ class TestStatusUptimeFormatting:
             mock_api.side_effect = [status_response, []]
 
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -224,7 +238,7 @@ class TestStatusSessionsErrorHandling:
         """Given sessions endpoint error, still shows status."""
 
         # Arrange
-        def api_side_effect(method, endpoint):
+        def api_side_effect(method, endpoint, **kwargs):
             if "sessions" in endpoint:
                 raise APIError("Sessions unavailable")
             return mock_status_response
@@ -234,7 +248,7 @@ class TestStatusSessionsErrorHandling:
             side_effect=api_side_effect,
         ):
             # Act
-            result = runner.invoke(cli, ["status"])
+            result = runner.invoke(cli, ["status", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
