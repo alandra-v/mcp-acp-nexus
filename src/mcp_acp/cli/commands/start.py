@@ -184,14 +184,13 @@ def start(headless: bool, proxy_name: str | None) -> None:
         per_proxy_config = load_proxy_config(proxy_name)
         manager_config = load_manager_config()
 
-        # Build AppConfig: OIDC from manager, mTLS from per-proxy
+        # Build AppConfig: OIDC from manager, mTLS/log_level from per-proxy
         oidc_config = manager_config.auth.oidc if manager_config.auth else None
         loaded_config = build_app_config_from_per_proxy(
             proxy_name=proxy_name,
             per_proxy=per_proxy_config,
             oidc=oidc_config,
             log_dir=manager_config.log_dir,
-            log_level=manager_config.log_level,
         )
 
         # Extract log path parameters

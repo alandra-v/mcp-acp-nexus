@@ -810,9 +810,7 @@ class TestJWTValidatorCriticalFailures:
             mock_client.return_value.get_jwk_set.side_effect = Exception("Network unreachable")
 
             # Act & Assert
-            with pytest.raises(
-                IdentityVerificationFailure, match="JWKS endpoint unreachable and cache expired"
-            ):
+            with pytest.raises(IdentityVerificationFailure, match="Cannot reach identity provider"):
                 validator._get_jwks_client()
 
     def test_raises_identity_verification_failure_when_jwks_unreachable_and_cache_expired(
@@ -839,9 +837,7 @@ class TestJWTValidatorCriticalFailures:
             mock_client.return_value.get_jwk_set.side_effect = Exception("Connection timeout")
 
             # Act & Assert
-            with pytest.raises(
-                IdentityVerificationFailure, match="JWKS endpoint unreachable and cache expired"
-            ):
+            with pytest.raises(IdentityVerificationFailure, match="Cannot reach identity provider"):
                 validator._get_jwks_client()
 
 
@@ -899,6 +895,8 @@ class TestOIDCIdentityProvider:
         Zero Trust: Every request validates the token from storage.
         This ensures logout and token revocation take effect immediately.
         """
+        from unittest.mock import AsyncMock
+
         from mcp_acp.pips.auth import OIDCIdentityProvider
 
         # Arrange
@@ -916,6 +914,8 @@ class TestOIDCIdentityProvider:
             auth_time=None,
             claims={},
         )
+        # ensure_jwks_available is async, so it needs AsyncMock
+        mock_validator.ensure_jwks_available = AsyncMock()
 
         provider = OIDCIdentityProvider(
             config=oidc_config,

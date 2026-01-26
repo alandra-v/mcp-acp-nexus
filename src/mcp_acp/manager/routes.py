@@ -384,7 +384,8 @@ def create_manager_api_app(
     app.state.registry = registry or get_proxy_registry()
     app.state.token_service = token_service
 
-    # TODO (Phase 4): Add SecurityMiddleware when auth moves to manager
+    # Note: Manager API auth uses HttpOnly cookie (api_token) set on index.html load.
+    # This is adequate for localhost-only UI. No additional SecurityMiddleware needed.
 
     @app.get("/api/manager/status", response_model=ManagerStatusResponse)
     async def manager_status(request: Request) -> ManagerStatusResponse:
@@ -709,7 +710,8 @@ def create_manager_api_app(
                 html = index_file.read_text()
                 api_token = getattr(request.app.state, "api_token", None)
 
-                # TODO (Phase 4): Token injection for dev mode
+                # Dev mode note: When running React dev server separately (npm run dev),
+                # use the built SPA or configure CORS. Token is set via HttpOnly cookie below.
 
                 response = HTMLResponse(
                     content=html,

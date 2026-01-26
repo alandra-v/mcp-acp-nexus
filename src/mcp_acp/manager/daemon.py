@@ -104,10 +104,10 @@ def _configure_manager_logging(config: ManagerConfig) -> None:
 
     Sets up:
     - stderr handler: INFO+ for operator visibility
-    - file handler: WARNING+ for persistent issue tracking
+    - file handler: respects config.log_level (INFO or DEBUG)
 
     Args:
-        config: Manager configuration with log directory.
+        config: Manager configuration with log directory and level.
     """
     global _file_handler_configured
 
@@ -125,7 +125,10 @@ def _configure_manager_logging(config: ManagerConfig) -> None:
     stderr_handler.setFormatter(_ConsoleFormatter())
     _logger.addHandler(stderr_handler)
 
-    # Add file handler (WARNING+)
+    # Determine file log level from config
+    file_log_level = logging.DEBUG if config.log_level == "DEBUG" else logging.INFO
+
+    # Add file handler (respects config.log_level)
     log_path = get_manager_system_log_path(config)
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +138,7 @@ def _configure_manager_logging(config: ManagerConfig) -> None:
 
     try:
         file_handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-        file_handler.setLevel(logging.WARNING)
+        file_handler.setLevel(file_log_level)
         file_handler.setFormatter(ISO8601Formatter())
         _logger.addHandler(file_handler)
         _file_handler_configured = True

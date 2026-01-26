@@ -412,6 +412,7 @@ class PerProxyConfig(BaseModel):
         backend: Backend server configuration (STDIO or HTTP transport).
         hitl: Human-in-the-loop approval configuration.
         mtls: mTLS configuration for HTTPS backends (optional).
+        log_level: Logging level for this proxy. DEBUG enables wire logs.
     """
 
     proxy_id: str = Field(
@@ -426,6 +427,10 @@ class PerProxyConfig(BaseModel):
     mtls: MTLSConfig | None = Field(
         default=None,
         description="mTLS configuration for HTTPS backends",
+    )
+    log_level: Literal["DEBUG", "INFO"] = Field(
+        default="INFO",
+        description="Logging level. DEBUG enables wire logs.",
     )
 
     model_config = {"extra": "ignore"}  # Ignore unknown fields for forward compat
@@ -487,7 +492,6 @@ def build_app_config_from_per_proxy(
     per_proxy: "PerProxyConfig",
     oidc: "OIDCConfig | None",
     log_dir: str = DEFAULT_LOG_DIR,
-    log_level: Literal["DEBUG", "INFO"] = "INFO",
 ) -> "AppConfig":
     """Build AppConfig from per-proxy config for use with create_proxy.
 
@@ -499,7 +503,6 @@ def build_app_config_from_per_proxy(
         per_proxy: Per-proxy configuration loaded from proxies/{name}/config.json.
         oidc: OIDC configuration from manager.json (or None if not configured).
         log_dir: Base log directory from manager config.
-        log_level: Logging level from manager config (DEBUG enables wire logs).
 
     Returns:
         AppConfig instance compatible with create_proxy().
@@ -507,6 +510,7 @@ def build_app_config_from_per_proxy(
     Note:
         mTLS is loaded from per_proxy.mtls (per-proxy configuration),
         while OIDC is loaded from manager.json (shared across all proxies).
+        log_level is per-proxy (DEBUG enables wire logs for that proxy only).
     """
     # Build auth config: OIDC from manager, mTLS from per-proxy
     auth: AuthConfig | None = None
@@ -516,7 +520,7 @@ def build_app_config_from_per_proxy(
     return AppConfig(
         auth=auth,
         mtls=per_proxy.mtls,  # mTLS is per-proxy
-        logging=LoggingConfig(log_dir=log_dir, log_level=log_level),
+        logging=LoggingConfig(log_dir=log_dir, log_level=per_proxy.log_level),
         backend=per_proxy.backend,
         proxy=ProxyConfig(name=proxy_name, proxy_id=per_proxy.proxy_id),
         hitl=per_proxy.hitl,
