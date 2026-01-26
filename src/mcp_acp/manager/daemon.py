@@ -62,6 +62,7 @@ from mcp_acp.manager.routes import (
     create_manager_api_app,
     create_uds_client,
 )
+from mcp_acp.manager.token_service import ManagerTokenService
 from mcp_acp.utils.logging.iso_formatter import ISO8601Formatter
 
 # Token length for API authentication (32 bytes = 64 hex chars)
@@ -319,6 +320,7 @@ async def _handle_proxy_connection(
     reader: asyncio.StreamReader,
     writer: asyncio.StreamWriter,
     registry: ProxyRegistry,
+    token_service: ManagerTokenService | None = None,
 ) -> None:
     """Handle a proxy connection to the UDS server.
 
@@ -331,6 +333,7 @@ async def _handle_proxy_connection(
         reader: Stream reader for incoming data.
         writer: Stream writer for responses.
         registry: Proxy registry to register with.
+        token_service: Token service for sending initial token (optional).
     """
     proxy_name: str | None = None
 
@@ -407,6 +410,10 @@ async def _handle_proxy_connection(
 
         # Send initial UI status to proxy so it knows browser connectivity
         await _send_ui_status_to_proxy(writer, registry)
+
+        # Send initial token to proxy if available (multi-proxy token distribution)
+        if token_service is not None:
+            await token_service.send_token_to_proxy(writer)
 
         # Fetch initial state from proxy and broadcast to browsers
         await _broadcast_proxy_snapshot(socket_path, registry)
@@ -702,12 +709,27 @@ async def run_manager(port: int | None = None) -> None:
     # Create proxy registry
     registry = get_proxy_registry()
 
+    # Initialize token service if OIDC is configured
+    token_service: ManagerTokenService | None = None
+    if config.auth is not None and config.auth.oidc is not None:
+        token_service = ManagerTokenService(config.auth.oidc, registry)
+        await token_service.start()
+        _logger.info(
+            {
+                "event": "token_service_started",
+                "message": "Token service started for OIDC authentication",
+            }
+        )
+
     # Generate API token for browser auth
-    # TODO (Phase 4): Move to centralized auth
     api_token = secrets.token_hex(API_TOKEN_BYTES)
 
     # Create FastAPI app for HTTP
-    http_app = create_manager_api_app(token=api_token, registry=registry)
+    http_app = create_manager_api_app(
+        token=api_token,
+        registry=registry,
+        token_service=token_service,
+    )
 
     # Create HTTP server
     http_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -737,7 +759,7 @@ async def run_manager(port: int | None = None) -> None:
     # Create UDS server for proxy registration (raw asyncio, not uvicorn)
     # This handles the NDJSON protocol for proxy registration
     uds_server = await asyncio.start_unix_server(
-        lambda r, w: _handle_proxy_connection(r, w, registry),
+        lambda r, w: _handle_proxy_connection(r, w, registry, token_service),
         path=str(MANAGER_SOCKET_PATH),
     )
     # Set secure permissions
@@ -809,6 +831,10 @@ async def run_manager(port: int | None = None) -> None:
             await heartbeat_task
         except asyncio.CancelledError:
             pass
+
+        # Stop token service
+        if token_service is not None:
+            await token_service.stop()
 
         # Close all proxy connections
         await registry.close_all()

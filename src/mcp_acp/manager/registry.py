@@ -310,6 +310,27 @@ class ProxyRegistry:
                     # Proxy will be cleaned up by its handler
                     pass
 
+    async def broadcast_to_all_proxies(self, msg: dict[str, Any]) -> None:
+        """Broadcast a message to all registered proxies.
+
+        Used by ManagerTokenService to distribute token updates.
+
+        Args:
+            msg: Message dict to send (will be NDJSON encoded).
+        """
+        from mcp_acp.manager.protocol import encode_ndjson
+
+        msg_bytes = encode_ndjson(msg)
+
+        async with self._lock:
+            for conn in self._proxies.values():
+                try:
+                    conn.writer.write(msg_bytes)
+                    await conn.writer.drain()
+                except (ConnectionResetError, BrokenPipeError, OSError):
+                    # Proxy will be cleaned up by its handler
+                    pass
+
     async def _broadcast_sse_event(
         self,
         event_type: str,

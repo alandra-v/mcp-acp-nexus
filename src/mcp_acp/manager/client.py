@@ -34,7 +34,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from mcp_acp.pep.hitl import HITLHandler
+    from mcp_acp.security.auth.token_storage import StoredToken
 
 from mcp_acp.constants import (
     APP_NAME,
@@ -131,6 +134,11 @@ class ManagerClient:
         # HITL handler for disconnect notifications
         self._hitl_handler: "HITLHandler | None" = None
 
+        # Token callback for manager-distributed tokens
+        self._token_callback: "Callable[[StoredToken], None] | None" = None
+        # Last token received from manager
+        self._manager_token: "StoredToken | None" = None
+
     @property
     def connected(self) -> bool:
         """Check if connected to manager."""
@@ -161,6 +169,26 @@ class ManagerClient:
             handler: HITLHandler to notify when manager disconnects.
         """
         self._hitl_handler = handler
+
+    def set_token_callback(self, callback: "Callable[[StoredToken], None]") -> None:
+        """Set callback for token updates from manager.
+
+        Called by OIDC provider to receive manager-distributed tokens.
+        The callback is invoked whenever a new token is received.
+
+        Args:
+            callback: Function to call with new StoredToken.
+        """
+        self._token_callback = callback
+
+    @property
+    def manager_token(self) -> "StoredToken | None":
+        """Get the last token received from manager.
+
+        Returns:
+            StoredToken if received, None if no token from manager.
+        """
+        return self._manager_token
 
     async def connect(self) -> bool:
         """Connect to manager socket.
@@ -493,6 +521,59 @@ class ManagerClient:
             # Normal cancellation during shutdown
             raise
 
+    async def _handle_token_update(self, msg: dict[str, Any]) -> None:
+        """Handle token_update message from manager.
+
+        Parses the token, stores it locally, and invokes the callback
+        to update the OIDC provider.
+
+        Args:
+            msg: Token update message with access_token, expires_at, etc.
+        """
+        from datetime import datetime
+
+        from mcp_acp.security.auth.token_storage import StoredToken
+
+        try:
+            # Parse token from message
+            expires_at = datetime.fromisoformat(msg["expires_at"])
+            issued_at = datetime.fromisoformat(msg.get("issued_at", msg["expires_at"]))
+
+            token = StoredToken(
+                access_token=msg["access_token"],
+                refresh_token=msg.get("refresh_token"),
+                id_token=msg.get("id_token"),
+                expires_at=expires_at,
+                issued_at=issued_at,
+            )
+
+            self._manager_token = token
+
+            _logger.info(
+                {
+                    "event": "token_received_from_manager",
+                    "message": "Token received from manager",
+                    "proxy_name": self._proxy_name,
+                    "expires_at": expires_at.isoformat(),
+                    "is_expired": token.is_expired,
+                }
+            )
+
+            # Invoke callback to update OIDC provider
+            if self._token_callback is not None:
+                self._token_callback(token)
+
+        except (KeyError, ValueError) as e:
+            _logger.warning(
+                {
+                    "event": "token_update_parse_failed",
+                    "message": f"Failed to parse token update: {e}",
+                    "proxy_name": self._proxy_name,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+
     async def _handle_manager_message(self, msg: dict[str, Any]) -> None:
         """Handle a message from the manager.
 
@@ -525,13 +606,16 @@ class ManagerClient:
 
         elif msg_type == "token_update":
             # Token update from manager (Phase 4 - multi-proxy token distribution)
-            # Currently stubbed - full implementation in future phase
-            _logger.debug(
+            await self._handle_token_update(msg)
+
+        elif msg_type == "token_cleared":
+            # Token cleared from manager (user logged out)
+            self._manager_token = None
+            _logger.info(
                 {
-                    "event": "token_update_received",
-                    "message": "Token update received from manager (not yet implemented)",
+                    "event": "token_cleared_from_manager",
+                    "message": "Token cleared by manager (logout)",
                     "proxy_name": self._proxy_name,
-                    "expires_at": msg.get("expires_at"),
                 }
             )
 

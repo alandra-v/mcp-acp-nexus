@@ -44,6 +44,7 @@ from mcp_acp.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
     from mcp_acp.config import OIDCConfig
+    from mcp_acp.manager.client import ManagerClient
     from mcp_acp.manager.state import ProxyState
     from mcp_acp.telemetry.audit.auth_logger import AuthLogger
 
@@ -107,6 +108,10 @@ class OIDCIdentityProvider:
         self._proxy_state: "ProxyState | None" = None
         # Track if we've warned about session expiring (reset on new token)
         self._expiry_warned: bool = False
+        # Manager client for distributed tokens (set via set_manager_client)
+        self._manager_client: "ManagerClient | None" = None
+        # Token received from manager (takes precedence over local storage)
+        self._manager_token: StoredToken | None = None
 
     def set_proxy_state(self, proxy_state: "ProxyState") -> None:
         """Set ProxyState for SSE event emission.
@@ -118,6 +123,56 @@ class OIDCIdentityProvider:
             proxy_state: ProxyState instance for SSE emission.
         """
         self._proxy_state = proxy_state
+
+    def set_manager_client(self, manager_client: "ManagerClient") -> None:
+        """Set manager client for distributed token updates.
+
+        Called during proxy setup to enable manager-distributed tokens.
+        When set, the provider prefers manager-provided tokens over
+        local storage and skips local refresh (manager handles refresh).
+
+        Args:
+            manager_client: ManagerClient instance for token updates.
+        """
+        self._manager_client = manager_client
+        # Register callback to receive token updates
+        manager_client.set_token_callback(self._on_manager_token)
+
+        # Check if manager already has a token
+        if manager_client.manager_token is not None:
+            self._on_manager_token(manager_client.manager_token)
+
+    def _on_manager_token(self, token: StoredToken) -> None:
+        """Handle token update from manager.
+
+        Called by ManagerClient when a new token is received.
+
+        Args:
+            token: New token from manager.
+        """
+        self._manager_token = token
+        self._current_token = token
+        self._cache = None  # Force re-validation
+        self._expiry_warned = False  # Reset for new token
+
+        self._system_logger.info(
+            {
+                "event": "manager_token_received",
+                "message": "Received token update from manager",
+                "expires_at": token.expires_at.isoformat(),
+                "is_expired": token.is_expired,
+            }
+        )
+
+        # Emit SSE event for UI notification
+        if self._proxy_state is not None:
+            from mcp_acp.manager.events import SSEEventType
+
+            self._proxy_state.emit_system_event(
+                SSEEventType.AUTH_LOGIN,
+                severity="success",
+                message="Token updated from manager",
+            )
 
     async def get_identity(self) -> SubjectIdentity:
         """Get the current user's identity.
@@ -181,14 +236,23 @@ class OIDCIdentityProvider:
         return self._cache.validated_token
 
     def _load_token(self) -> StoredToken:
-        """Load token from storage.
+        """Load token from storage or manager.
+
+        Prefers manager-provided token if available (multi-proxy mode).
+        Falls back to local keychain storage.
 
         Returns:
-            StoredToken from keychain/encrypted file.
+            StoredToken from manager or keychain/encrypted file.
 
         Raises:
-            AuthenticationError: If no token stored (user not logged in).
+            AuthenticationError: If no token available (user not logged in).
         """
+        # Prefer manager-provided token (multi-proxy mode)
+        if self._manager_token is not None:
+            self._current_token = self._manager_token
+            return self._manager_token
+
+        # Fall back to local storage
         token = self._storage.load()
 
         if token is None:
@@ -237,17 +301,11 @@ class OIDCIdentityProvider:
         # Ensure JWKS is available (async pre-flight check with proper timeout)
         # This must happen before the sync validate() call because sync httpx
         # has timeout bugs for unreachable hosts
-        import sys
-
-        print("DEBUG: calling ensure_jwks_available", file=sys.stderr, flush=True)
         await self._validator.ensure_jwks_available()
-        print("DEBUG: ensure_jwks_available completed", file=sys.stderr, flush=True)
 
         # Validate JWT (signature, issuer, audience, exp)
         try:
-            print("DEBUG: calling validate()", file=sys.stderr, flush=True)
             validated = self._validator.validate(token.access_token)
-            print("DEBUG: validate() completed", file=sys.stderr, flush=True)
 
             # Check if token is expiring soon (warn once per token)
             self._check_session_expiring(token)
@@ -328,6 +386,10 @@ class OIDCIdentityProvider:
     async def _refresh_and_validate(self, token: StoredToken) -> ValidatedToken:
         """Refresh token and validate the new one.
 
+        In multi-proxy mode (manager_client set), skips local refresh since
+        the manager handles token lifecycle. Instead, waits briefly for
+        manager to provide a refreshed token.
+
         Runs the HTTP token refresh in a thread pool to avoid blocking
         the event loop (refresh can take up to 30 seconds on timeout).
 
@@ -340,6 +402,30 @@ class OIDCIdentityProvider:
         Raises:
             AuthenticationError: If refresh fails (user must re-login).
         """
+        # In multi-proxy mode, manager handles refresh
+        if self._manager_client is not None and self._manager_token is not None:
+            error_msg = (
+                "Token expired. Manager should refresh automatically. "
+                "If this persists, run 'mcp-acp auth login' to re-authenticate."
+            )
+            # Log but don't fail immediately - manager may be refreshing
+            self._system_logger.warning(
+                {
+                    "event": "token_expired_waiting_for_manager",
+                    "message": "Token expired, waiting for manager refresh",
+                }
+            )
+            # Emit SSE event
+            if self._proxy_state is not None:
+                from mcp_acp.manager.events import SSEEventType
+
+                self._proxy_state.emit_system_event(
+                    SSEEventType.AUTH_SESSION_EXPIRING,
+                    severity="warning",
+                    message="Token expired, waiting for refresh",
+                )
+            raise AuthenticationError(error_msg)
+
         if not token.refresh_token:
             error_msg = (
                 "Token expired and no refresh token available. "

@@ -16,6 +16,7 @@ Models:
 from __future__ import annotations
 
 __all__ = [
+    "AuthActionResponse",
     "CachedApprovalSummary",
     "FrozenModel",
     "ManagerStatusResponse",
@@ -39,6 +40,18 @@ class FrozenModel(BaseModel):
     """
 
     model_config = ConfigDict(frozen=True)
+
+
+class AuthActionResponse(FrozenModel):
+    """Response model for auth action endpoints (reload, clear).
+
+    Attributes:
+        ok: Whether the action succeeded.
+        message: Human-readable result message.
+    """
+
+    ok: bool
+    message: str
 
 
 class ManagerStatusResponse(FrozenModel):

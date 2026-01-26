@@ -47,6 +47,7 @@ class TestProxyConnection:
         writer = MagicMock()
         conn = ProxyConnection(
             proxy_name="test-proxy",
+            proxy_id="px_abc123:test-proxy",
             instance_id="inst_abc123",
             config_summary={"backend": "stdio"},
             connected_at=datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
@@ -58,6 +59,7 @@ class TestProxyConnection:
         d = conn.to_dict()
 
         assert d["name"] == "test-proxy"
+        assert d["proxy_id"] == "px_abc123:test-proxy"
         assert d["instance_id"] == "inst_abc123"
         assert d["connected"] is True
         assert d["config_summary"] == {"backend": "stdio"}
@@ -70,6 +72,7 @@ class TestProxyConnection:
         writer = MagicMock()
         conn = ProxyConnection(
             proxy_name="test",
+            proxy_id="px_123:test",
             instance_id="inst_123",
             config_summary={},
             connected_at=datetime.now(timezone.utc),
@@ -98,6 +101,7 @@ class TestProxyRegistration:
 
         result = await registry.register(
             proxy_name="test-proxy",
+            proxy_id="px_test:test-proxy",
             instance_id="inst_123",
             config_summary={"key": "value"},
             socket_path="/tmp/test.sock",
@@ -127,6 +131,7 @@ class TestProxyRegistration:
         # Register first
         await registry.register(
             proxy_name="proxy-a",
+            proxy_id="px_a:proxy-a",
             instance_id="inst_1",
             config_summary={},
             socket_path="/tmp/a1.sock",
@@ -137,6 +142,7 @@ class TestProxyRegistration:
         # Register again with same name
         await registry.register(
             proxy_name="proxy-a",
+            proxy_id="px_a:proxy-a",
             instance_id="inst_2",
             config_summary={},
             socket_path="/tmp/a2.sock",
@@ -165,6 +171,7 @@ class TestProxyRegistration:
 
         await registry.register(
             proxy_name="to-remove",
+            proxy_id="px_remove:to-remove",
             instance_id="inst_123",
             config_summary={},
             socket_path="/tmp/remove.sock",
@@ -207,6 +214,7 @@ class TestProxyRegistration:
             writer.wait_closed = AsyncMock()
             await registry.register(
                 proxy_name=f"proxy-{i}",
+                proxy_id=f"px_{i}:proxy-{i}",
                 instance_id=f"inst_{i}",
                 config_summary={},
                 socket_path=f"/tmp/proxy{i}.sock",
@@ -233,6 +241,7 @@ class TestProxyRegistration:
             writers.append(writer)
             await registry.register(
                 proxy_name=f"proxy-{i}",
+                proxy_id=f"px_{i}:proxy-{i}",
                 instance_id=f"inst_{i}",
                 config_summary={},
                 socket_path=f"/tmp/proxy{i}.sock",
@@ -292,6 +301,7 @@ class TestSSEBroadcasting:
 
         await registry.register(
             proxy_name="new-proxy",
+            proxy_id="px_new:new-proxy",
             instance_id="inst_new",
             config_summary={},
             socket_path="/tmp/new.sock",
@@ -315,6 +325,7 @@ class TestSSEBroadcasting:
 
         await registry.register(
             proxy_name="leaving-proxy",
+            proxy_id="px_leave:leaving-proxy",
             instance_id="inst_leave",
             config_summary={},
             socket_path="/tmp/leave.sock",

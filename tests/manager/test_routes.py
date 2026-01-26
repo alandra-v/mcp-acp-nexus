@@ -56,6 +56,7 @@ class TestManagerStatusEndpoint:
 
         await registry.register(
             proxy_name="test",
+            proxy_id="px_test:test",
             instance_id="inst_1",
             config_summary={},
             socket_path="/tmp/test.sock",
@@ -90,6 +91,7 @@ class TestManagerProxiesEndpoint:
 
         await registry.register(
             proxy_name="proxy-a",
+            proxy_id="px_a:proxy-a",
             instance_id="inst_a",
             config_summary={"transport": "stdio"},
             socket_path="/tmp/a.sock",
@@ -125,7 +127,7 @@ class TestProxyRoutingErrors:
         response = app.get("/api/approvals/pending")
 
         assert response.status_code == 503
-        assert "no proxy connected" in response.json()["error"].lower()
+        assert "no proxies connected" in response.json()["error"].lower()
 
     async def test_route_to_proxy_with_missing_socket_returns_503(
         self,
@@ -138,6 +140,7 @@ class TestProxyRoutingErrors:
 
         await registry.register(
             proxy_name="broken",
+            proxy_id="px_broken:broken",
             instance_id="inst_1",
             config_summary={},
             socket_path="/nonexistent/socket.sock",

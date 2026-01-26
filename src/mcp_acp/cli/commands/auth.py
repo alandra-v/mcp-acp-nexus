@@ -37,23 +37,35 @@ if TYPE_CHECKING:
     from mcp_acp.manager.config import ManagerConfig
 
 
-def _notify_proxy(endpoint: str) -> bool:
-    """Notify running proxy of auth change via UDS.
+def _notify_manager(action: str) -> bool:
+    """Notify running manager of auth change.
+
+    In multi-proxy mode, the manager handles token distribution to all proxies.
+    CLI calls manager's HTTP API to trigger reload/clear.
 
     Args:
-        endpoint: API endpoint path (e.g., "/api/auth/notify-login")
+        action: "reload" after login, "clear" after logout.
 
     Returns:
         True if notification succeeded, False otherwise.
-
-    Note:
-        In multi-proxy mode, token distribution is handled by the manager.
-        This notification is skipped until auth migration is complete.
     """
-    # TODO: In multi-proxy mode, manager handles token distribution.
-    # For now, skip individual proxy notification.
-    # Auth migration will implement proper token broadcast.
-    return False
+    import httpx
+
+    from mcp_acp.manager.config import load_manager_config
+    from mcp_acp.manager.daemon import is_manager_running
+
+    if not is_manager_running():
+        return False
+
+    try:
+        # Use port from manager config (not hardcoded default)
+        config = load_manager_config()
+        endpoint = f"/api/manager/auth/{action}"
+        url = f"http://127.0.0.1:{config.ui_port}{endpoint}"
+        response = httpx.post(url, timeout=CLI_NOTIFICATION_TIMEOUT_SECONDS)
+        return response.status_code == 200 and response.json().get("ok", False)
+    except (httpx.HTTPError, httpx.TimeoutException, OSError):
+        return False
 
 
 @click.group()
@@ -150,8 +162,8 @@ def login(no_browser: bool) -> None:
         storage = create_token_storage(oidc_config)
         storage.save(token)
 
-        # Notify running proxy (if any) to reload tokens
-        proxy_notified = _notify_proxy("/api/auth/notify-login")
+        # Notify running manager (if any) to reload and broadcast tokens
+        manager_notified = _notify_manager("reload")
 
         # Show success
         click.echo(click.style(style_success("Authentication successful!"), bold=True))
@@ -165,9 +177,9 @@ def login(no_browser: bool) -> None:
         hours_until_expiry = token.seconds_until_expiry / 3600
         click.echo(f"  Token expires in: {hours_until_expiry:.1f} hours")
 
-        # Show proxy sync status
-        if proxy_notified:
-            click.echo("  Running proxy updated with new credentials.")
+        # Show manager sync status
+        if manager_notified:
+            click.echo("  Running proxies updated with new credentials.")
         else:
             click.echo()
             click.echo("You can now start the proxy with 'mcp-acp start'")
@@ -217,15 +229,15 @@ def logout(federated: bool) -> None:
         return
 
     try:
-        # Notify running proxy BEFORE clearing tokens
-        proxy_notified = _notify_proxy("/api/auth/notify-logout")
+        # Notify running manager BEFORE clearing tokens
+        manager_notified = _notify_manager("clear")
 
         storage.delete()
         click.echo(style_success("Local credentials cleared."))
 
-        # Show proxy sync status
-        if proxy_notified:
-            click.echo("  Running proxy logged out.")
+        # Show manager sync status
+        if manager_notified:
+            click.echo("  Running proxies logged out.")
 
         # Federated logout if requested
         if federated and oidc_config:

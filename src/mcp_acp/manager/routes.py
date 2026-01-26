@@ -34,7 +34,10 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator
+
+if TYPE_CHECKING:
+    from mcp_acp.manager.token_service import ManagerTokenService
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -42,7 +45,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from mcp_acp.constants import APP_NAME, DEFAULT_APPROVAL_TTL_SECONDS
-from mcp_acp.manager.models import ManagerStatusResponse
+from mcp_acp.manager.models import AuthActionResponse, ManagerStatusResponse
 from mcp_acp.manager.registry import ProxyConnection, ProxyRegistry, get_proxy_registry
 
 # Static files directory (built React app)
@@ -356,6 +359,7 @@ async def _get_default_proxy(reg: ProxyRegistry) -> ProxyConnection | JSONRespon
 def create_manager_api_app(
     token: str | None = None,
     registry: ProxyRegistry | None = None,
+    token_service: "ManagerTokenService | None" = None,
 ) -> FastAPI:
     """Create the FastAPI application for manager.
 
@@ -364,6 +368,7 @@ def create_manager_api_app(
     Args:
         token: Bearer token for API authentication. None for UDS (OS auth).
         registry: Proxy registry for API endpoints.
+        token_service: ManagerTokenService for auth token distribution.
 
     Returns:
         Configured FastAPI application.
@@ -374,9 +379,10 @@ def create_manager_api_app(
         version="0.1.0",
     )
 
-    # Store token and registry
+    # Store token, registry, and token service
     app.state.api_token = token
     app.state.registry = registry or get_proxy_registry()
+    app.state.token_service = token_service
 
     # TODO (Phase 4): Add SecurityMiddleware when auth moves to manager
 
@@ -400,6 +406,42 @@ def create_manager_api_app(
         """
         reg: ProxyRegistry = request.app.state.registry
         return await reg.list_proxies()
+
+    @app.post("/api/manager/auth/reload", response_model=AuthActionResponse)
+    async def reload_auth_tokens(request: Request) -> AuthActionResponse:
+        """Reload authentication tokens from storage.
+
+        Called by CLI after 'auth login' to notify manager to reload
+        tokens and broadcast to all connected proxies.
+
+        Returns:
+            AuthActionResponse with 'ok' and message about token distribution.
+        """
+        ts = request.app.state.token_service
+        if ts is None:
+            return AuthActionResponse(ok=False, message="Token service not configured (no OIDC)")
+
+        success = await ts.reload_from_storage()
+        if success:
+            return AuthActionResponse(ok=True, message="Token reloaded and broadcast to proxies")
+        return AuthActionResponse(ok=False, message="No token found in storage")
+
+    @app.post("/api/manager/auth/clear", response_model=AuthActionResponse)
+    async def clear_auth_tokens(request: Request) -> AuthActionResponse:
+        """Clear authentication tokens (logout).
+
+        Called by CLI after 'auth logout' to notify manager to clear
+        tokens and notify all connected proxies.
+
+        Returns:
+            AuthActionResponse with 'ok' status.
+        """
+        ts = request.app.state.token_service
+        if ts is None:
+            return AuthActionResponse(ok=False, message="Token service not configured (no OIDC)")
+
+        await ts.clear_token()
+        return AuthActionResponse(ok=True, message="Token cleared, proxies notified")
 
     @app.get("/api/events")
     async def sse_events(request: Request) -> EventSourceResponse:
