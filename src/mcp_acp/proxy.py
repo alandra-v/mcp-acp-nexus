@@ -78,15 +78,8 @@ from mcp_acp.telemetry.system.system_logger import (
 )
 from mcp_acp.utils.history_logging.base import configure_history_logging_hash_chain
 from mcp_acp.utils.config import (
-    get_audit_log_path,
-    get_auth_log_path,
-    get_backend_log_path,
-    get_client_log_path,
-    get_config_history_path,
-    get_decisions_log_path,
     get_log_dir,
-    get_policy_history_path,
-    get_system_log_path,
+    get_log_path,
 )
 from mcp_acp.utils.policy import load_policy
 from mcp_acp.utils.transport import create_backend_transport
@@ -165,16 +158,16 @@ def create_proxy(
     log_dir = config.logging.log_dir
 
     # Configure system logger file handler with user's log_dir
-    configure_system_logger_file(get_system_log_path(proxy_name, log_dir))
+    configure_system_logger_file(get_log_path(proxy_name, "system", log_dir))
 
     # Validate audit logs are writable BEFORE starting
     # If this fails, we raise AuditFailure and don't start
-    audit_path = get_audit_log_path(proxy_name, log_dir)
-    decisions_path = get_decisions_log_path(proxy_name, log_dir)
-    auth_log_path = get_auth_log_path(proxy_name, log_dir)
-    system_log_path = get_system_log_path(proxy_name, log_dir)
-    config_history_path = get_config_history_path(proxy_name, log_dir)
-    policy_history_path = get_policy_history_path(proxy_name, log_dir)
+    audit_path = get_log_path(proxy_name, "operations", log_dir)
+    decisions_path = get_log_path(proxy_name, "decisions", log_dir)
+    auth_log_path = get_log_path(proxy_name, "auth", log_dir)
+    system_log_path = get_log_path(proxy_name, "system", log_dir)
+    config_history_path = get_log_path(proxy_name, "config_history", log_dir)
+    policy_history_path = get_log_path(proxy_name, "policy_history", log_dir)
     # Verify all monitored logs are writable - raises AuditFailure if not
     # This also creates the files if they don't exist (required for AuditHealthMonitor)
     # No popup here - start.py handles user-facing popups to avoid duplicates
@@ -338,7 +331,7 @@ def create_proxy(
     # Create LoggingProxyClient with transport (logs to backend_wire.jsonl)
     logging_backend_client = create_logging_proxy_client(
         transport,
-        log_path=get_backend_log_path(proxy_name, log_dir),
+        log_path=get_log_path(proxy_name, "backend", log_dir),
         transport_type=transport_type,
         debug_enabled=debug_enabled,
     )
@@ -421,7 +414,7 @@ def create_proxy(
                 middleware=enforcement_middleware,
                 system_logger=system_logger,
                 policy_path=get_proxy_policy_path(proxy_name),
-                policy_history_path=get_policy_history_path(proxy_name, log_dir),
+                policy_history_path=get_log_path(proxy_name, "policy_history", log_dir),
                 initial_version=policy_version,
             )
             # Wire proxy_state for SSE event emission
@@ -949,7 +942,7 @@ def create_proxy(
     # exceptions - this is acceptable since they're rare and the raw messages
     # provide useful diagnostic context. See docs/architecture.md for details.
     client_middleware = create_client_logging_middleware(
-        log_path=get_client_log_path(proxy_name, log_dir),
+        log_path=get_log_path(proxy_name, "client", log_dir),
         transport=transport_type,
         debug_enabled=debug_enabled,
     )

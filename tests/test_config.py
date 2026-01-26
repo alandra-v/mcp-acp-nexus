@@ -411,28 +411,27 @@ class TestConfigHelpers:
         assert result.parent.parent.name == "mcp-acp"
 
     @pytest.mark.parametrize(
-        "helper_name,expected_file",
+        "log_type,expected_file",
         [
-            ("get_client_log_path", "client_wire.jsonl"),
-            ("get_backend_log_path", "backend_wire.jsonl"),
-            ("get_system_log_path", "system.jsonl"),
-            ("get_config_history_path", "config_history.jsonl"),
-            ("get_audit_log_path", "operations.jsonl"),
+            ("client", "client_wire.jsonl"),
+            ("backend", "backend_wire.jsonl"),
+            ("system", "system.jsonl"),
+            ("config_history", "config_history.jsonl"),
+            ("operations", "operations.jsonl"),
         ],
     )
-    def test_log_path_helpers_return_correct_filename(
-        self, valid_config_dict: dict, helper_name: str, expected_file: str
+    def test_get_log_path_returns_correct_filename(
+        self, valid_config_dict: dict, log_type: str, expected_file: str
     ) -> None:
         # Arrange
-        from mcp_acp.utils import config as config_module
+        from mcp_acp.utils.config import get_log_path
 
         config = AppConfig.model_validate(valid_config_dict)
         proxy_name = config.proxy.name
         log_dir = config.logging.log_dir
-        helper = getattr(config_module, helper_name)
 
         # Act
-        result = helper(proxy_name, log_dir)
+        result = get_log_path(proxy_name, log_type, log_dir)
 
         # Assert
         assert result.name == expected_file

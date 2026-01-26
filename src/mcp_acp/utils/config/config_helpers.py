@@ -7,21 +7,17 @@ For config history logging, see utils/history_logging/.
 from __future__ import annotations
 
 __all__ = [
+    "LOG_PATHS",
+    "LogType",
     "compute_config_checksum",
     "ensure_directories",
-    "get_audit_log_path",
-    "get_auth_log_path",
-    "get_backend_log_path",
-    "get_client_log_path",
     "get_config_dir",
-    "get_config_history_path",
-    "get_decisions_log_path",
     "get_log_dir",
-    "get_policy_history_path",
-    "get_system_log_path",
+    "get_log_path",
 ]
 
 from pathlib import Path
+from typing import Literal
 
 from platformdirs import user_log_dir
 
@@ -31,6 +27,24 @@ from mcp_acp.utils.file_helpers import (
     get_app_dir,
     set_secure_permissions,
 )
+
+# Log type to relative path mapping
+# Keys are used as log_type argument in get_log_path()
+LOG_PATHS: dict[str, str] = {
+    "client": "debug/client_wire.jsonl",
+    "backend": "debug/backend_wire.jsonl",
+    "system": "system/system.jsonl",
+    "config_history": "system/config_history.jsonl",
+    "policy_history": "system/policy_history.jsonl",
+    "operations": "audit/operations.jsonl",
+    "decisions": "audit/decisions.jsonl",
+    "auth": "audit/auth.jsonl",
+}
+
+# Type alias for valid log types
+LogType = Literal[
+    "client", "backend", "system", "config_history", "policy_history", "operations", "decisions", "auth"
+]
 
 
 def get_config_dir() -> Path:
@@ -61,108 +75,38 @@ def get_log_dir(proxy_name: str, log_dir: str | None = None) -> Path:
     return base / APP_NAME / "proxies" / proxy_name
 
 
-def get_client_log_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to client wire log file.
+def get_log_path(proxy_name: str, log_type: str, log_dir: str | None = None) -> Path:
+    """Get full path to a log file.
 
     Args:
         proxy_name: Name of the proxy.
+        log_type: Type of log file. Valid values:
+            - "client": debug/client_wire.jsonl
+            - "backend": debug/backend_wire.jsonl
+            - "system": system/system.jsonl
+            - "config_history": system/config_history.jsonl
+            - "policy_history": system/policy_history.jsonl
+            - "operations": audit/operations.jsonl
+            - "decisions": audit/decisions.jsonl
+            - "auth": audit/auth.jsonl
         log_dir: Base log directory. If None, uses platform default.
 
     Returns:
-        Path: Full path to logs/debug/client_wire.jsonl.
+        Path: Full path to the log file.
+
+    Raises:
+        ValueError: If log_type is not a valid log type.
+
+    Example:
+        >>> get_log_path("my-proxy", "operations")
+        PosixPath('~/.../audit/operations.jsonl')
+        >>> get_log_path("my-proxy", "system", "/var/log")
+        PosixPath('/var/log/mcp-acp/proxies/my-proxy/system/system.jsonl')
     """
-    return get_log_dir(proxy_name, log_dir) / "debug" / "client_wire.jsonl"
-
-
-def get_backend_log_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to backend wire log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/debug/backend_wire.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "debug" / "backend_wire.jsonl"
-
-
-def get_system_log_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to system log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/system/system.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "system" / "system.jsonl"
-
-
-def get_config_history_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to config history log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/system/config_history.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "system" / "config_history.jsonl"
-
-
-def get_policy_history_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to policy history log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/system/policy_history.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "system" / "policy_history.jsonl"
-
-
-def get_audit_log_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to audit operations log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/audit/operations.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "audit" / "operations.jsonl"
-
-
-def get_decisions_log_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to policy decisions log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/audit/decisions.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "audit" / "decisions.jsonl"
-
-
-def get_auth_log_path(proxy_name: str, log_dir: str | None = None) -> Path:
-    """Get full path to authentication audit log file.
-
-    Args:
-        proxy_name: Name of the proxy.
-        log_dir: Base log directory. If None, uses platform default.
-
-    Returns:
-        Path: Full path to logs/audit/auth.jsonl.
-    """
-    return get_log_dir(proxy_name, log_dir) / "audit" / "auth.jsonl"
+    if log_type not in LOG_PATHS:
+        valid_types = ", ".join(sorted(LOG_PATHS.keys()))
+        raise ValueError(f"Unknown log type: '{log_type}'. Valid types: {valid_types}")
+    return get_log_dir(proxy_name, log_dir) / LOG_PATHS[log_type]
 
 
 def compute_config_checksum(config_path: Path) -> str:

@@ -22,15 +22,7 @@ from mcp_acp.utils.cli import (
     require_proxy_name,
     validate_proxy_if_provided,
 )
-from mcp_acp.utils.config import (
-    get_audit_log_path,
-    get_auth_log_path,
-    get_config_history_path,
-    get_decisions_log_path,
-    get_log_dir,
-    get_policy_history_path,
-    get_system_log_path,
-)
+from mcp_acp.utils.config import get_log_dir, get_log_path
 
 from ..styling import style_error, style_label, style_success, style_warning
 
@@ -40,13 +32,14 @@ EXIT_FAILED = 1  # Tampering detected
 EXIT_UNABLE = 2  # Unable to verify (missing files, etc.)
 
 # Log files that are protected by hash chains
-AUDIT_LOG_FILES = {
-    "operations": ("Operations audit", get_audit_log_path),
-    "decisions": ("Policy decisions", get_decisions_log_path),
-    "auth": ("Authentication events", get_auth_log_path),
-    "system": ("System logs", get_system_log_path),
-    "config-history": ("Config change history", get_config_history_path),
-    "policy-history": ("Policy change history", get_policy_history_path),
+# CLI name -> (description, internal log_type for get_log_path)
+AUDIT_LOG_FILES: dict[str, tuple[str, str]] = {
+    "operations": ("Operations audit", "operations"),
+    "decisions": ("Policy decisions", "decisions"),
+    "auth": ("Authentication events", "auth"),
+    "system": ("System logs", "system"),
+    "config-history": ("Config change history", "config_history"),
+    "policy-history": ("Policy change history", "policy_history"),
 }
 
 
@@ -80,34 +73,11 @@ def _verify_single_file(
         click.echo(f"  {log_name}: empty (no entries to verify)")
         return True, []
 
-    # Count entries with and without hash chain fields
-    entries_with_chain = 0
-    entries_without_chain = 0
-
-    for line in lines:
-        try:
-            entry = json.loads(line)
-            # Check same fields as verify_chain_from_lines uses
-            if "sequence" in entry and "entry_hash" in entry:
-                entries_with_chain += 1
-            else:
-                entries_without_chain += 1
-        except (json.JSONDecodeError, TypeError):
-            entries_without_chain += 1
-
-    if entries_with_chain == 0:
-        click.echo(f"  {log_name}: {len(lines)} entries (legacy format, no hash chain)")
-        return True, []  # No chain entries - legacy format, skip verification
-
     # Verify chain integrity
     result = verify_chain_from_lines(lines)
 
     if result.success:
-        msg = f"  {log_name}: {entries_with_chain} chain entries"
-        if entries_without_chain > 0:
-            msg += f" + {entries_without_chain} legacy entries"
-        msg += " - " + style_success("PASSED")
-        click.echo(msg)
+        click.echo(f"  {log_name}: {len(lines)} entries - " + style_success("PASSED"))
         return True, []
     else:
         errors.extend(result.errors)
@@ -189,8 +159,8 @@ def verify(proxy_name: str | None, log_file: str) -> None:
         if len(proxies_to_verify) > 1:
             click.echo(f"Proxy: {pname}")
 
-        for file_key, (description, path_fn) in files_to_verify:
-            log_path = path_fn(pname, log_dir_str)
+        for file_key, (description, internal_type) in files_to_verify:
+            log_path = get_log_path(pname, internal_type, log_dir_str)
 
             if not log_path.exists():
                 click.echo(f"  {description}: " + style_warning("not found (skipped)"))
@@ -279,8 +249,8 @@ def _show_proxy_audit_status(proxy_name: str, log_dir_str: str) -> None:
 
     click.echo("  Log files:")
 
-    for file_key, (description, path_fn) in AUDIT_LOG_FILES.items():
-        log_path = path_fn(proxy_name, log_dir_str)
+    for file_key, (description, internal_type) in AUDIT_LOG_FILES.items():
+        log_path = get_log_path(proxy_name, internal_type, log_dir_str)
 
         if not log_path.exists():
             status_str = style_warning("not created")
@@ -462,8 +432,8 @@ def repair(proxy_name: str, log_file: str, yes: bool) -> None:
     failed = 0
     reset = 0
 
-    for file_key, (description, path_fn) in files_to_repair:
-        log_path = path_fn(proxy_name, log_dir_str)
+    for file_key, (description, internal_type) in files_to_repair:
+        log_path = get_log_path(proxy_name, internal_type, log_dir_str)
 
         if not log_path.exists():
             # File doesn't exist - clear any stale state

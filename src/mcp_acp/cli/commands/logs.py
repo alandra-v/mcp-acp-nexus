@@ -16,36 +16,29 @@ from pathlib import Path
 import click
 
 from mcp_acp.utils.cli import load_manager_config_or_exit, require_proxy_name
-from mcp_acp.utils.config import (
-    get_audit_log_path,
-    get_auth_log_path,
-    get_config_history_path,
-    get_decisions_log_path,
-    get_policy_history_path,
-    get_system_log_path,
-)
+from mcp_acp.utils.config import get_log_path
 
 from mcp_acp.manager.config import list_configured_proxies
 
 from ..styling import style_label
 
-# Log types and their path functions
-LOG_TYPES = {
-    "decisions": ("Policy decisions", get_decisions_log_path),
-    "operations": ("Operations audit", get_audit_log_path),
-    "auth": ("Authentication events", get_auth_log_path),
-    "system": ("System logs", get_system_log_path),
-    "config-history": ("Config change history", get_config_history_path),
-    "policy-history": ("Policy change history", get_policy_history_path),
+# Log types: CLI name -> (description, internal log_type for get_log_path)
+LOG_TYPES: dict[str, tuple[str, str]] = {
+    "decisions": ("Policy decisions", "decisions"),
+    "operations": ("Operations audit", "operations"),
+    "auth": ("Authentication events", "auth"),
+    "system": ("System logs", "system"),
+    "config-history": ("Config change history", "config_history"),
+    "policy-history": ("Policy change history", "policy_history"),
 }
 
 
-def _get_log_path(proxy_name: str, log_dir: str, log_type: str) -> Path:
-    """Get path to a specific log file."""
+def _get_log_path_for_type(proxy_name: str, log_dir: str, log_type: str) -> Path:
+    """Get path to a specific log file by CLI log type name."""
     if log_type not in LOG_TYPES:
         raise click.ClickException(f"Unknown log type: {log_type}")
-    _, path_fn = LOG_TYPES[log_type]
-    return path_fn(proxy_name, log_dir)
+    _, internal_type = LOG_TYPES[log_type]
+    return get_log_path(proxy_name, internal_type, log_dir)
 
 
 @click.group()
@@ -92,10 +85,10 @@ def logs_list(proxy_name: str | None) -> None:
 
         for name in proxies:
             click.echo(f"  {name}:")
-            for log_type, (description, path_fn) in LOG_TYPES.items():
-                log_path = path_fn(name, log_dir_str)
+            for cli_type, (description, internal_type) in LOG_TYPES.items():
+                log_path = get_log_path(name, internal_type, log_dir_str)
                 exists = "✓" if log_path.exists() else "✗"
-                click.echo(f"    {log_type}: {log_path} {exists}")
+                click.echo(f"    {cli_type}: {log_path} {exists}")
             click.echo()
 
 
@@ -103,8 +96,8 @@ def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
     """Show detailed log info for a specific proxy."""
     click.echo("\n" + style_label(f"Log files: {proxy_name}") + "\n")
 
-    for log_type, (description, path_fn) in LOG_TYPES.items():
-        log_path = path_fn(proxy_name, log_dir_str)
+    for cli_type, (description, internal_type) in LOG_TYPES.items():
+        log_path = get_log_path(proxy_name, internal_type, log_dir_str)
         exists = log_path.exists()
 
         if exists:
@@ -130,7 +123,7 @@ def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
             status = click.style("not created", fg="yellow")
             info = ""
 
-        click.echo(f"  {log_type:12} - {description}")
+        click.echo(f"  {cli_type:12} - {description}")
         click.echo(f"               {status} {info}")
         click.echo(f"               {log_path}")
         click.echo()
@@ -166,7 +159,7 @@ def logs_show(proxy_name: str | None, log_type: str, limit: int) -> None:
     """
     proxy_name = require_proxy_name(proxy_name)
     manager_config = load_manager_config_or_exit()
-    log_path = _get_log_path(proxy_name, manager_config.log_dir, log_type)
+    log_path = _get_log_path_for_type(proxy_name, manager_config.log_dir, log_type)
 
     if not log_path.exists():
         # Output error as JSON
@@ -226,7 +219,7 @@ def logs_tail(proxy_name: str | None, log_type: str) -> None:
     """
     proxy_name = require_proxy_name(proxy_name)
     manager_config = load_manager_config_or_exit()
-    log_path = _get_log_path(proxy_name, manager_config.log_dir, log_type)
+    log_path = _get_log_path_for_type(proxy_name, manager_config.log_dir, log_type)
 
     if not log_path.exists():
         status_msg = {

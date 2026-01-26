@@ -101,7 +101,7 @@ class TestLogsShowCommand:
                     return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs._get_log_path",
+                        "mcp_acp.cli.commands.logs._get_log_path_for_type",
                         return_value=log_path,
                     ):
                         # Act
@@ -134,7 +134,7 @@ class TestLogsShowCommand:
                     return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs._get_log_path",
+                        "mcp_acp.cli.commands.logs._get_log_path_for_type",
                         return_value=log_path,
                     ):
                         # Act
@@ -162,7 +162,7 @@ class TestLogsShowCommand:
                     return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs._get_log_path",
+                        "mcp_acp.cli.commands.logs._get_log_path_for_type",
                         return_value=log_path,
                     ):
                         # Act
@@ -189,7 +189,7 @@ class TestLogsShowCommand:
                     return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs._get_log_path",
+                        "mcp_acp.cli.commands.logs._get_log_path_for_type",
                         return_value=log_path,
                     ):
                         # Act
@@ -255,6 +255,10 @@ class TestLogsListCommand:
         """Given config, shows all log types."""
         # Arrange
         with runner.isolated_filesystem() as tmpdir:
+            # Create a mock that returns paths based on log_type argument
+            def mock_get_log_path(proxy_name: str, log_type: str, log_dir: str) -> Path:
+                return Path(tmpdir) / f"{log_type}.jsonl"
+
             with patch(
                 "mcp_acp.utils.cli.helpers.list_configured_proxies",
                 return_value=["test"],
@@ -264,23 +268,11 @@ class TestLogsListCommand:
                     return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs.get_decisions_log_path",
-                        return_value=Path(tmpdir) / "decisions.jsonl",
+                        "mcp_acp.cli.commands.logs.get_log_path",
+                        side_effect=mock_get_log_path,
                     ):
-                        with patch(
-                            "mcp_acp.cli.commands.logs.get_audit_log_path",
-                            return_value=Path(tmpdir) / "operations.jsonl",
-                        ):
-                            with patch(
-                                "mcp_acp.cli.commands.logs.get_auth_log_path",
-                                return_value=Path(tmpdir) / "auth.jsonl",
-                            ):
-                                with patch(
-                                    "mcp_acp.cli.commands.logs.get_system_log_path",
-                                    return_value=Path(tmpdir) / "system.jsonl",
-                                ):
-                                    # Act
-                                    result = runner.invoke(cli, ["logs", "list", "--proxy", "test"])
+                        # Act
+                        result = runner.invoke(cli, ["logs", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -370,7 +362,7 @@ class TestLogsTypeValidation:
                     return_value=mock_manager_config,
                 ):
                     with patch(
-                        "mcp_acp.cli.commands.logs._get_log_path",
+                        "mcp_acp.cli.commands.logs._get_log_path_for_type",
                         return_value=log_path,
                     ):
                         # Act

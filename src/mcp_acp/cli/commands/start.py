@@ -39,8 +39,7 @@ from mcp_acp.exceptions import (
 )
 from mcp_acp.utils.config import (
     ensure_directories,
-    get_config_history_path,
-    get_policy_history_path,
+    get_log_path,
 )
 from mcp_acp.utils.history_logging import (
     log_config_loaded,
@@ -215,7 +214,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
 
         # Log config loaded (detects manual changes, updates version)
         config_version, config_manual_changed = log_config_loaded(
-            get_config_history_path(_proxy_name, _log_dir),
+            get_log_path(_proxy_name, "config_history", _log_dir),
             config_path,
             loaded_config.model_dump(),
             component="cli",
@@ -227,7 +226,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
 
         # Log policy loaded (detects manual changes, updates version)
         policy_version, policy_manual_changed = log_policy_loaded(
-            get_policy_history_path(_proxy_name, _log_dir),
+            get_log_path(_proxy_name, "policy_history", _log_dir),
             policy_path,
             loaded_policy.model_dump(),
             component="cli",
