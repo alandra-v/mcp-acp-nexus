@@ -25,7 +25,12 @@ from mcp_acp.config import (
     load_proxy_config,
     save_proxy_config,
 )
-from mcp_acp.constants import DEFAULT_HTTP_TIMEOUT_SECONDS, HEALTH_CHECK_TIMEOUT_SECONDS
+from mcp_acp.constants import (
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+    HEALTH_CHECK_TIMEOUT_SECONDS,
+    TRANSPORT_TYPE_FROM_INDEX,
+    TRANSPORT_TYPES,
+)
 from mcp_acp.manager.config import (
     get_manager_config_path,
     get_proxy_config_path,
@@ -39,7 +44,7 @@ from mcp_acp.utils.policy import save_policy
 from mcp_acp.utils.transport import check_http_health
 from mcp_acp.utils.validation import validate_sha256_hex
 
-from ..prompts import parse_comma_separated_args
+from ..prompts import ProxyAddConfig, confirm_and_edit_loop, parse_comma_separated_args
 from ..styling import style_dim, style_error, style_header, style_success, style_warning
 
 
@@ -223,8 +228,8 @@ def proxy_show(name: str) -> None:
 @click.option("--server-name", help="Backend server name")
 @click.option(
     "--connection-type",
-    type=click.Choice(["stdio", "http", "both"]),
-    help="Connection type",
+    type=click.Choice(TRANSPORT_TYPES),
+    help="Connection type: stdio, http, or auto",
 )
 # STDIO options
 @click.option("--command", help="Command to run (for stdio)")
@@ -249,6 +254,8 @@ def proxy_show(name: str) -> None:
 @click.option("--mtls-cert", help="Path to client certificate for mTLS (PEM format)")
 @click.option("--mtls-key", help="Path to client private key for mTLS (PEM format)")
 @click.option("--mtls-ca", help="Path to CA bundle for server verification (PEM format)")
+# Confirmation
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt")
 def proxy_add(
     name: str | None,
     server_name: str | None,
@@ -264,6 +271,7 @@ def proxy_add(
     mtls_cert: str | None,
     mtls_key: str | None,
     mtls_ca: str | None,
+    yes: bool,
 ) -> None:
     """Add a new proxy configuration.
 
@@ -319,22 +327,22 @@ def proxy_add(
         click.echo(style_header("Connection Type"))
         click.echo("  [0] stdio - Spawn local process (npx, uvx, python)")
         click.echo("  [1] http  - Connect to remote HTTP/SSE server")
-        click.echo("  [2] both  - Auto-detect: try HTTP first, fall back to STDIO")
+        click.echo("  [2] auto  - Try HTTP first, fall back to STDIO")
         click.echo()
 
         choice = click.prompt(
             "Select",
-            type=click.Choice(["0", "1", "2", "stdio", "http", "both"]),
+            type=click.Choice(["0", "1", "2"] + list(TRANSPORT_TYPES)),
             default="0",
         )
-        # Normalize to name
-        connection_type = {"0": "stdio", "1": "http", "2": "both"}.get(choice, choice)
+        # Normalize index to name
+        connection_type = TRANSPORT_TYPE_FROM_INDEX.get(choice, choice)
 
     # Build backend config
     stdio_config = None
     http_config = None
 
-    if connection_type in ("stdio", "both"):
+    if connection_type in ("stdio", "auto"):
         click.echo()
         click.echo(style_header("STDIO Transport"))
         # Non-interactive if command was provided via flag
@@ -351,18 +359,14 @@ def proxy_add(
     # Track API key for keychain storage (after proxy name is known)
     http_api_key: str | None = None
 
-    if connection_type in ("http", "both"):
+    if connection_type in ("http", "auto"):
         click.echo()
         click.echo(style_header("HTTP Transport"))
         http_config, http_api_key = _build_http_config(url=url, timeout=timeout, api_key=api_key)
 
-    # Determine transport mode
-    if connection_type == "both":
-        transport = "auto"
-    elif connection_type == "http":
-        transport = "streamablehttp"
-    else:
-        transport = "stdio"
+    # Convert connection type to config transport value
+    # "http" -> "streamablehttp", others stay the same
+    transport = "streamablehttp" if connection_type == "http" else connection_type
 
     backend_config = BackendConfig(
         server_name=server_name,
@@ -395,6 +399,100 @@ def proxy_add(
         )
         click.echo(style_success("mTLS configured for HTTPS backend connections."))
 
+    # Build ProxyAddConfig for confirmation
+    add_config = ProxyAddConfig(
+        name=name,
+        server_name=server_name,
+        connection_type=connection_type,
+        command=stdio_config.command if stdio_config else "",
+        args=list(stdio_config.args) if stdio_config else [],
+        slsa_owner=stdio_config.attestation.slsa_owner if stdio_config and stdio_config.attestation else "",
+        sha256=stdio_config.attestation.expected_sha256 if stdio_config and stdio_config.attestation else "",
+        require_signature=(
+            stdio_config.attestation.require_signature if stdio_config and stdio_config.attestation else False
+        ),
+        url=http_config.url if http_config else "",
+        timeout=http_config.timeout if http_config else DEFAULT_HTTP_TIMEOUT_SECONDS,
+        api_key=http_api_key or "",
+        mtls_cert=mtls_cert or "",
+        mtls_key=mtls_key or "",
+        mtls_ca=mtls_ca or "",
+    )
+
+    # Confirmation loop (skip with --yes flag)
+    if not yes:
+        confirmed = confirm_and_edit_loop(add_config)
+        if not confirmed:
+            click.echo("Cancelled.")
+            raise SystemExit(0)
+
+        # Rebuild configs from potentially edited values
+        name = add_config.name
+        server_name = add_config.server_name
+
+        # Re-validate name if changed
+        try:
+            validate_proxy_name(name)
+        except ValueError as e:
+            click.echo(style_error(str(e)))
+            raise SystemExit(1)
+
+        # Check not duplicate if name changed
+        config_path = get_proxy_config_path(name)
+        if config_path.exists():
+            click.echo(style_error(f"Proxy '{name}' already exists."))
+            raise SystemExit(1)
+
+        # Rebuild STDIO config if needed
+        if add_config.connection_type in ("stdio", "auto"):
+            attestation = None
+            if add_config.slsa_owner or add_config.sha256 or add_config.require_signature:
+                attestation = StdioAttestationConfig(
+                    slsa_owner=add_config.slsa_owner or None,
+                    expected_sha256=add_config.sha256 or None,
+                    require_signature=add_config.require_signature,
+                )
+            stdio_config = StdioTransportConfig(
+                command=add_config.command,
+                args=add_config.args,
+                attestation=attestation,
+            )
+        else:
+            stdio_config = None
+
+        # Rebuild HTTP config if needed
+        if add_config.connection_type in ("http", "auto"):
+            http_config = HttpTransportConfig(
+                url=add_config.url,
+                timeout=add_config.timeout,
+            )
+            http_api_key = add_config.api_key or None
+        else:
+            http_config = None
+
+        # Convert connection type to config transport value
+        transport = "streamablehttp" if add_config.connection_type == "http" else add_config.connection_type
+
+        # Rebuild backend config
+        backend_config = BackendConfig(
+            server_name=server_name,
+            transport=transport,
+            stdio=stdio_config,
+            http=http_config,
+        )
+
+        # Regenerate proxy ID if server name changed
+        proxy_id = generate_proxy_id(server_name)
+
+        # Rebuild mTLS config
+        mtls_config = None
+        if add_config.mtls_cert and add_config.mtls_key and add_config.mtls_ca:
+            mtls_config = MTLSConfig(
+                client_cert_path=add_config.mtls_cert,
+                client_key_path=add_config.mtls_key,
+                ca_bundle_path=add_config.mtls_ca,
+            )
+
     # Store API key in keychain if provided
     if http_api_key and http_config is not None:
         from mcp_acp.security.credential_storage import BackendCredentialStorage
@@ -420,6 +518,7 @@ def proxy_add(
     )
 
     # Save config
+    config_path = get_proxy_config_path(name)
     save_proxy_config(name, proxy_config)
     click.echo(style_success(f"Created proxy config: {config_path}"))
 

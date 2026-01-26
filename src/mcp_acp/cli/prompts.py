@@ -6,6 +6,8 @@ Provides reusable prompt utilities for gathering user input.
 from __future__ import annotations
 
 __all__ = [
+    "ProxyAddConfig",
+    "confirm_and_edit_loop",
     "parse_comma_separated_args",
     "prompt_auth_config",
     "prompt_http_config",
@@ -16,6 +18,7 @@ __all__ = [
 ]
 
 import platform
+from dataclasses import dataclass, field
 
 import click
 
@@ -28,7 +31,13 @@ from mcp_acp.config import (
     StdioAttestationConfig,
     StdioTransportConfig,
 )
-from mcp_acp.constants import DEFAULT_HTTP_TIMEOUT_SECONDS, HEALTH_CHECK_TIMEOUT_SECONDS
+from mcp_acp.constants import (
+    DEFAULT_HTTP_TIMEOUT_SECONDS,
+    HEALTH_CHECK_TIMEOUT_SECONDS,
+    TRANSPORT_TYPE_FROM_INDEX,
+    TRANSPORT_TYPE_TO_INDEX,
+    TRANSPORT_TYPES,
+)
 from mcp_acp.utils.transport import check_http_health, validate_mtls_config
 from mcp_acp.utils.validation import (
     is_valid_http_url,
@@ -335,3 +344,205 @@ def prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
         oidc=oidc_config,
         mtls=mtls_config,
     )
+
+
+# =============================================================================
+# Proxy Add Configuration (for confirmation/edit loop)
+# =============================================================================
+
+
+@dataclass(slots=True)
+class ProxyAddConfig:
+    """Configuration values collected during proxy add for review/edit.
+
+    This mutable dataclass holds all user-provided values during the
+    interactive proxy add flow. Values can be edited before final save.
+
+    Attributes:
+        name: Proxy identifier (directory name, must be unique).
+        server_name: Backend server display name.
+        connection_type: Transport type - "stdio", "http", or "auto".
+        command: STDIO command to execute.
+        args: STDIO command arguments.
+        slsa_owner: GitHub owner for SLSA attestation.
+        sha256: Expected SHA-256 hash of binary.
+        require_signature: Whether to require code signature (macOS).
+        url: HTTP backend URL.
+        timeout: HTTP connection timeout in seconds.
+        api_key: API key for HTTP backend (stored in keychain).
+        mtls_cert: Path to mTLS client certificate.
+        mtls_key: Path to mTLS client private key.
+        mtls_ca: Path to mTLS CA bundle.
+    """
+
+    name: str = ""
+    server_name: str = ""
+    connection_type: str = "stdio"
+    # STDIO
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    slsa_owner: str = ""
+    sha256: str = ""
+    require_signature: bool = False
+    # HTTP
+    url: str = ""
+    timeout: int = DEFAULT_HTTP_TIMEOUT_SECONDS
+    api_key: str = ""
+    # mTLS
+    mtls_cert: str = ""
+    mtls_key: str = ""
+    mtls_ca: str = ""
+
+    def get_editable_fields(self) -> list[tuple[str, str, str]]:
+        """Return list of (field_key, label, current_value) for editable fields."""
+        fields: list[tuple[str, str, str]] = [
+            ("name", "Proxy name", self.name),
+            ("server_name", "Server name", self.server_name),
+            ("connection_type", "Connection type", self.connection_type),
+        ]
+
+        if self.connection_type in ("stdio", "auto"):
+            fields.extend(
+                [
+                    ("command", "Command", self.command),
+                    ("args", "Args", ", ".join(self.args) if self.args else "(none)"),
+                ]
+            )
+            # Only show attestation if configured
+            if self.slsa_owner or self.sha256 or self.require_signature:
+                if self.slsa_owner:
+                    fields.append(("slsa_owner", "SLSA owner", self.slsa_owner))
+                if self.sha256:
+                    fields.append(("sha256", "SHA-256", self.sha256[:16] + "..."))
+                if self.require_signature:
+                    fields.append(("require_signature", "Require signature", "Yes"))
+
+        if self.connection_type in ("http", "auto"):
+            fields.extend(
+                [
+                    ("url", "URL", self.url),
+                    ("timeout", "Timeout", f"{self.timeout}s"),
+                ]
+            )
+            if self.api_key:
+                fields.append(("api_key", "API key", "********"))
+
+        # mTLS
+        if self.mtls_cert:
+            fields.append(("mtls_cert", "mTLS cert", self.mtls_cert))
+            fields.append(("mtls_key", "mTLS key", self.mtls_key))
+            fields.append(("mtls_ca", "mTLS CA", self.mtls_ca))
+
+        return fields
+
+
+def _display_config_summary(config: ProxyAddConfig) -> None:
+    """Display a summary of the proxy configuration for review."""
+    click.echo()
+    click.echo(style_header("Review Configuration"))
+    click.echo()
+
+    fields = config.get_editable_fields()
+    for i, (_, label, value) in enumerate(fields, 1):
+        click.echo(f"  {i:2}. {label + ':':<20} {value}")
+
+    click.echo()
+
+
+def _prompt_for_field(config: ProxyAddConfig, field_key: str) -> None:
+    """Re-prompt for a specific field and update config in place.
+
+    Args:
+        config: ProxyAddConfig to update.
+        field_key: Field identifier from get_editable_fields().
+
+    Note:
+        Validates input where appropriate (URL format, SHA-256 format).
+        Invalid input shows error and re-prompts.
+    """
+    if field_key == "name":
+        config.name = click.prompt("Proxy name", default=config.name)
+    elif field_key == "server_name":
+        config.server_name = click.prompt("Server name", default=config.server_name)
+    elif field_key == "connection_type":
+        click.echo("  [0] stdio - Spawn local process")
+        click.echo("  [1] http  - Connect to remote HTTP server")
+        click.echo("  [2] auto  - Try HTTP first, fall back to STDIO")
+        choice = click.prompt(
+            "Select",
+            type=click.Choice(["0", "1", "2"] + list(TRANSPORT_TYPES)),
+            default=TRANSPORT_TYPE_TO_INDEX.get(config.connection_type, "0"),
+        )
+        config.connection_type = TRANSPORT_TYPE_FROM_INDEX.get(choice, choice)
+    elif field_key == "command":
+        config.command = click.prompt("Command", default=config.command)
+    elif field_key == "args":
+        args_str = click.prompt("Args (comma-separated)", default=", ".join(config.args))
+        config.args = parse_comma_separated_args(args_str)
+    elif field_key == "url":
+        # Validate URL format
+        while True:
+            url = click.prompt("URL", default=config.url)
+            if is_valid_http_url(url):
+                config.url = url
+                break
+            click.echo(style_error("Invalid URL. Must start with http:// or https://"))
+    elif field_key == "timeout":
+        config.timeout = click.prompt("Timeout (seconds)", default=config.timeout, type=int)
+    elif field_key == "api_key":
+        config.api_key = click.prompt("API key", default="", hide_input=True)
+    elif field_key == "slsa_owner":
+        config.slsa_owner = click.prompt("SLSA owner", default=config.slsa_owner)
+    elif field_key == "sha256":
+        # Validate SHA-256 format
+        while True:
+            sha = click.prompt("SHA-256 hash (or empty to clear)", default=config.sha256)
+            if not sha:
+                config.sha256 = ""
+                break
+            is_valid, normalized = validate_sha256_hex(sha)
+            if is_valid:
+                config.sha256 = normalized
+                break
+            click.echo(style_error("Invalid SHA-256. Must be 64 hex characters."))
+    elif field_key == "require_signature":
+        config.require_signature = click.confirm("Require signature?", default=config.require_signature)
+    elif field_key == "mtls_cert":
+        config.mtls_cert = click.prompt("mTLS cert path", default=config.mtls_cert)
+    elif field_key == "mtls_key":
+        config.mtls_key = click.prompt("mTLS key path", default=config.mtls_key)
+    elif field_key == "mtls_ca":
+        config.mtls_ca = click.prompt("mTLS CA path", default=config.mtls_ca)
+
+
+def confirm_and_edit_loop(config: ProxyAddConfig) -> bool:
+    """Show summary and let user edit fields until confirmed or cancelled.
+
+    Args:
+        config: ProxyAddConfig to review and potentially edit.
+
+    Returns:
+        True if user confirmed, False if cancelled.
+    """
+    while True:
+        _display_config_summary(config)
+
+        choice = click.prompt(
+            "Save this configuration?",
+            type=click.Choice(["yes", "edit", "cancel", "y", "e", "c"]),
+            default="yes",
+            show_choices=True,
+        )
+
+        if choice in ("yes", "y"):
+            return True
+        elif choice in ("cancel", "c"):
+            return False
+        elif choice in ("edit", "e"):
+            fields = config.get_editable_fields()
+            field_num = click.prompt(
+                f"Edit which field? (1-{len(fields)})",
+                type=click.IntRange(1, len(fields)),
+            )
+            field_key = fields[field_num - 1][0]
+            _prompt_for_field(config, field_key)

@@ -245,6 +245,7 @@ class TestProxyAdd:
                 "node",
                 "--args",
                 "server.js,--port,3000",
+                "--yes",
             ],
         )
         assert result.exit_code == 0
@@ -278,36 +279,38 @@ class TestProxyAdd:
                 "http",
                 "--url",
                 "http://localhost:3000/mcp",
+                "--yes",
             ],
             input="n\n",  # Answer "no" to API key prompt
         )
         assert result.exit_code == 0
         assert "Created proxy config" in result.output
 
-    def test_add_both_connections(
+    def test_add_auto_connections(
         self,
         cli_runner: CliRunner,
         temp_config_dir: Path,
         manager_config: Path,
         mock_http_health: None,
     ) -> None:
-        """Should create proxy with both connection types."""
+        """Should create proxy with auto connection type (tries HTTP, falls back to STDIO)."""
         result = cli_runner.invoke(
             proxy,
             [
                 "add",
                 "--name",
-                "bothproxy",
+                "autoproxy",
                 "--server-name",
                 "Dual Server",
                 "--connection-type",
-                "both",
+                "auto",
                 "--command",
                 "node",
                 "--args",
                 "server.js",
                 "--url",
                 "http://localhost:3000/mcp",
+                "--yes",
             ],
             input="n\n",  # Answer "no" to API key prompt
         )
@@ -348,6 +351,7 @@ class TestProxyAdd:
                 "http://localhost:3000/mcp",
                 "--api-key",
                 "sk-test-key-12345",
+                "--yes",
             ],
         )
         assert result.exit_code == 0
