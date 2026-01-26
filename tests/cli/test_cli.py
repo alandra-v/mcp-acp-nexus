@@ -4,10 +4,14 @@ Tests CLI behavior using Click's CliRunner for isolated, fast testing.
 Tests use the AAA pattern (Arrange-Act-Assert) for clarity.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from typing import Generator
+from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -55,11 +59,12 @@ def valid_proxy_config() -> dict:
     }
 
 
-from typing import Generator
-
-
 class TestVersion:
-    """Tests for --version flag."""
+    """Tests for --version flag.
+
+    Verifies that version information is displayed correctly
+    using both --version and -v flags.
+    """
 
     def test_version_flag_shows_version(self, runner: CliRunner) -> None:
         """Given --version flag, returns version string."""
@@ -81,7 +86,10 @@ class TestVersion:
 
 
 class TestHelp:
-    """Tests for help output."""
+    """Tests for help output.
+
+    Verifies that help text displays available commands and options.
+    """
 
     def test_root_help_shows_commands(self, runner: CliRunner) -> None:
         """Given --help, shows available commands."""
@@ -107,7 +115,11 @@ class TestHelp:
 
 
 class TestConfigPath:
-    """Tests for config path command."""
+    """Tests for config path command.
+
+    Verifies that config path displays correct file paths
+    for manager and proxy configurations.
+    """
 
     def test_config_path_returns_paths(self, runner: CliRunner) -> None:
         """Given config path command, returns manager path and shows proxies."""
@@ -129,7 +141,11 @@ class TestConfigPath:
 
 
 class TestConfigShow:
-    """Tests for config show command."""
+    """Tests for config show command.
+
+    Verifies that config show displays configuration content
+    and handles missing config files appropriately.
+    """
 
     def test_show_without_flag_shows_error(self, runner: CliRunner) -> None:
         """Given config show without flag, shows error."""
@@ -177,7 +193,11 @@ class TestConfigShow:
 
 
 class TestConfigEdit:
-    """Tests for config edit command."""
+    """Tests for config edit command.
+
+    Verifies that config edit opens the correct editor
+    and handles missing config files appropriately.
+    """
 
     def test_edit_without_flag_shows_error(self, runner: CliRunner) -> None:
         """Given config edit without flag, shows error."""
@@ -206,7 +226,11 @@ class TestConfigEdit:
 
 
 class TestConfigValidate:
-    """Tests for config validate command."""
+    """Tests for config validate command.
+
+    Verifies that config validate checks manager and proxy
+    configurations for correctness.
+    """
 
     def test_validate_all_shows_results(self, runner: CliRunner, valid_manager_config: dict) -> None:
         """Given config validate, validates manager and proxies."""
@@ -232,7 +256,11 @@ class TestConfigValidate:
 
 
 class TestStartCommand:
-    """Tests for start command."""
+    """Tests for start command.
+
+    Verifies that start command requires --proxy flag
+    and displays available proxies when none specified.
+    """
 
     def test_start_no_proxy_shows_available(self, runner: CliRunner) -> None:
         """Given start without --proxy, shows available proxies."""
@@ -402,8 +430,6 @@ class TestInitCommand:
             assert manager_path.exists()
 
             # Verify config content
-            import json
-
             config = json.loads(manager_path.read_text())
             assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
             assert config["auth"]["oidc"]["client_id"] == "test-client"
@@ -440,8 +466,6 @@ class TestInitCommand:
                     )
 
             assert result.exit_code == 0
-            import json
-
             config = json.loads(manager_path.read_text())
             assert config["log_level"] == "DEBUG"
 
@@ -502,8 +526,6 @@ class TestInitCommand:
                     )
 
             assert result.exit_code == 0
-            import json
-
             config = json.loads(manager_path.read_text())
             assert config["auth"]["oidc"]["issuer"] == "https://new.auth0.com"
 
@@ -536,7 +558,10 @@ class TestInitCommand:
 
 
 class TestAuthHelp:
-    """Tests for auth command help."""
+    """Tests for auth command help.
+
+    Verifies that auth help displays available subcommands.
+    """
 
     def test_auth_help_shows_subcommands(self, runner: CliRunner) -> None:
         """Given auth --help, shows subcommands."""
@@ -560,13 +585,15 @@ class TestAuthHelp:
 
 
 class TestAuthLogin:
-    """Tests for auth login command."""
+    """Tests for auth login command.
+
+    Verifies that auth login handles missing config
+    and OIDC configuration errors appropriately.
+    """
 
     def test_login_no_config_shows_error(self, runner: CliRunner) -> None:
         """Given no config file, shows helpful error."""
         # Arrange
-        import click
-
         with runner.isolated_filesystem():
             with patch(
                 "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
@@ -585,8 +612,6 @@ class TestAuthLogin:
     def test_login_no_oidc_config_shows_error(self, runner: CliRunner) -> None:
         """Given config without OIDC settings, shows error."""
         # Arrange - load_manager_config_or_exit raises when auth is None
-        import click
-
         with runner.isolated_filesystem():
             with patch(
                 "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
@@ -603,13 +628,15 @@ class TestAuthLogin:
 
 
 class TestAuthLogout:
-    """Tests for auth logout command."""
+    """Tests for auth logout command.
+
+    Verifies that auth logout handles missing config
+    and no stored credentials appropriately.
+    """
 
     def test_logout_no_config_shows_error(self, runner: CliRunner) -> None:
         """Given no config file, shows helpful error."""
         # Arrange
-        import click
-
         with runner.isolated_filesystem():
             with patch(
                 "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
@@ -652,13 +679,15 @@ class TestAuthLogout:
 
 
 class TestAuthStatus:
-    """Tests for auth status command."""
+    """Tests for auth status command.
+
+    Verifies that auth status displays authentication state
+    and handles missing config appropriately.
+    """
 
     def test_status_no_config_shows_error(self, runner: CliRunner) -> None:
         """Given no config file, shows helpful error."""
         # Arrange
-        import click
-
         with runner.isolated_filesystem():
             with patch(
                 "mcp_acp.cli.commands.auth.load_manager_config_or_exit",
@@ -676,8 +705,6 @@ class TestAuthStatus:
     def test_status_no_oidc_config_shows_not_configured(self, runner: CliRunner) -> None:
         """Given config without OIDC settings, shows not configured."""
         # Arrange - load_manager_config_or_exit raises when auth is None
-        import click
-
         with runner.isolated_filesystem():
             with patch(
                 "mcp_acp.cli.commands.auth.load_manager_config_or_exit",

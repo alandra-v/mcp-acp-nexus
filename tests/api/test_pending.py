@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mcp_acp.api.deps import get_identity_provider, get_proxy_state
+from mcp_acp.exceptions import AuthenticationError
 from mcp_acp.api.errors import APIError
 from mcp_acp.api.routes.pending import _resolve_approval, router
 from mcp_acp.api.schemas import ApprovalActionResponse, PendingApprovalResponse
@@ -198,8 +199,6 @@ class TestApproveEndpoint:
 
     def test_approve_requires_auth(self) -> None:
         """Given unauthenticated user, returns 401."""
-        from mcp_acp.exceptions import AuthenticationError
-
         # Arrange
         mock_state = MagicMock()
         mock_identity_provider = MagicMock()

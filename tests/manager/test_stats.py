@@ -8,6 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from mcp_acp.manager.state import ProxyState
 from mcp_acp.manager.models import ProxyStats
@@ -81,7 +82,7 @@ class TestProxyStats:
             requests_denied=3,
             requests_hitl=1,
         )
-        with pytest.raises(Exception):  # ValidationError for frozen model
+        with pytest.raises(ValidationError):  # Frozen model raises ValidationError on assignment
             stats.requests_total = 20  # type: ignore[misc]
 
 

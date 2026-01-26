@@ -6,6 +6,7 @@ Tests token lifecycle management and distribution to proxies.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -150,8 +151,6 @@ class TestSendTokenToProxy:
 
         # Verify message format
         written_data = mock_writer.write.call_args[0][0]
-        import json
-
         msg = json.loads(written_data.decode().strip())
         assert msg["type"] == "token_update"
         assert msg["access_token"] == "access_123"

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from mcp_acp.api.errors import APIError
 from mcp_acp.api.routes.policy import _load_policy_or_raise, _rule_to_response, router
@@ -301,7 +302,9 @@ class TestUpdatePolicyRule:
         assert data["rule"]["effect"] == "deny"
         assert data["rule"]["description"] == "Updated rule"
 
-    def test_returns_404_for_nonexistent_rule(self, client, sample_policy, mock_reloader):
+    def test_returns_404_for_nonexistent_rule(
+        self, client: TestClient, sample_policy: PolicyConfig, mock_reloader: MagicMock
+    ) -> None:
         """Given nonexistent rule ID, returns 404."""
         # Arrange
         update_data = {
@@ -495,9 +498,6 @@ class TestPolicyRuleCreate:
 
     def test_rejects_invalid_effect(self) -> None:
         """Given invalid effect, raises validation error."""
-        # Arrange
-        from pydantic import ValidationError
-
         # Act & Assert
         with pytest.raises(ValidationError):
             PolicyRuleCreate(

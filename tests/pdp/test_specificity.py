@@ -11,6 +11,8 @@ Known limitations not yet tested:
 - Performance of specificity calculation is not benchmarked
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from mcp_acp.pdp.engine import (
@@ -185,8 +187,6 @@ class TestSpecificityTieBreaking:
         engine = PolicyEngine(policy)
 
         # Create a mock context that matches both rules
-        from unittest.mock import MagicMock
-
         context = MagicMock()
         context.resource.tool.name = "read_file"
         context.resource.tool.side_effects = None
@@ -229,8 +229,6 @@ class TestSpecificityTieBreaking:
         )
         engine = PolicyEngine(policy)
 
-        from unittest.mock import MagicMock
-
         context = MagicMock()
         context.resource.tool.name = "read_file"
         context.resource.tool.side_effects = None
@@ -264,8 +262,6 @@ class TestSpecificityTieBreaking:
             ]
         )
         engine = PolicyEngine(policy)
-
-        from unittest.mock import MagicMock
 
         context = MagicMock()
         context.resource.tool.name = "read_file"

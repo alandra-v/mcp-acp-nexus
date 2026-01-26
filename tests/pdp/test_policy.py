@@ -3,7 +3,15 @@
 Tests the policy models, loader, matcher, and engine.
 """
 
+from __future__ import annotations
+
+import json
+import logging
+import time
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Callable
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -51,10 +59,6 @@ from mcp_acp.pdp.matcher import (
 # ============================================================================
 # Fixtures
 # ============================================================================
-
-
-from pathlib import Path
-from typing import Callable
 
 
 @pytest.fixture
@@ -696,8 +700,6 @@ class TestPolicyAutoNormalization:
         generated_id = policy.rules[0].id
 
         # Assert - file was updated with generated ID
-        import json
-
         with open(path) as f:
             saved_data = json.load(f)
 
@@ -718,8 +720,6 @@ class TestPolicyAutoNormalization:
         original_mtime = path.stat().st_mtime
 
         # Act - small delay to ensure mtime would change if file was modified
-        import time
-
         time.sleep(0.01)
         load_policy(path)
 
@@ -742,8 +742,6 @@ class TestPolicyAutoNormalization:
         original_mtime = path.stat().st_mtime
 
         # Act
-        import time
-
         time.sleep(0.01)
         policy = load_policy(path, normalize=False)
 
@@ -778,8 +776,6 @@ class TestPolicyAutoNormalization:
         assert policy.rules[2].id == "existing-id"
 
         # Verify file was saved with all IDs
-        import json
-
         with open(path) as f:
             saved_data = json.load(f)
 
@@ -806,8 +802,6 @@ class TestPolicyAutoNormalization:
         mtime_after_first = path.stat().st_mtime
 
         # Second load should not modify
-        import time
-
         time.sleep(0.01)
         policy2 = load_policy(path)
 
@@ -819,8 +813,6 @@ class TestPolicyAutoNormalization:
         self, temp_policy_dir: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Given save failure during normalization, logs warning and returns policy."""
-        import logging
-
         from mcp_acp.utils.policy import policy_helpers
 
         # Arrange - write policy file without IDs

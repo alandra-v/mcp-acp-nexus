@@ -27,9 +27,9 @@ class TestIdleShutdownConstants:
         """Check interval should be between 10-60 seconds."""
         assert 10 <= IDLE_CHECK_INTERVAL_SECONDS <= 60
 
-    def test_idle_timeout_is_1_minute(self) -> None:
-        """Idle timeout should be 1 minute (60 seconds)."""
-        assert IDLE_TIMEOUT_SECONDS == 60.0
+    def test_idle_timeout_is_5_minutes(self) -> None:
+        """Idle timeout should be 5 minutes (300 seconds)."""
+        assert IDLE_TIMEOUT_SECONDS == 300.0
 
     def test_startup_grace_period_is_reasonable(self) -> None:
         """Grace period should be between 30-120 seconds."""

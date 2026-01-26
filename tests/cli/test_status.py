@@ -49,7 +49,7 @@ class TestStatusCommand:
 
     def test_status_shows_running_proxy(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
-    ):
+    ) -> None:
         """Given running proxy, shows status information."""
         # Arrange
         with patch("mcp_acp.cli.commands.status.api_request") as mock_api:
@@ -65,7 +65,7 @@ class TestStatusCommand:
 
     def test_status_shows_policy_info(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
-    ):
+    ) -> None:
         """Given running proxy, shows policy information."""
         # Arrange
         with patch("mcp_acp.cli.commands.status.api_request") as mock_api:
@@ -81,7 +81,7 @@ class TestStatusCommand:
 
     def test_status_shows_session_count(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
-    ):
+    ) -> None:
         """Given running proxy with sessions, shows session count."""
         # Arrange
         with patch("mcp_acp.cli.commands.status.api_request") as mock_api:
@@ -143,7 +143,7 @@ class TestStatusJsonOutput:
 
     def test_status_json_output_structure(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
-    ):
+    ) -> None:
         """Given --json flag, outputs valid JSON."""
         # Arrange
         with patch("mcp_acp.cli.commands.status.api_request") as mock_api:
@@ -162,7 +162,7 @@ class TestStatusJsonOutput:
 
     def test_status_json_includes_policy_details(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
-    ):
+    ) -> None:
         """Given --json flag, includes policy details."""
         # Arrange
         with patch("mcp_acp.cli.commands.status.api_request") as mock_api:
@@ -178,7 +178,7 @@ class TestStatusJsonOutput:
 
     def test_status_json_includes_session_count(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
-    ):
+    ) -> None:
         """Given --json flag, includes auth session count."""
         # Arrange
         with patch("mcp_acp.cli.commands.status.api_request") as mock_api:
@@ -210,7 +210,7 @@ class TestStatusUptimeFormatting:
         runner: CliRunner,
         uptime_seconds: int,
         expected_text: str,
-    ):
+    ) -> None:
         """Given various uptimes, formats appropriately."""
         # Arrange
         status_response = {
