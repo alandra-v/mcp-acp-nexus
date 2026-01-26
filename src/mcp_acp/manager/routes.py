@@ -31,7 +31,9 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import time
+from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -46,8 +48,45 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from mcp_acp.constants import APP_NAME, DEFAULT_APPROVAL_TTL_SECONDS
-from mcp_acp.manager.models import AuthActionResponse, ManagerStatusResponse
+from mcp_acp.manager.config import (
+    get_proxy_config_path,
+    get_proxy_log_dir,
+    get_proxy_policy_path,
+    list_configured_proxies,
+    load_manager_config,
+    validate_proxy_name,
+)
+from mcp_acp.api.errors import APIError, ErrorCode
+from mcp_acp.config import (
+    BackendConfig,
+    HITLConfig,
+    HttpTransportConfig,
+    MTLSConfig,
+    PerProxyConfig,
+    StdioAttestationConfig,
+    StdioTransportConfig,
+    generate_proxy_id,
+    load_proxy_config,
+    save_proxy_config,
+)
+from mcp_acp.manager.models import (
+    AggregatedIncidentsResponse,
+    AuthActionResponse,
+    ConfigSnippetResponse,
+    CreateProxyRequest,
+    CreateProxyResponse,
+    EnhancedProxyInfo,
+    IncidentType,
+    ManagerStatusResponse,
+    ProxyStats,
+)
 from mcp_acp.manager.registry import ProxyConnection, ProxyRegistry, get_proxy_registry
+from mcp_acp.pdp import create_default_policy
+from mcp_acp.security.integrity.emergency_audit import get_emergency_audit_path
+from mcp_acp.utils.api import get_cutoff_time, parse_timestamp, read_jsonl_filtered
+from mcp_acp.utils.config import get_config_dir
+from mcp_acp.utils.policy import save_policy
+from mcp_acp.utils.validation import SHA256_HEX_LENGTH, validate_sha256_hex
 
 # Static files directory (built React app)
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
@@ -79,6 +118,14 @@ MANAGER_API_PREFIXES = ("/api/manager/", "/api/events", "/api/proxy/")
 # - /api/manager/status: CLI health checks (should not keep manager alive)
 # - /api/events: SSE keepalives (connection itself counts, not keepalives)
 IDLE_EXEMPT_PATHS = frozenset({"/api/manager/status", "/api/events"})
+
+# Incidents aggregation: fetch extra entries from each source to allow for proper
+# merging and sorting across sources. The final limit is applied after merge.
+INCIDENTS_FETCH_MULTIPLIER = 2
+
+# Transport types that require specific configuration
+STDIO_TRANSPORTS = frozenset({"stdio", "auto"})
+HTTP_TRANSPORTS = frozenset({"streamablehttp", "auto"})
 
 _logger = logging.getLogger(f"{APP_NAME}.manager.routes")
 
@@ -418,16 +465,101 @@ def create_manager_api_app(
             proxies_connected=await reg.proxy_count(),
         )
 
-    @app.get("/api/manager/proxies")
-    async def list_registered_proxies(request: Request) -> list[dict[str, Any]]:
-        """List all registered proxies (manager's view).
+    @app.get("/api/manager/proxies", response_model=list[EnhancedProxyInfo])
+    async def list_proxies_enhanced(request: Request) -> list[EnhancedProxyInfo]:
+        """List all configured proxies with config and runtime data.
 
-        Returns registration info (name, instance_id, socket_path).
-        For full proxy details (transport, stats), use /api/proxies which
-        routes to the proxy itself.
+        Returns enhanced proxy information combining:
+        - Config data (server_name, transport, created_at) from config files
+        - Runtime data (status, instance_id, stats) from registry and UDS
+
+        Shows all configured proxies, not just running ones.
         """
         reg: ProxyRegistry = request.app.state.registry
-        return await reg.list_proxies()
+
+        # Get registered (running) proxies for lookup
+        registered = await reg.list_proxies()
+        registered_by_name = {p["name"]: p for p in registered}
+
+        # Get all configured proxies
+        configured_names = list_configured_proxies()
+
+        # Load configs and identify running proxies
+        configs: dict[str, PerProxyConfig] = {}
+        running_proxies: list[tuple[str, str]] = []  # (proxy_name, socket_path)
+
+        for proxy_name in configured_names:
+            try:
+                configs[proxy_name] = load_proxy_config(proxy_name)
+            except (FileNotFoundError, ValueError, OSError) as e:
+                _logger.warning(
+                    {
+                        "event": "proxy_config_load_failed",
+                        "message": f"Failed to load config for proxy '{proxy_name}': {e}",
+                        "proxy_name": proxy_name,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    }
+                )
+                continue
+
+            # Check if running
+            reg_info = registered_by_name.get(proxy_name)
+            if reg_info and reg_info.get("socket_path"):
+                running_proxies.append((proxy_name, reg_info["socket_path"]))
+
+        # Fetch stats concurrently for all running proxies
+        async def fetch_stats(socket_path: str) -> ProxyStats | None:
+            try:
+                async with create_uds_client(
+                    socket_path,
+                    timeout=PROXY_SNAPSHOT_TIMEOUT_SECONDS,
+                ) as client:
+                    resp = await client.get("/api/stats")
+                    if resp.status_code == 200:
+                        stats_data = resp.json()
+                        return ProxyStats(
+                            requests_total=stats_data.get("requests_total", 0),
+                            requests_allowed=stats_data.get("requests_allowed", 0),
+                            requests_denied=stats_data.get("requests_denied", 0),
+                            requests_hitl=stats_data.get("requests_hitl", 0),
+                        )
+            except (httpx.ConnectError, OSError, httpx.TimeoutException):
+                pass  # Failed to fetch stats
+            return None
+
+        # Fetch all stats concurrently
+        stats_results = await asyncio.gather(
+            *(fetch_stats(socket_path) for _, socket_path in running_proxies),
+            return_exceptions=True,
+        )
+        stats_by_name: dict[str, ProxyStats | None] = {}
+        for (proxy_name, _), stats_result in zip(running_proxies, stats_results):
+            if isinstance(stats_result, BaseException):
+                stats_by_name[proxy_name] = None
+            else:
+                stats_by_name[proxy_name] = stats_result
+
+        # Build result
+        result: list[EnhancedProxyInfo] = []
+        for proxy_name, config in configs.items():
+            reg_info = registered_by_name.get(proxy_name)
+            is_running = reg_info is not None
+
+            result.append(
+                EnhancedProxyInfo(
+                    proxy_name=proxy_name,
+                    proxy_id=config.proxy_id,
+                    status="running" if is_running else "stopped",
+                    instance_id=reg_info.get("instance_id") if reg_info else None,
+                    server_name=config.backend.server_name,
+                    transport=config.backend.transport,
+                    created_at=config.created_at,
+                    stats=stats_by_name.get(proxy_name),
+                )
+            )
+
+        return result
 
     @app.post("/api/manager/auth/reload", response_model=AuthActionResponse)
     async def reload_auth_tokens(request: Request) -> AuthActionResponse:
@@ -464,6 +596,523 @@ def create_manager_api_app(
 
         await ts.clear_token()
         return AuthActionResponse(ok=True, message="Token cleared, proxies notified")
+
+    # ==========================================================================
+    # Config Snippet
+    # ==========================================================================
+
+    def _get_executable_path() -> str:
+        """Find absolute path to mcp-acp executable.
+
+        Returns:
+            Absolute path to mcp-acp executable, or 'mcp-acp' if not found.
+        """
+        path = shutil.which(APP_NAME)
+        if path:
+            return str(Path(path).resolve())
+        return APP_NAME  # Fall back to name, assume it's in PATH
+
+    @app.get("/api/manager/config-snippet", response_model=ConfigSnippetResponse)
+    async def get_config_snippet(proxy: str | None = None) -> ConfigSnippetResponse:
+        """Get MCP client configuration snippet for proxies.
+
+        Returns JSON in the standard mcpServers format used by Claude Desktop,
+        Cursor, VS Code, and other MCP clients.
+
+        Args:
+            proxy: Optional proxy name to get snippet for. If not provided,
+                   returns snippet for all configured proxies.
+
+        Returns:
+            ConfigSnippetResponse with mcpServers dictionary and executable path.
+
+        Raises:
+            APIError: If specified proxy not found.
+        """
+        proxies = list_configured_proxies()
+
+        if proxy:
+            # Single proxy requested
+            if proxy not in proxies:
+                raise APIError(
+                    status_code=404,
+                    code=ErrorCode.PROXY_NOT_FOUND,
+                    message=f"Proxy '{proxy}' not found",
+                    details={"proxy_name": proxy, "available": proxies},
+                )
+            proxies_to_include = [proxy]
+        else:
+            # All proxies
+            proxies_to_include = proxies
+
+        executable = _get_executable_path()
+
+        mcp_servers: dict[str, dict[str, Any]] = {}
+        for name in proxies_to_include:
+            mcp_servers[name] = {
+                "command": executable,
+                "args": ["start", "--proxy", name],
+            }
+
+        return ConfigSnippetResponse(
+            mcpServers=mcp_servers,
+            executable_path=executable,
+        )
+
+    # ==========================================================================
+    # Incidents Aggregation
+    # ==========================================================================
+
+    def _fetch_incidents(
+        log_path: Path,
+        incident_type: str,
+        fetch_limit: int,
+        cutoff_time: datetime | None,
+        before_dt: datetime | None,
+        proxy_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Fetch incidents from a log file and annotate with type.
+
+        Args:
+            log_path: Path to the JSONL log file.
+            incident_type: Type to annotate entries with.
+            fetch_limit: Maximum entries to fetch.
+            cutoff_time: Time cutoff for filtering.
+            before_dt: Pagination cursor.
+            proxy_name: Proxy name to annotate (for per-proxy logs).
+
+        Returns:
+            List of incident entries with incident_type (and proxy_name if provided).
+        """
+        entries, _, _ = read_jsonl_filtered(
+            log_path,
+            limit=fetch_limit,
+            cutoff_time=cutoff_time,
+            before=before_dt,
+        )
+        result = []
+        for entry in entries:
+            # Copy entry to avoid mutating original
+            annotated = {**entry, "incident_type": incident_type}
+            if proxy_name is not None:
+                annotated["proxy_name"] = proxy_name
+            result.append(annotated)
+        return result
+
+    @app.get("/api/manager/incidents", response_model=AggregatedIncidentsResponse)
+    async def get_aggregated_incidents(
+        proxy: str | None = None,
+        incident_type: IncidentType | None = None,
+        time_range: str = "all",
+        limit: int = 100,
+        before: str | None = None,
+    ) -> AggregatedIncidentsResponse:
+        """Get aggregated incidents from all proxies.
+
+        Combines shutdowns (per-proxy) with bootstrap and emergency (global).
+        Each entry includes 'incident_type' field and 'proxy_name' for shutdowns.
+
+        Args:
+            proxy: Filter by proxy name (only affects shutdowns).
+            incident_type: Filter by type ('shutdown', 'bootstrap', 'emergency').
+            time_range: Time range filter ('5m', '1h', '24h', 'all').
+            limit: Maximum entries to return (default: 100).
+            before: Cursor for pagination (ISO timestamp).
+
+        Returns:
+            Aggregated incidents sorted by time (newest first).
+        """
+        manager_config = load_manager_config()
+        cutoff_time = get_cutoff_time(time_range)
+        before_dt = parse_timestamp(before)
+        fetch_limit = limit * INCIDENTS_FETCH_MULTIPLIER
+
+        all_entries: list[dict[str, Any]] = []
+
+        # Collect shutdowns from all proxies (per-proxy log dirs)
+        if incident_type is None or incident_type == "shutdown":
+            proxy_names = [proxy] if proxy else list_configured_proxies()
+            for proxy_name in proxy_names:
+                log_dir = get_proxy_log_dir(proxy_name, manager_config)
+                shutdowns_path = log_dir / "shutdowns.jsonl"
+                all_entries.extend(
+                    _fetch_incidents(
+                        shutdowns_path, "shutdown", fetch_limit, cutoff_time, before_dt, proxy_name
+                    )
+                )
+
+        # Collect bootstrap errors (global - config dir)
+        if incident_type is None or incident_type == "bootstrap":
+            bootstrap_path = get_config_dir() / "bootstrap.jsonl"
+            all_entries.extend(
+                _fetch_incidents(bootstrap_path, "bootstrap", fetch_limit, cutoff_time, before_dt)
+            )
+
+        # Collect emergency audit (global - config dir)
+        if incident_type is None or incident_type == "emergency":
+            emergency_path = get_emergency_audit_path()
+            all_entries.extend(
+                _fetch_incidents(emergency_path, "emergency", fetch_limit, cutoff_time, before_dt)
+            )
+
+        # Sort all entries by time (newest first)
+        all_entries.sort(key=lambda e: e.get("time", ""), reverse=True)
+
+        # Apply limit
+        has_more = len(all_entries) > limit
+        entries_to_return = all_entries[:limit]
+
+        # Build filters applied
+        filters_applied: dict[str, Any] = {"time_range": time_range}
+        if proxy:
+            filters_applied["proxy"] = proxy
+        if incident_type:
+            filters_applied["incident_type"] = incident_type
+
+        return AggregatedIncidentsResponse(
+            entries=entries_to_return,
+            total_returned=len(entries_to_return),
+            has_more=has_more,
+            filters_applied=filters_applied,
+        )
+
+    # ==========================================================================
+    # Proxy Creation
+    # ==========================================================================
+
+    def _build_transport_configs(
+        body: CreateProxyRequest,
+    ) -> tuple[StdioTransportConfig | None, HttpTransportConfig | None]:
+        """Build transport configurations from request.
+
+        Args:
+            body: Validated proxy creation request.
+
+        Returns:
+            Tuple of (stdio_config, http_config).
+
+        Raises:
+            APIError: If attestation_sha256 is invalid format.
+        """
+        stdio_config = None
+        http_config = None
+
+        if body.transport in STDIO_TRANSPORTS and body.command:
+            # Build attestation config if any attestation options provided
+            attestation = None
+            if body.attestation_slsa_owner or body.attestation_sha256 or body.attestation_require_signature:
+                # Validate SHA-256 format if provided
+                normalized_sha256 = None
+                if body.attestation_sha256:
+                    is_valid, normalized_sha256 = validate_sha256_hex(body.attestation_sha256)
+                    if not is_valid:
+                        raise APIError(
+                            status_code=400,
+                            code=ErrorCode.PROXY_INVALID,
+                            message=f"Invalid attestation_sha256: must be {SHA256_HEX_LENGTH} hex characters",
+                            details={"proxy_name": body.name, "attestation_sha256": body.attestation_sha256},
+                        )
+                attestation = StdioAttestationConfig(
+                    slsa_owner=body.attestation_slsa_owner,
+                    expected_sha256=normalized_sha256,
+                    require_signature=body.attestation_require_signature,
+                )
+            stdio_config = StdioTransportConfig(
+                command=body.command,
+                args=body.args,
+                attestation=attestation,
+            )
+
+        if body.transport in HTTP_TRANSPORTS and body.url:
+            http_config = HttpTransportConfig(
+                url=body.url,
+                timeout=body.timeout,
+            )
+
+        return stdio_config, http_config
+
+    def _build_mtls_config(body: CreateProxyRequest) -> MTLSConfig | None:
+        """Build mTLS configuration from request.
+
+        Args:
+            body: Validated proxy creation request.
+
+        Returns:
+            MTLSConfig if all mTLS options provided, None otherwise.
+
+        Raises:
+            APIError: If partial mTLS options provided or files don't exist.
+        """
+        # Check if any mTLS options provided
+        has_any = body.mtls_cert or body.mtls_key or body.mtls_ca
+        if not has_any:
+            return None
+
+        # Require all three if any is provided
+        if not (body.mtls_cert and body.mtls_key and body.mtls_ca):
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.PROXY_INVALID,
+                message="mTLS requires all three: mtls_cert, mtls_key, mtls_ca",
+                details={"proxy_name": body.name},
+            )
+
+        # Validate paths exist
+        for field_name, path_val in [
+            ("mtls_cert", body.mtls_cert),
+            ("mtls_key", body.mtls_key),
+            ("mtls_ca", body.mtls_ca),
+        ]:
+            if not Path(path_val).expanduser().exists():
+                raise APIError(
+                    status_code=400,
+                    code=ErrorCode.PROXY_INVALID,
+                    message=f"mTLS {field_name} file not found: {path_val}",
+                    details={"proxy_name": body.name, "field": field_name, "path": path_val},
+                )
+
+        return MTLSConfig(
+            client_cert_path=body.mtls_cert,
+            client_key_path=body.mtls_key,
+            ca_bundle_path=body.mtls_ca,
+        )
+
+    def _store_api_key(
+        proxy_name: str,
+        api_key: str,
+        http_config: HttpTransportConfig,
+    ) -> HttpTransportConfig:
+        """Store API key in keychain and return updated config.
+
+        Args:
+            proxy_name: Name of the proxy.
+            api_key: API key to store.
+            http_config: HTTP config to update with credential_key.
+
+        Returns:
+            Updated HttpTransportConfig with credential_key.
+
+        Raises:
+            APIError: If keychain storage fails.
+        """
+        try:
+            from mcp_acp.security.credential_storage import BackendCredentialStorage
+
+            cred_storage = BackendCredentialStorage(proxy_name)
+            cred_storage.save(api_key)
+            return http_config.model_copy(update={"credential_key": cred_storage.credential_key})
+        except RuntimeError as e:
+            _logger.error(
+                {
+                    "event": "keychain_store_failed",
+                    "message": f"Failed to store API key in keychain for proxy '{proxy_name}'",
+                    "proxy_name": proxy_name,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+            raise APIError(
+                status_code=500,
+                code=ErrorCode.PROXY_CREATION_FAILED,
+                message=f"Failed to store API key in keychain: {e}",
+                details={"proxy_name": proxy_name, "error": str(e)},
+            )
+
+    def _check_http_health(url: str, timeout: int, mtls_config: MTLSConfig | None) -> None:
+        """Check HTTP backend health before creating proxy.
+
+        Args:
+            url: Backend URL to check.
+            timeout: HTTP timeout in seconds.
+            mtls_config: Optional mTLS configuration.
+
+        Raises:
+            APIError: If health check fails (backend unreachable or cert error).
+        """
+        from mcp_acp.constants import HEALTH_CHECK_TIMEOUT_SECONDS
+        from mcp_acp.utils.transport import check_http_health
+
+        try:
+            check_http_health(
+                url, timeout=min(timeout, HEALTH_CHECK_TIMEOUT_SECONDS), mtls_config=mtls_config
+            )
+        except ValueError as e:
+            # Invalid mTLS certificates
+            _logger.warning(
+                {
+                    "event": "health_check_cert_invalid",
+                    "message": f"Invalid mTLS certificate for {url}: {e}",
+                    "url": url,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.PROXY_INVALID,
+                message=f"Invalid mTLS certificate: {e}",
+                details={"url": url, "error": str(e)},
+            )
+        except (TimeoutError, ConnectionError, OSError) as e:
+            error_msg = str(e).lower()
+            is_ssl_error = "ssl" in error_msg or "certificate" in error_msg
+            _logger.warning(
+                {
+                    "event": "health_check_failed",
+                    "message": f"Health check failed for {url}: {e}",
+                    "url": url,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "is_ssl_error": is_ssl_error,
+                }
+            )
+            if is_ssl_error:
+                raise APIError(
+                    status_code=400,
+                    code=ErrorCode.PROXY_INVALID,
+                    message=f"SSL/TLS error connecting to backend: {e}",
+                    details={"url": url, "error": str(e)},
+                )
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.PROXY_INVALID,
+                message=f"Backend health check failed: could not reach {url}",
+                details={"url": url, "error": str(e)},
+            )
+
+    @app.post("/api/manager/proxies", response_model=CreateProxyResponse, status_code=201)
+    async def create_proxy(body: CreateProxyRequest) -> CreateProxyResponse:
+        """Create a new proxy configuration.
+
+        Mirrors CLI 'mcp-acp proxy add' functionality:
+        1. Validates proxy name
+        2. Creates proxies/{name}/config.json
+        3. Creates proxies/{name}/policy.json (default policy)
+        4. Stores API key in keychain if provided
+        5. Returns Claude Desktop config snippet
+
+        Args:
+            body: CreateProxyRequest with proxy configuration.
+
+        Returns:
+            CreateProxyResponse with paths and Claude Desktop snippet.
+
+        Raises:
+            APIError: If validation fails (400), proxy exists (409), or creation fails (500).
+        """
+        # Validate proxy name
+        try:
+            validate_proxy_name(body.name)
+        except ValueError as e:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.PROXY_INVALID,
+                message=str(e),
+                details={"proxy_name": body.name},
+            )
+
+        # Check if proxy already exists
+        config_path = get_proxy_config_path(body.name)
+        if config_path.exists():
+            raise APIError(
+                status_code=409,
+                code=ErrorCode.PROXY_EXISTS,
+                message=f"Proxy '{body.name}' already exists.",
+                details={"proxy_name": body.name},
+            )
+
+        # Validate transport-specific requirements
+        if body.transport in STDIO_TRANSPORTS and not body.command:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.PROXY_INVALID,
+                message="Command is required for stdio/auto transport.",
+                details={"proxy_name": body.name, "transport": body.transport},
+            )
+        if body.transport == "streamablehttp" and not body.url:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.PROXY_INVALID,
+                message="URL is required for HTTP transport.",
+                details={"proxy_name": body.name, "transport": body.transport},
+            )
+
+        # Build transport configs
+        stdio_config, http_config = _build_transport_configs(body)
+
+        # Build mTLS config (validates paths exist)
+        mtls_config = _build_mtls_config(body)
+
+        # Check HTTP backend health if configured
+        if http_config is not None:
+            _check_http_health(http_config.url, http_config.timeout, mtls_config)
+
+        # Generate proxy ID
+        proxy_id = generate_proxy_id(body.server_name)
+
+        # Build backend config
+        backend_config = BackendConfig(
+            server_name=body.server_name,
+            transport=body.transport,
+            stdio=stdio_config,
+            http=http_config,
+        )
+
+        # Store API key in keychain if provided (raises APIError on failure)
+        if body.api_key and http_config is not None:
+            http_config = _store_api_key(body.name, body.api_key, http_config)
+            backend_config = backend_config.model_copy(update={"http": http_config})
+
+        # Create proxy config
+        proxy_config = PerProxyConfig(
+            proxy_id=proxy_id,
+            created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            backend=backend_config,
+            hitl=HITLConfig(),
+            mtls=mtls_config,
+        )
+
+        # Save config
+        try:
+            save_proxy_config(body.name, proxy_config)
+        except OSError as e:
+            raise APIError(
+                status_code=500,
+                code=ErrorCode.PROXY_CREATION_FAILED,
+                message=f"Failed to save proxy configuration: {e}",
+                details={"proxy_name": body.name, "error": str(e)},
+            )
+
+        # Create default policy
+        policy_path = get_proxy_policy_path(body.name)
+        try:
+            default_policy = create_default_policy()
+            save_policy(default_policy, policy_path)
+        except OSError as e:
+            raise APIError(
+                status_code=500,
+                code=ErrorCode.PROXY_CREATION_FAILED,
+                message=f"Config created but policy creation failed: {e}",
+                details={"proxy_name": body.name, "config_path": str(config_path), "error": str(e)},
+            )
+
+        # Build Claude Desktop snippet
+        claude_snippet = {
+            body.name: {
+                "command": "mcp-acp",
+                "args": ["start", "--proxy", body.name],
+            }
+        }
+
+        return CreateProxyResponse(
+            ok=True,
+            proxy_name=body.name,
+            proxy_id=proxy_id,
+            config_path=str(config_path),
+            policy_path=str(policy_path),
+            claude_desktop_snippet=claude_snippet,
+            message=f"Proxy '{body.name}' created successfully.",
+        )
 
     @app.get("/api/events")
     async def sse_events(request: Request) -> EventSourceResponse:
