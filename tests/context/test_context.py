@@ -356,7 +356,7 @@ class TestBuildDecisionContextResources:
     async def test_tools_call_extracts_tool_info(self, build_ctx) -> None:
         """Given tools/call, extracts tool info with correct provenance."""
         # Act
-        ctx = await build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "arguments": {"path": "/tmp/secrets.key"}})
 
         # Assert
         assert ctx.resource.type == ResourceType.TOOL
@@ -366,7 +366,7 @@ class TestBuildDecisionContextResources:
     async def test_tools_call_extracts_filename(self, build_ctx) -> None:
         """Given tools/call with path, extracts filename."""
         # Act
-        ctx = await build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "arguments": {"path": "/tmp/secrets.key"}})
 
         # Assert
         assert ctx.resource.resource.filename == "secrets.key"
@@ -374,7 +374,7 @@ class TestBuildDecisionContextResources:
     async def test_tools_call_extracts_extension(self, build_ctx) -> None:
         """Given tools/call with path, extracts file extension."""
         # Act
-        ctx = await build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "arguments": {"path": "/tmp/secrets.key"}})
 
         # Assert
         assert ctx.resource.resource.extension == ".key"
@@ -398,7 +398,7 @@ class TestBuildDecisionContextResources:
     async def test_tool_without_path_has_no_resource_info(self, build_ctx) -> None:
         """Given tools/call without path argument, resource info is None."""
         # Act
-        ctx = await build_ctx("tools/call", {"name": "get_weather", "city": "London"})
+        ctx = await build_ctx("tools/call", {"name": "get_weather", "arguments": {"city": "London"}})
 
         # Assert
         assert ctx.resource.tool.name == "get_weather"
@@ -419,7 +419,7 @@ class TestBuildDecisionContextResources:
         assert ctx.resource.resource is not None
         assert ctx.resource.resource.source_path == "/tmp/file.txt"
         assert ctx.resource.resource.dest_path == "/home/user/file.txt"
-        # path should be set to source (first found) for backwards compat
+        # path is set to source (primary path) for policy matching
         assert ctx.resource.resource.path == "/tmp/file.txt"
 
     async def test_copy_path_extracts_source_and_dest_paths(self, build_ctx) -> None:
@@ -561,7 +561,7 @@ class TestDecisionContextStructure:
     async def test_context_serializes_to_json(self, build_ctx) -> None:
         """Given a DecisionContext, it can be serialized to JSON for audit."""
         # Arrange
-        ctx = await build_ctx("tools/call", {"name": "bash", "command": "ls"})
+        ctx = await build_ctx("tools/call", {"name": "bash", "arguments": {"command": "ls"}})
 
         # Act
         data = ctx.model_dump(mode="json")
@@ -592,7 +592,7 @@ class TestFileExtensionExtraction:
     async def test_filename_extraction(self, build_ctx, path: str, expected_filename: str) -> None:
         """Given various paths, filename is correctly extracted."""
         # Act
-        ctx = await build_ctx("tools/call", {"name": "read_file", "path": path})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "arguments": {"path": path}})
 
         # Assert
         assert ctx.resource.resource.filename == expected_filename
@@ -610,7 +610,7 @@ class TestFileExtensionExtraction:
     async def test_extension_extraction(self, build_ctx, path: str, expected_ext: str | None) -> None:
         """Given various paths, extension is correctly extracted (or None)."""
         # Act
-        ctx = await build_ctx("tools/call", {"name": "read_file", "path": path})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "arguments": {"path": path}})
 
         # Assert
         assert ctx.resource.resource.extension == expected_ext

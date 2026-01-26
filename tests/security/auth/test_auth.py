@@ -1172,6 +1172,7 @@ class TestCreateIdentityProvider:
             AppConfig,
             LoggingConfig,
             BackendConfig,
+            ProxyConfig,
             StdioTransportConfig,
         )
 
@@ -1183,6 +1184,7 @@ class TestCreateIdentityProvider:
                 transport="stdio",
                 stdio=StdioTransportConfig(command="echo"),
             ),
+            proxy=ProxyConfig(proxy_id="px_test1234:test"),
         )
 
         # Act & Assert
@@ -1197,6 +1199,7 @@ class TestCreateIdentityProvider:
             AppConfig,
             LoggingConfig,
             BackendConfig,
+            ProxyConfig,
             StdioTransportConfig,
             AuthConfig,
             OIDCConfig,
@@ -1217,6 +1220,7 @@ class TestCreateIdentityProvider:
                 transport="stdio",
                 stdio=StdioTransportConfig(command="echo"),
             ),
+            proxy=ProxyConfig(proxy_id="px_test1234:test"),
         )
 
         # Act
@@ -1232,6 +1236,7 @@ class TestCreateIdentityProvider:
             AppConfig,
             LoggingConfig,
             BackendConfig,
+            ProxyConfig,
             StdioTransportConfig,
             AuthConfig,
             OIDCConfig,
@@ -1252,6 +1257,7 @@ class TestCreateIdentityProvider:
                 transport="stdio",
                 stdio=StdioTransportConfig(command="echo"),
             ),
+            proxy=ProxyConfig(proxy_id="px_test1234:test"),
         )
 
         # Act & Assert

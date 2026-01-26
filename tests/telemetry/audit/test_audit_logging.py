@@ -235,10 +235,14 @@ class TestProcessRequestSuccess:
 
         async def call_next(_ctx):
             # Simulate what LoggingProxyClient.call_tool_mcp() does
-            set_tool_context("read_file", {"path": "/tmp/test.txt"})
+            set_tool_context("read_file", {"path": "/tmp/test.txt"}, request_id="req-789")
             return {"content": "file contents"}
 
         try:
+            # Set up context vars (normally done by ContextMiddleware)
+            set_request_id("req-789")
+            set_session_id("sess-abc")
+
             # Act
             await audit_middleware.on_message(context, call_next)
 

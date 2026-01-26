@@ -245,13 +245,9 @@ def _build_tool_resource(
         )
 
     # Extract file path if present (for tools that access files)
-    # For tools/call, paths may be in nested "arguments" dict (real MCP format)
-    # or at top level (test/simplified format). Check nested first.
+    # MCP format: tool arguments are in nested "arguments" dict
     tool_arguments = arguments.get("arguments") if arguments else None
     resource_info = _extract_resource_info(tool_arguments)
-    if resource_info is None:
-        # Fall back to top-level arguments (for backwards compatibility)
-        resource_info = _extract_resource_info(arguments)
 
     return Resource(
         type=ResourceType.TOOL,

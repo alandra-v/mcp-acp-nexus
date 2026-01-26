@@ -29,12 +29,14 @@ class TestFileIntegrityState:
             last_sequence=42,
             last_inode=12345,
             last_dev=67890,
+            last_size=1024,
         )
 
         assert state.last_hash == "abc123"
         assert state.last_sequence == 42
         assert state.last_inode == 12345
         assert state.last_dev == 67890
+        assert state.last_size == 1024
 
 
 class TestVerificationResult:
@@ -362,6 +364,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=1,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
         state_manager.save_state()
 
@@ -397,6 +400,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=1,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
         state_manager.save_state()
 
@@ -442,6 +446,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=2,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
         state_manager.save_state()
 
@@ -481,6 +486,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=2,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
         state_manager.save_state()
 
@@ -528,6 +534,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=5,  # Same sequence, different hash = tampering
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
         state_manager.save_state()
 
@@ -556,6 +563,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=5,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
 
         # Repair should succeed and clear state
@@ -582,6 +590,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=5,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
 
         # Repair should succeed and clear state
@@ -604,6 +613,7 @@ class TestIntegrityStateManagerVerification:
             last_sequence=5,
             last_inode=999,
             last_dev=999,
+            last_size=0,
         )
 
         # Repair should succeed and clear state
@@ -801,6 +811,7 @@ class TestIntegrityStateAutoRepairOnCrash:
             last_sequence=5,
             last_inode=stat.st_ino,
             last_dev=stat.st_dev,
+            last_size=stat.st_size,
         )
         state_manager.save_state()
 

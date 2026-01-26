@@ -100,13 +100,13 @@ def extract_resource_info(arguments: dict[str, Any] | None) -> ResourceInfo | No
     """Extract resource info from file paths in arguments.
 
     Extracts:
-    - path: First generic path found (from PATH_ARGUMENT_NAMES)
+    - path: Primary path for policy matching (generic path or source path)
     - source_path: Source path for move/copy operations
     - dest_path: Destination path for move/copy operations
 
     For tools like move_file(source, destination), both source_path and dest_path
-    will be populated. The 'path' field will contain the first path found
-    (usually source) for backwards compatibility.
+    will be populated. The 'path' field will contain the primary path
+    (generic path if present, otherwise source path) for policy matching.
 
     Args:
         arguments: Request arguments.
@@ -131,7 +131,7 @@ def extract_resource_info(arguments: dict[str, Any] | None) -> ResourceInfo | No
             dest_path = str(arguments[key])
             break
 
-    # Extract generic path (for backwards compatibility and single-path tools)
+    # Extract generic path (for single-path tools like read_file)
     # Use PATH_ARGUMENT_NAMES but exclude "uri" - URIs handled separately
     generic_path: str | None = None
     for key in PATH_ARGUMENT_NAMES:
@@ -141,7 +141,7 @@ def extract_resource_info(arguments: dict[str, Any] | None) -> ResourceInfo | No
             generic_path = str(arguments[key])
             break
 
-    # Determine the primary path (for backwards compat)
+    # Determine the primary path for policy matching
     # Priority: explicit generic path > source_path > dest_path
     primary_path = generic_path or source_path or dest_path
 

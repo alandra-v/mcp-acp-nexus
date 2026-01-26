@@ -58,7 +58,7 @@ class FileIntegrityState:
     last_sequence: int
     last_inode: int
     last_dev: int
-    last_size: int = 0  # Default for backwards compatibility with old state files
+    last_size: int
 
 
 @dataclass
@@ -137,7 +137,7 @@ class IntegrityStateManager:
                         last_sequence=state["last_sequence"],
                         last_inode=state["last_inode"],
                         last_dev=state["last_dev"],
-                        last_size=state.get("last_size", 0),  # Backwards compat
+                        last_size=state["last_size"],
                     )
                     for key, state in files_data.items()
                 }
@@ -394,6 +394,7 @@ class IntegrityStateManager:
                 last_sequence=sequence,
                 last_inode=stat.st_ino,
                 last_dev=stat.st_dev,
+                last_size=stat.st_size,
             )
 
         # Persist to disk immediately
@@ -590,6 +591,7 @@ class IntegrityStateManager:
                     last_sequence=entry_sequence,
                     last_inode=stat.st_ino,
                     last_dev=stat.st_dev,
+                    last_size=stat.st_size,
                 )
             self.save_state()
         except OSError as e:

@@ -39,7 +39,7 @@ class ISO8601Formatter(logging.Formatter):
         # Handle dict messages (structured logging)
         if isinstance(record.msg, dict):
             log_data = record.msg
-        # Handle JSON string messages (backwards compatibility)
+        # Handle JSON string messages (flexible input)
         elif isinstance(record.msg, str) and record.msg.startswith("{"):
             try:
                 log_data = json.loads(record.msg)

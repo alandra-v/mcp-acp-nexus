@@ -29,6 +29,12 @@ __all__ = [
     "set_tool_context",
 ]
 
+# NOTE: Tool context is stored in a module-level dict keyed by request_id,
+# NOT in ContextVars. This is because FastMCP copies the async context when
+# setting up request handlers - the middleware runs in a context snapshot taken
+# BEFORE the ProxyClient call happens, so ContextVar changes don't propagate back.
+# The request_id IS available in both places, so we use it as a key.
+
 import time
 from contextvars import ContextVar
 from typing import Any, cast
@@ -56,12 +62,6 @@ bound_user_id_var: ContextVar[str | None] = ContextVar("bound_user_id", default=
 # Tool call metadata - set by LoggingProxyClient.call_tool_mcp(), read by audit middleware
 # These provide tool info that's hard to extract from MiddlewareContext
 #
-# NOTE: We use a module-level dict keyed by request_id instead of ContextVars.
-# ContextVars don't work here because FastMCP copies the async context when setting
-# up request handlers - the middleware runs in a context snapshot taken BEFORE the
-# ProxyClient call happens, so ContextVar changes don't propagate back.
-# The request_id IS available in both places, so we use it as a key.
-#
 # TTL cleanup: Entries older than _TOOL_CONTEXT_TTL_SECONDS are purged on each
 # set_tool_context() call to prevent unbounded growth from missed cleanups.
 _tool_context_by_request: dict[str, dict[str, Any]] = {}
@@ -73,14 +73,6 @@ _TOOL_CONTEXT_TTL_SECONDS = 300
 # Counter to trigger periodic cleanup (every N calls)
 _cleanup_counter = 0
 _CLEANUP_INTERVAL = 50
-
-# Legacy ContextVars - kept for backwards compatibility and for cases where
-# code runs within the same async context
-tool_name_var: ContextVar[str | None] = ContextVar("tool_name", default=None)
-"""Tool name for the current tools/call request (legacy - prefer _tool_context_by_request)."""
-
-tool_arguments_var: ContextVar[dict[str, Any] | None] = ContextVar("tool_arguments", default=None)
-"""Tool arguments for the current tools/call request (legacy - prefer _tool_context_by_request)."""
 
 
 def get_request_id() -> str | None:
@@ -191,32 +183,28 @@ def get_tool_name(request_id: str | None = None) -> str | None:
     """Get the current tool name from context.
 
     Args:
-        request_id: Optional request_id to look up. If None, uses context var.
+        request_id: Request ID to look up. Required for tool context lookup.
 
     Returns:
         Tool name if found, None otherwise.
     """
-    # Try dict-based lookup first (works across async context boundaries)
     if request_id and request_id in _tool_context_by_request:
         return cast(str | None, _tool_context_by_request[request_id].get("tool_name"))
-    # Fallback to context var (for same-context usage)
-    return tool_name_var.get()
+    return None
 
 
 def get_tool_arguments(request_id: str | None = None) -> dict[str, Any] | None:
     """Get the current tool arguments from context.
 
     Args:
-        request_id: Optional request_id to look up. If None, uses context var.
+        request_id: Request ID to look up. Required for tool context lookup.
 
     Returns:
         Tool arguments if found, None otherwise.
     """
-    # Try dict-based lookup first (works across async context boundaries)
     if request_id and request_id in _tool_context_by_request:
         return cast(dict[str, Any] | None, _tool_context_by_request[request_id].get("arguments"))
-    # Fallback to context var (for same-context usage)
-    return tool_arguments_var.get()
+    return None
 
 
 def _cleanup_stale_tool_contexts() -> None:
@@ -245,13 +233,9 @@ def set_tool_context(tool_name: str, arguments: dict[str, Any] | None, request_i
     Args:
         tool_name: Name of the tool being called.
         arguments: Tool arguments.
-        request_id: Request ID for dict-based storage. If None, only sets context vars.
+        request_id: Request ID for dict-based storage. Required for context to be retrievable.
     """
     global _cleanup_counter
-
-    # Set context vars (for same-context usage)
-    tool_name_var.set(tool_name)
-    tool_arguments_var.set(arguments)
 
     # Store in dict keyed by request_id (works across async context boundaries)
     if request_id:
@@ -274,10 +258,8 @@ def clear_tool_context(request_id: str | None = None) -> None:
     Should be called by audit middleware after logging to prevent memory leaks.
 
     Args:
-        request_id: Request ID to clear from dict. If None, only clears context vars.
+        request_id: Request ID to clear from dict.
     """
-    tool_name_var.set(None)
-    tool_arguments_var.set(None)
     if request_id and request_id in _tool_context_by_request:
         del _tool_context_by_request[request_id]
 

@@ -15,7 +15,6 @@ __all__ = [
     "TRANSPORT_TYPES",
     "TRANSPORT_TYPE_FROM_INDEX",
     "TRANSPORT_TYPE_TO_INDEX",
-    "SUPPORTED_TRANSPORTS",
     "DEFAULT_HTTP_TIMEOUT_SECONDS",
     "MIN_HTTP_TIMEOUT_SECONDS",
     "MAX_HTTP_TIMEOUT_SECONDS",
@@ -117,9 +116,6 @@ TRANSPORT_TYPES: tuple[str, ...] = ("stdio", "http", "auto")
 # Index-to-type mapping for CLI menus (allows numeric shortcuts)
 TRANSPORT_TYPE_FROM_INDEX: dict[str, str] = {"0": "stdio", "1": "http", "2": "auto"}
 TRANSPORT_TYPE_TO_INDEX: dict[str, str] = {"stdio": "0", "http": "1", "auto": "2"}
-
-# Legacy constant - use TRANSPORT_TYPES instead
-SUPPORTED_TRANSPORTS: tuple[str, ...] = ("stdio", "streamablehttp")
 
 # Default HTTP connection timeout (seconds)
 # Used as default in HttpTransportConfig and CLI when user doesn't specify

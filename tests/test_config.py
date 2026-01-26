@@ -13,6 +13,7 @@ from mcp_acp.config import (
     HttpTransportConfig,
     LoggingConfig,
     OIDCConfig,
+    ProxyConfig,
     StdioTransportConfig,
 )
 
@@ -47,6 +48,9 @@ def valid_config_dict() -> dict:
             "server_name": "test-server",
             "transport": "stdio",
             "stdio": {"command": "echo"},
+        },
+        "proxy": {
+            "proxy_id": "px_test1234:test-server",
         },
         "auth": {
             "oidc": {
@@ -251,6 +255,7 @@ class TestAppConfig:
                     transport="stdio",
                     stdio=StdioTransportConfig(command="echo"),
                 ),
+                proxy=ProxyConfig(proxy_id="px_test1234:test"),
                 auth=valid_auth_config,
             )
 
@@ -272,6 +277,7 @@ class TestAppConfig:
                 transport="stdio",
                 stdio=StdioTransportConfig(command="echo"),
             ),
+            proxy=ProxyConfig(proxy_id="px_test1234:test"),
         )
         # Assert auth defaults to None
         assert config.auth is None
@@ -285,6 +291,7 @@ class TestAppConfig:
                 transport="stdio",
                 stdio=StdioTransportConfig(command="echo"),
             ),
+            proxy=ProxyConfig(proxy_id="px_test1234:test"),
             auth=valid_auth_config,
         )
 
@@ -325,16 +332,23 @@ class TestLoadFromFiles:
             AppConfig.load_from_files(bad_json)
 
     def test_raises_value_error_for_missing_field(self, tmp_path: Path) -> None:
-        # Arrange
+        # Arrange - missing backend section
         incomplete = tmp_path / "incomplete.json"
-        incomplete.write_text('{"logging": {"log_dir": "/tmp"}}')
+        incomplete.write_text(
+            json.dumps(
+                {
+                    "logging": {"log_dir": "/tmp"},
+                    "proxy": {"proxy_id": "px_test1234:test"},
+                }
+            )
+        )
 
         # Act & Assert
         with pytest.raises(ValueError, match="backend"):
             AppConfig.load_from_files(incomplete)
 
     def test_raises_value_error_for_invalid_field(self, tmp_path: Path) -> None:
-        # Arrange
+        # Arrange - invalid log_level value
         bad_value = tmp_path / "bad_value.json"
         bad_value.write_text(
             json.dumps(
@@ -345,6 +359,7 @@ class TestLoadFromFiles:
                         "transport": "stdio",
                         "stdio": {"command": "echo"},
                     },
+                    "proxy": {"proxy_id": "px_test1234:test"},
                 }
             )
         )
@@ -413,8 +428,8 @@ class TestConfigHelpers:
     @pytest.mark.parametrize(
         "log_type,expected_file",
         [
-            ("client", "client_wire.jsonl"),
-            ("backend", "backend_wire.jsonl"),
+            ("client_wire", "client_wire.jsonl"),
+            ("backend_wire", "backend_wire.jsonl"),
             ("system", "system.jsonl"),
             ("config_history", "config_history.jsonl"),
             ("operations", "operations.jsonl"),

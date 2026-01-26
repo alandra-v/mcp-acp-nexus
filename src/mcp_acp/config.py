@@ -348,11 +348,10 @@ class ProxyConfig(BaseModel):
     Attributes:
         name: Proxy server name for identification.
         proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
-            Optional for backward compatibility with legacy single-proxy configs.
     """
 
     name: str = Field(default=APP_NAME, min_length=1)
-    proxy_id: str | None = Field(default=None, description="Stable proxy identifier")
+    proxy_id: str = Field(description="Stable proxy identifier")
 
 
 class HITLConfig(BaseModel):
@@ -549,7 +548,7 @@ class AppConfig(BaseModel):
     mtls: MTLSConfig | None = None  # Per-proxy mTLS for HTTPS backends
     logging: LoggingConfig
     backend: BackendConfig
-    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    proxy: ProxyConfig
     hitl: HITLConfig = Field(default_factory=HITLConfig)
 
     def save_to_file(self, config_path: Path) -> None:
