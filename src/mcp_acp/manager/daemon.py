@@ -55,6 +55,7 @@ from mcp_acp.manager.config import (
     get_manager_system_log_path,
     load_manager_config,
 )
+from mcp_acp.manager.models import ManagerSystemEvent
 from mcp_acp.manager.protocol import decode_ndjson, encode_ndjson
 from mcp_acp.manager.registry import ProxyRegistry, get_proxy_registry
 from mcp_acp.manager.routes import (
@@ -143,13 +144,14 @@ def _configure_manager_logging(config: ManagerConfig) -> None:
         _logger.addHandler(file_handler)
         _file_handler_configured = True
     except OSError as e:
-        _logger.warning(
-            {
-                "event": "file_logging_failed",
-                "message": "Failed to configure file logging",
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            }
+        _log_event(
+            logging.WARNING,
+            ManagerSystemEvent(
+                event="file_logging_failed",
+                message="Failed to configure file logging",
+                error_type=type(e).__name__,
+                error_message=str(e),
+            ),
         )
 
 
@@ -158,6 +160,19 @@ if not _logger.handlers:
     _stderr_handler = logging.StreamHandler()
     _stderr_handler.setFormatter(_ConsoleFormatter())
     _logger.addHandler(_stderr_handler)
+
+
+def _log_event(level: int, event: ManagerSystemEvent) -> None:
+    """Log a ManagerSystemEvent at the specified level.
+
+    Serializes the event to a dict (excluding None values) and logs it.
+    The ISO8601Formatter adds the timestamp during serialization.
+
+    Args:
+        level: Logging level (e.g., logging.INFO, logging.WARNING).
+        event: The event to log.
+    """
+    _logger.log(level, event.model_dump(exclude_none=True))
 
 
 # =============================================================================
@@ -258,12 +273,13 @@ def _cleanup_stale_socket() -> None:
 
     # Stale socket, remove it
     MANAGER_SOCKET_PATH.unlink(missing_ok=True)
-    _logger.info(
-        {
-            "event": "stale_socket_removed",
-            "message": f"Removed stale socket: {MANAGER_SOCKET_PATH}",
-            "socket_path": str(MANAGER_SOCKET_PATH),
-        }
+    _log_event(
+        logging.INFO,
+        ManagerSystemEvent(
+            event="stale_socket_removed",
+            message=f"Removed stale socket: {MANAGER_SOCKET_PATH}",
+            socket_path=str(MANAGER_SOCKET_PATH),
+        ),
     )
 
 
@@ -282,11 +298,12 @@ def _cleanup_stale_pid() -> None:
 
     # Stale PID file, remove it
     MANAGER_PID_PATH.unlink(missing_ok=True)
-    _logger.info(
-        {
-            "event": "stale_pid_removed",
-            "message": f"Removed stale PID file: {MANAGER_PID_PATH}",
-        }
+    _log_event(
+        logging.INFO,
+        ManagerSystemEvent(
+            event="stale_pid_removed",
+            message=f"Removed stale PID file: {MANAGER_PID_PATH}",
+        ),
     )
 
 
@@ -348,22 +365,24 @@ async def _handle_proxy_connection(
 
         msg = decode_ndjson(line)
         if msg is None:
-            _logger.warning(
-                {
-                    "event": "registration_invalid_json",
-                    "message": "Invalid JSON in registration",
-                }
+            _log_event(
+                logging.WARNING,
+                ManagerSystemEvent(
+                    event="registration_invalid_json",
+                    message="Invalid JSON in registration",
+                ),
             )
             await _send_error(writer, "Invalid JSON")
             return
 
         # Validate registration message
         if msg.get("type") != "register":
-            _logger.warning(
-                {
-                    "event": "registration_wrong_type",
-                    "message": f"Expected 'register' message, got: {msg.get('type')}",
-                }
+            _log_event(
+                logging.WARNING,
+                ManagerSystemEvent(
+                    event="registration_wrong_type",
+                    message=f"Expected 'register' message, got: {msg.get('type')}",
+                ),
             )
             await _send_error(writer, "Expected 'register' message")
             return
@@ -375,23 +394,25 @@ async def _handle_proxy_connection(
         socket_path = msg.get("socket_path", "")
 
         if not proxy_name or not instance_id:
-            _logger.warning(
-                {
-                    "event": "registration_missing_fields",
-                    "message": "Missing proxy_name or instance_id in registration",
-                }
+            _log_event(
+                logging.WARNING,
+                ManagerSystemEvent(
+                    event="registration_missing_fields",
+                    message="Missing proxy_name or instance_id in registration",
+                ),
             )
             await _send_error(writer, "Missing proxy_name or instance_id")
             return
 
         if not socket_path:
-            _logger.warning(
-                {
-                    "event": "registration_missing_socket",
-                    "message": "Missing socket_path in registration",
-                    "proxy_name": proxy_name,
-                    "instance_id": instance_id,
-                }
+            _log_event(
+                logging.WARNING,
+                ManagerSystemEvent(
+                    event="registration_missing_socket",
+                    message="Missing socket_path in registration",
+                    proxy_name=proxy_name,
+                    instance_id=instance_id,
+                ),
             )
             await _send_error(writer, "Missing socket_path")
             return
@@ -425,20 +446,22 @@ async def _handle_proxy_connection(
         await _handle_proxy_events(reader, proxy_name, registry)
 
     except asyncio.TimeoutError:
-        _logger.warning(
-            {
-                "event": "registration_timeout",
-                "message": "Proxy connection timed out during registration",
-            }
+        _log_event(
+            logging.WARNING,
+            ManagerSystemEvent(
+                event="registration_timeout",
+                message="Proxy connection timed out during registration",
+            ),
         )
     except (ConnectionResetError, BrokenPipeError, OSError) as e:
-        _logger.warning(
-            {
-                "event": "proxy_connection_error",
-                "message": f"Proxy connection error: {e}",
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            }
+        _log_event(
+            logging.WARNING,
+            ManagerSystemEvent(
+                event="proxy_connection_error",
+                message=f"Proxy connection error: {e}",
+                error_type=type(e).__name__,
+                error_message=str(e),
+            ),
         )
     finally:
         # Deregister on disconnect
@@ -512,14 +535,15 @@ async def _broadcast_proxy_snapshot(
                 pass  # Expected during startup race
 
     except (httpx.ConnectError, OSError) as e:
-        _logger.warning(
-            {
-                "event": "snapshot_broadcast_failed",
-                "message": "Failed to broadcast proxy snapshot",
-                "socket_path": socket_path,
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            }
+        _log_event(
+            logging.WARNING,
+            ManagerSystemEvent(
+                event="snapshot_broadcast_failed",
+                message="Failed to broadcast proxy snapshot",
+                socket_path=socket_path,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            ),
         )
 
 
@@ -543,12 +567,13 @@ async def _handle_proxy_events(
 
             msg = decode_ndjson(line)
             if msg is None:
-                _logger.warning(
-                    {
-                        "event": "proxy_invalid_json",
-                        "message": f"Invalid JSON from proxy '{proxy_name}'",
-                        "proxy_name": proxy_name,
-                    }
+                _log_event(
+                    logging.WARNING,
+                    ManagerSystemEvent(
+                        event="proxy_invalid_json",
+                        message=f"Invalid JSON from proxy '{proxy_name}'",
+                        proxy_name=proxy_name,
+                    ),
                 )
                 continue
 
@@ -557,12 +582,13 @@ async def _handle_proxy_events(
                 data = msg.get("data", {})
                 await registry.broadcast_proxy_event(proxy_name, event_type, data)
             else:
-                _logger.warning(
-                    {
-                        "event": "proxy_unknown_message",
-                        "message": f"Unknown message type from proxy '{proxy_name}': {msg.get('type')}",
-                        "proxy_name": proxy_name,
-                    }
+                _log_event(
+                    logging.WARNING,
+                    ManagerSystemEvent(
+                        event="proxy_unknown_message",
+                        message=f"Unknown message type from proxy '{proxy_name}': {msg.get('type')}",
+                        proxy_name=proxy_name,
+                    ),
                 )
 
         except (ConnectionResetError, BrokenPipeError, OSError):
@@ -679,16 +705,17 @@ async def run_manager(port: int | None = None) -> None:
     # Write PID file
     _write_pid_file()
 
-    _logger.info(
-        {
-            "event": "manager_starting",
-            "message": f"Manager starting: port={effective_port}, socket={MANAGER_SOCKET_PATH}, pid={os.getpid()}",
-            "socket_path": str(MANAGER_SOCKET_PATH),
-            "details": {
+    _log_event(
+        logging.INFO,
+        ManagerSystemEvent(
+            event="manager_starting",
+            message=f"Manager starting: port={effective_port}, socket={MANAGER_SOCKET_PATH}, pid={os.getpid()}",
+            socket_path=str(MANAGER_SOCKET_PATH),
+            details={
                 "port": effective_port,
                 "pid": os.getpid(),
             },
-        }
+        ),
     )
 
     # Track shutdown state
@@ -696,12 +723,13 @@ async def run_manager(port: int | None = None) -> None:
 
     def signal_handler(signum: int, frame: object) -> None:
         """Handle shutdown signals (SIGTERM, SIGINT)."""
-        _logger.info(
-            {
-                "event": "shutdown_signal_received",
-                "message": f"Received signal {signum}, initiating shutdown",
-                "details": {"signal": signum},
-            }
+        _log_event(
+            logging.INFO,
+            ManagerSystemEvent(
+                event="shutdown_signal_received",
+                message=f"Received signal {signum}, initiating shutdown",
+                details={"signal": signum},
+            ),
         )
         shutdown_event.set()
 
@@ -717,11 +745,12 @@ async def run_manager(port: int | None = None) -> None:
     if config.auth is not None and config.auth.oidc is not None:
         token_service = ManagerTokenService(config.auth.oidc, registry)
         await token_service.start()
-        _logger.info(
-            {
-                "event": "token_service_started",
-                "message": "Token service started for OIDC authentication",
-            }
+        _log_event(
+            logging.INFO,
+            ManagerSystemEvent(
+                event="token_service_started",
+                message="Token service started for OIDC authentication",
+            ),
         )
 
     # Generate API token for browser auth
@@ -784,23 +813,25 @@ async def run_manager(port: int | None = None) -> None:
     # Start heartbeat task to keep proxy connections alive
     heartbeat_task = asyncio.create_task(_send_heartbeats_to_proxies(registry))
 
-    _logger.info(
-        {
-            "event": "manager_started",
-            "message": "Manager started successfully",
-        }
+    _log_event(
+        logging.INFO,
+        ManagerSystemEvent(
+            event="manager_started",
+            message="Manager started successfully",
+        ),
     )
 
     # Auto-open browser to management UI
     ui_url = f"http://127.0.0.1:{effective_port}"
     try:
         webbrowser.open(ui_url)
-        _logger.info(
-            {
-                "event": "browser_opened",
-                "message": f"Opened browser to {ui_url}",
-                "details": {"url": ui_url},
-            }
+        _log_event(
+            logging.INFO,
+            ManagerSystemEvent(
+                event="browser_opened",
+                message=f"Opened browser to {ui_url}",
+                details={"url": ui_url},
+            ),
         )
     except OSError:
         # Browser didn't open - show macOS notification with URL
@@ -821,11 +852,12 @@ async def run_manager(port: int | None = None) -> None:
     try:
         await shutdown_event.wait()
     finally:
-        _logger.info(
-            {
-                "event": "manager_shutting_down",
-                "message": "Manager shutting down",
-            }
+        _log_event(
+            logging.INFO,
+            ManagerSystemEvent(
+                event="manager_shutting_down",
+                message="Manager shutting down",
+            ),
         )
 
         # Cancel heartbeat task
@@ -850,11 +882,12 @@ async def run_manager(port: int | None = None) -> None:
         try:
             await asyncio.wait_for(server_task, timeout=API_SERVER_SHUTDOWN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
-            _logger.warning(
-                {
-                    "event": "shutdown_timeout",
-                    "message": "Server shutdown timed out, cancelling",
-                }
+            _log_event(
+                logging.WARNING,
+                ManagerSystemEvent(
+                    event="shutdown_timeout",
+                    message="Server shutdown timed out, cancelling",
+                ),
             )
             server_task.cancel()
         except asyncio.CancelledError:
@@ -869,9 +902,10 @@ async def run_manager(port: int | None = None) -> None:
         MANAGER_SOCKET_PATH.unlink(missing_ok=True)
         _remove_pid_file()
 
-        _logger.info(
-            {
-                "event": "manager_stopped",
-                "message": "Manager shutdown complete",
-            }
+        _log_event(
+            logging.INFO,
+            ManagerSystemEvent(
+                event="manager_stopped",
+                message="Manager shutdown complete",
+            ),
         )

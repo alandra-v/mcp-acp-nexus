@@ -1,0 +1,173 @@
+{
+  "additionalProperties": true,
+  "description": "One manager system log entry (<log_dir>/mcp-acp/manager/system.jsonl).\n\nInspired by:\n  - OCSF Application Lifecycle (6002): service start/stop, resource registration\n  - OCSF API Activity (6003): API request tracking, status codes, durations\n\nUsed for INFO, WARNING, ERROR, and CRITICAL events related to manager operations.\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
+  "properties": {
+    "time": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 timestamp (UTC), added by formatter during serialization",
+      "title": "Time"
+    },
+    "event": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Machine-friendly event name, e.g. 'manager_started', 'proxy_registered'",
+      "title": "Event"
+    },
+    "message": {
+      "description": "Human-readable log message",
+      "title": "Message",
+      "type": "string"
+    },
+    "proxy_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Name of affected proxy, e.g. 'default'",
+      "title": "Proxy Name"
+    },
+    "instance_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unique proxy instance identifier",
+      "title": "Instance Id"
+    },
+    "socket_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "UDS path for proxy communication",
+      "title": "Socket Path"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "API request path, e.g. '/api/config'",
+      "title": "Path"
+    },
+    "status_code": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "HTTP response status code (for error responses)",
+      "title": "Status Code"
+    },
+    "duration_ms": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Request duration in milliseconds",
+      "title": "Duration Ms"
+    },
+    "subscriber_count": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Current number of SSE subscribers",
+      "title": "Subscriber Count"
+    },
+    "error_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Exception class name, e.g. 'ConnectionRefusedError'",
+      "title": "Error Type"
+    },
+    "error_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Short error text from exception",
+      "title": "Error Message"
+    },
+    "details": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Additional context as key-value pairs",
+      "title": "Details"
+    }
+  },
+  "required": [
+    "message"
+  ],
+  "title": "ManagerSystemEvent",
+  "type": "object"
+}

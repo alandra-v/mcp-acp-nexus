@@ -69,6 +69,11 @@ def main() -> None:
     generate_schema(config_history.ConfigHistoryEvent, system_dir / "config_history.schema.json")
     generate_schema(policy_history.PolicyHistoryEvent, system_dir / "policy_history.schema.json")
 
+    # Load and generate manager schemas
+    manager_dir = base_dir / "manager"
+    manager_system = load_module_from_path("manager_system", manager_dir / "system.py")
+    generate_schema(manager_system.ManagerSystemEvent, manager_dir / "system.schema.json")
+
     print("\nAll schemas generated successfully!")
 
 
