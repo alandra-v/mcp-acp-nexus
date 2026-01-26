@@ -4,7 +4,7 @@ Provides reusable Query() definitions for common API parameters like
 pagination (limit, before cursor) and time range filtering.
 
 Usage:
-    from mcp_acp.api.utils.query_params import LimitQuery, BeforeQuery, time_range_query
+    from mcp_acp.utils.api import LimitQuery, BeforeQuery, time_range_query
 
     @router.get("/logs")
     async def get_logs(

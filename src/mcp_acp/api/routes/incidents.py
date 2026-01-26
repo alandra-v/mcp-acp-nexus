@@ -25,13 +25,15 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from mcp_acp.api.deps import ConfigDep
-from mcp_acp.api.utils.query_params import BeforeQuery, LimitQuery, time_range_query
 from mcp_acp.api.schemas import IncidentsSummary, LogsResponse
-from mcp_acp.api.utils.jsonl import (
+from mcp_acp.utils.api import (
+    BeforeQuery,
+    LimitQuery,
     get_cutoff_time,
     get_log_base_path,
     parse_timestamp,
     read_jsonl_filtered,
+    time_range_query,
 )
 from mcp_acp.security.integrity.emergency_audit import get_emergency_audit_path
 from mcp_acp.utils.config import get_config_dir

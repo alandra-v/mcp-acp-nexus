@@ -1,9 +1,8 @@
-"""JSONL file reading and filtering utilities for log API."""
+"""Log file reading and filtering utilities for the API."""
 
 from __future__ import annotations
 
 __all__ = [
-    "LOG_PATHS",
     "build_filters_applied",
     "extract_versions",
     "get_cutoff_time",
@@ -36,21 +35,6 @@ MAX_READ_BYTES = 10 * 1024 * 1024
 
 # Maximum entries to scan before stopping (prevents slow queries)
 MAX_SCAN_ENTRIES = 50000
-
-# Log file paths relative to log base directory
-LOG_PATHS: dict[str, str] = {
-    # audit/
-    "decisions": "audit/decisions.jsonl",
-    "operations": "audit/operations.jsonl",
-    "auth": "audit/auth.jsonl",
-    # system/
-    "system": "system/system.jsonl",
-    "config_history": "system/config_history.jsonl",
-    "policy_history": "system/policy_history.jsonl",
-    # debug/
-    "client_wire": "debug/client_wire.jsonl",
-    "backend_wire": "debug/backend_wire.jsonl",
-}
 
 # Time range presets (in seconds)
 TIME_RANGES: dict[str, int] = {

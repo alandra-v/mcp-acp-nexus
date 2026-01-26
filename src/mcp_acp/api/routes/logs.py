@@ -32,15 +32,16 @@ from fastapi import APIRouter, Query
 
 from mcp_acp.api.deps import ConfigDep
 from mcp_acp.api.errors import APIError, ErrorCode
-from mcp_acp.api.utils.query_params import BeforeQuery, LimitQuery, time_range_query
 from mcp_acp.api.schemas import (
     LogFileInfo,
     LogFolderInfo,
     LogsMetadataResponse,
     LogsResponse,
 )
-from mcp_acp.api.utils.jsonl import (
+from mcp_acp.utils.api import (
     LOG_PATHS,
+    BeforeQuery,
+    LimitQuery,
     build_filters_applied,
     extract_versions,
     get_cutoff_time,
@@ -48,6 +49,7 @@ from mcp_acp.api.utils.jsonl import (
     parse_comma_separated,
     parse_timestamp,
     read_jsonl_filtered,
+    time_range_query,
 )
 from mcp_acp.config import AppConfig
 

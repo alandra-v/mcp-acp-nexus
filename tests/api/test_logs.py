@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from mcp_acp.api.routes.logs import router
 from mcp_acp.api.schemas import LogsResponse
-from mcp_acp.api.utils.jsonl import read_jsonl_filtered
+from mcp_acp.utils.api import read_jsonl_filtered
 
 
 # =============================================================================
