@@ -27,6 +27,7 @@ def mock_config(tmp_path: Path) -> MagicMock:
     """Create a mock AppConfig with temp log directory."""
     config = MagicMock()
     config.logging.log_dir = str(tmp_path)
+    config.proxy.name = "default"  # Used by get_log_base_path()
     return config
 
 

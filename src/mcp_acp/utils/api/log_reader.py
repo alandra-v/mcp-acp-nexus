@@ -60,12 +60,12 @@ def get_log_base_path(config: "AppConfig") -> Path:
     """Get base path for log files.
 
     Args:
-        config: Application configuration containing logging settings.
+        config: Application configuration containing logging and proxy settings.
 
     Returns:
-        Path to the log directory (e.g., ~/Library/Logs/mcp-acp/proxies/default).
+        Path to the log directory (e.g., ~/Library/Logs/mcp-acp/proxies/{proxy_name}).
     """
-    return Path(config.logging.log_dir).expanduser() / APP_NAME / "proxies" / "default"
+    return Path(config.logging.log_dir).expanduser() / APP_NAME / "proxies" / config.proxy.name
 
 
 # =============================================================================

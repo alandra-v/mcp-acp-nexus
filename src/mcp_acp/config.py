@@ -227,18 +227,19 @@ class LoggingConfig(BaseModel):
     """Logging configuration settings.
 
     The log_dir specifies a base directory. Logs are stored in
-    <log_dir>/mcp-acp/proxies/default/ with this structure:
+    <log_dir>/mcp-acp/proxies/{proxy_name}/ with this structure:
         <log_dir>/
         └── mcp-acp/
-            └── proxy/
-                ├── debug/                  # Only created when log_level=DEBUG
-                │   ├── client_wire.jsonl
-                │   └── backend_wire.jsonl
-                ├── system/
-                │   ├── system.jsonl
-                │   └── config_history.jsonl
-                └── audit/                  # Always enabled (security audit trail)
-                    └── operations.jsonl
+            └── proxies/
+                └── {proxy_name}/
+                    ├── debug/                  # Only created when log_level=DEBUG
+                    │   ├── client_wire.jsonl
+                    │   └── backend_wire.jsonl
+                    ├── system/
+                    │   ├── system.jsonl
+                    │   └── config_history.jsonl
+                    └── audit/                  # Always enabled (security audit trail)
+                        └── operations.jsonl
 
     Attributes:
         log_dir: Base directory for logs. Platform-specific default:
