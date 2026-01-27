@@ -79,6 +79,7 @@ __all__ = [
 def create_httpx_client_factory(
     mtls_config: "MTLSConfig | None" = None,
     url: str | None = None,
+    auth_headers: dict[str, str] | None = None,
 ) -> "McpHttpClientFactory":
     """Create an httpx client factory with User-Agent header.
 
@@ -88,6 +89,7 @@ def create_httpx_client_factory(
     Args:
         mtls_config: Optional mTLS configuration for client certificate auth.
         url: Optional URL to check if HTTPS (mTLS only applies to HTTPS).
+        auth_headers: Optional authentication headers to include in all requests.
 
     Returns:
         Factory callable that creates configured httpx.AsyncClient instances.
@@ -108,6 +110,8 @@ def create_httpx_client_factory(
         ) -> httpx.AsyncClient:
             """Create httpx client with mTLS and User-Agent."""
             merged_headers = {"User-Agent": USER_AGENT}
+            if auth_headers:
+                merged_headers.update(auth_headers)
             if headers:
                 merged_headers.update(headers)
             return mtls_factory(
@@ -128,6 +132,8 @@ def create_httpx_client_factory(
     ) -> httpx.AsyncClient:
         """Create httpx client with User-Agent."""
         merged_headers = {"User-Agent": USER_AGENT}
+        if auth_headers:
+            merged_headers.update(auth_headers)
         if headers:
             merged_headers.update(headers)
         return httpx.AsyncClient(
@@ -138,6 +144,34 @@ def create_httpx_client_factory(
         )
 
     return factory_simple
+
+
+def _load_backend_credential(credential_key: str) -> str:
+    """Load backend credential from OS keychain.
+
+    Args:
+        credential_key: The keychain key (e.g., "proxy:my-proxy:backend").
+
+    Returns:
+        The credential string.
+
+    Raises:
+        ValueError: If credential not found in keychain.
+        RuntimeError: If keychain access fails.
+    """
+    import keyring
+    from keyring.errors import KeyringError
+
+    try:
+        credential = keyring.get_password(APP_NAME, credential_key)
+        if credential is None:
+            raise ValueError(
+                f"Backend credential not found in keychain (key: {credential_key}). "
+                f"Store it with: mcp-acp proxy add --api-key <key>"
+            )
+        return credential
+    except KeyringError as e:
+        raise RuntimeError(f"Failed to access keychain: {e}") from e
 
 
 # =============================================================================
@@ -313,8 +347,15 @@ def create_backend_transport(
                 "Internal error: HTTP transport selected but http_config is None. "
                 "This indicates a bug in transport selection logic."
             )
+        # Load backend credential if configured
+        auth_headers: dict[str, str] | None = None
+        if http_config.credential_key:
+            credential = _load_backend_credential(http_config.credential_key)
+            auth_headers = {"Authorization": f"Bearer {credential}"}
+            logger.debug("Backend authentication configured via keychain")
+
         # Create httpx client factory with User-Agent (and optionally mTLS)
-        httpx_client_factory = create_httpx_client_factory(mtls_config, http_config.url)
+        httpx_client_factory = create_httpx_client_factory(mtls_config, http_config.url, auth_headers)
 
         transport: ClientTransport = StreamableHttpTransport(
             url=http_config.url,

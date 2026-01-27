@@ -621,3 +621,206 @@ class TestUserAgentHeader:
         # Assert - custom User-Agent takes precedence
         assert client.headers.get("User-Agent") == "custom-agent/1.0"
         await client.aclose()
+
+
+# ============================================================================
+# Tests: Backend Authentication
+# ============================================================================
+
+
+class TestBackendAuthentication:
+    """Tests for backend HTTP authentication via keychain credentials."""
+
+    @pytest.fixture
+    def http_config_with_credential(self) -> HttpTransportConfig:
+        """HTTP config with credential_key set."""
+        return HttpTransportConfig(
+            url="http://localhost:3000/mcp",
+            credential_key="proxy:test:backend",
+        )
+
+    @pytest.mark.asyncio
+    async def test_factory_includes_auth_header(self) -> None:
+        """Factory includes auth headers in created clients."""
+        # Arrange
+        auth_headers = {"Authorization": "Bearer test-token"}
+        factory = create_httpx_client_factory(
+            mtls_config=None,
+            url="http://localhost:3000",
+            auth_headers=auth_headers,
+        )
+
+        # Act
+        client = factory()
+
+        # Assert
+        assert client.headers.get("Authorization") == "Bearer test-token"
+        assert client.headers.get("User-Agent") == USER_AGENT
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_factory_auth_headers_not_overwritten_by_user_agent(self) -> None:
+        """Auth headers are included along with User-Agent."""
+        # Arrange
+        auth_headers = {"Authorization": "Bearer secret", "X-Custom": "value"}
+        factory = create_httpx_client_factory(
+            mtls_config=None,
+            url="http://localhost:3000",
+            auth_headers=auth_headers,
+        )
+
+        # Act
+        client = factory()
+
+        # Assert - both auth headers and user-agent present
+        assert client.headers.get("Authorization") == "Bearer secret"
+        assert client.headers.get("X-Custom") == "value"
+        assert client.headers.get("User-Agent") == USER_AGENT
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_factory_with_mtls_includes_auth_headers(self, tmp_path: Path) -> None:
+        """Factory with mTLS includes auth headers in created clients."""
+        # Arrange - create mTLS config with valid paths
+        cert_path = tmp_path / "client.pem"
+        key_path = tmp_path / "client-key.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+        cert_path.write_text("cert")
+        key_path.write_text("key")
+        ca_path.write_text("ca")
+
+        mtls_config = MTLSConfig(
+            client_cert_path=str(cert_path),
+            client_key_path=str(key_path),
+            ca_bundle_path=str(ca_path),
+        )
+        auth_headers = {"Authorization": "Bearer mtls-token"}
+
+        # Act - mock mTLS factory to return a simple client factory
+        with (
+            patch("mcp_acp.utils.transport.create_mtls_client_factory") as mock_mtls,
+            patch("mcp_acp.security.mtls._validate_certificates"),
+        ):
+            mock_mtls.return_value = (
+                lambda headers=None, timeout=None, auth=None, **kwargs: httpx.AsyncClient(
+                    headers=headers, timeout=timeout, auth=auth, **kwargs
+                )
+            )
+            factory = create_httpx_client_factory(
+                mtls_config=mtls_config,
+                url="https://localhost:3000",
+                auth_headers=auth_headers,
+            )
+            client = factory()
+
+        # Assert - auth headers included in mTLS path
+        assert client.headers.get("Authorization") == "Bearer mtls-token"
+        assert client.headers.get("User-Agent") == USER_AGENT
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_factory_caller_headers_override_auth_headers(self) -> None:
+        """Headers passed to factory() override auth_headers."""
+        # Arrange
+        auth_headers = {"Authorization": "Bearer original"}
+        factory = create_httpx_client_factory(
+            mtls_config=None,
+            url="http://localhost:3000",
+            auth_headers=auth_headers,
+        )
+
+        # Act - caller provides different Authorization
+        client = factory(headers={"Authorization": "Bearer override"})
+
+        # Assert - caller's header takes precedence
+        assert client.headers.get("Authorization") == "Bearer override"
+        await client.aclose()
+
+    def test_http_transport_with_credential_loads_from_keychain(
+        self, http_config_with_credential: HttpTransportConfig
+    ) -> None:
+        """HTTP transport loads credential using configured credential_key."""
+        # Arrange
+        config = BackendConfig(
+            server_name="test",
+            transport="streamablehttp",
+            http=http_config_with_credential,
+        )
+
+        # Act
+        with (
+            patch("mcp_acp.utils.transport.check_http_health"),
+            patch("mcp_acp.utils.transport._load_backend_credential") as mock_load,
+        ):
+            mock_load.return_value = "test-api-key"
+            create_backend_transport(config)
+
+        # Assert - verify credential was loaded with correct key
+        mock_load.assert_called_once_with("proxy:test:backend")
+
+    @pytest.mark.asyncio
+    async def test_http_transport_auth_header_format(
+        self, http_config_with_credential: HttpTransportConfig
+    ) -> None:
+        """HTTP transport uses Bearer token format for Authorization header."""
+        # Arrange
+        config = BackendConfig(
+            server_name="test",
+            transport="streamablehttp",
+            http=http_config_with_credential,
+        )
+
+        # Act - capture the factory to verify header format
+        with (
+            patch("mcp_acp.utils.transport.check_http_health"),
+            patch("mcp_acp.utils.transport._load_backend_credential") as mock_load,
+        ):
+            mock_load.return_value = "my-secret-api-key"
+            transport, _ = create_backend_transport(config)
+
+        # Assert - verify the factory produces correct Authorization header
+        assert transport.httpx_client_factory is not None
+        client = transport.httpx_client_factory()
+        assert client.headers.get("Authorization") == "Bearer my-secret-api-key"
+        await client.aclose()
+
+    def test_missing_credential_raises_value_error(self) -> None:
+        """ValueError raised when credential not found in keychain."""
+        # Arrange
+        from mcp_acp.utils.transport import _load_backend_credential
+
+        # Act & Assert - patch keyring.get_password directly
+        with patch("keyring.get_password", return_value=None):
+            with pytest.raises(ValueError, match="not found in keychain"):
+                _load_backend_credential("proxy:missing:backend")
+
+    def test_keyring_error_raises_runtime_error(self) -> None:
+        """RuntimeError raised when keyring access fails."""
+        # Arrange
+        from keyring.errors import KeyringError
+
+        from mcp_acp.utils.transport import _load_backend_credential
+
+        # Act & Assert - patch keyring.get_password directly
+        with patch("keyring.get_password", side_effect=KeyringError("Access denied")):
+            with pytest.raises(RuntimeError, match="Failed to access keychain"):
+                _load_backend_credential("proxy:test:backend")
+
+    def test_no_credential_key_skips_auth(self, http_config: HttpTransportConfig) -> None:
+        """No auth header when credential_key is not configured."""
+        # Arrange - http_config has no credential_key
+        config = BackendConfig(
+            server_name="test",
+            transport="streamablehttp",
+            http=http_config,
+        )
+
+        # Act
+        with (
+            patch("mcp_acp.utils.transport.check_http_health"),
+            patch("mcp_acp.utils.transport._load_backend_credential") as mock_load,
+        ):
+            transport, _ = create_backend_transport(config)
+
+        # Assert - _load_backend_credential should NOT be called
+        mock_load.assert_not_called()
