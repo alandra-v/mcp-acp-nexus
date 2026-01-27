@@ -432,6 +432,10 @@ class PerProxyConfig(BaseModel):
         default="INFO",
         description="Logging level. DEBUG enables wire logs.",
     )
+    include_payloads: bool = Field(
+        default=True,
+        description="Whether to include full message payloads in debug logs.",
+    )
 
     model_config = {"extra": "ignore"}  # Ignore unknown fields for forward compat
 
