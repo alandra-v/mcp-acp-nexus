@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn, formatDateTime } from '@/lib/utils'
-import type { IncidentEntry } from '@/hooks/useIncidents'
+import type { IncidentEntry } from '@/types/api'
 
 interface IncidentCardProps {
   incident: IncidentEntry
@@ -49,6 +49,7 @@ export function IncidentCard({ incident, isLast = false, isNew = false }: Incide
   const title = getIncidentTitle(incident)
   const description = getIncidentDescription(incident)
   const exitCode = incident.exit_code as number | undefined
+  const proxyName = incident.proxy_name as string | undefined
 
   return (
     <div className="relative flex gap-4">
@@ -70,7 +71,7 @@ export function IncidentCard({ incident, isLast = false, isNew = false }: Incide
 
       {/* Content */}
       <div className="flex-1 pb-8">
-        {/* Badge + Timestamp row */}
+        {/* Badge + Proxy + Timestamp row */}
         <div className="flex items-center gap-3 mb-2">
           <span
             className={cn(
@@ -81,6 +82,11 @@ export function IncidentCard({ incident, isLast = false, isNew = false }: Incide
           >
             {config.label}
           </span>
+          {proxyName && (
+            <span className="text-xs text-muted-foreground font-medium">
+              {proxyName}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
             {formatDateTime(incident.time)}
           </span>

@@ -6,14 +6,11 @@
  * - Bootstrap: Startup validation errors (config/policy issues)
  * - Emergency: Audit fallback entries when normal audit fails
  *
- * Two levels of API:
- * - Manager level: /api/manager/incidents - aggregated from all proxies
- * - Proxy level: /incidents/* - from a specific proxy (legacy)
+ * Uses manager-level API: /api/manager/incidents - aggregated from all proxies
  */
 
 import { apiGet, type RequestOptions } from './client'
-import { DEFAULT_INCIDENT_LIMIT } from '@/constants'
-import type { LogsResponse, AggregatedIncidentsResponse } from '@/types/api'
+import type { AggregatedIncidentsResponse } from '@/types/api'
 
 // =============================================================================
 // Types
@@ -60,78 +57,16 @@ export async function getAggregatedIncidents(
   if (params.before) searchParams.set('before', params.before)
 
   const query = searchParams.toString()
-  const url = query ? `/api/manager/incidents?${query}` : '/api/manager/incidents'
+  const url = query ? `/manager/incidents?${query}` : '/manager/incidents'
   return apiGet<AggregatedIncidentsResponse>(url, options)
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/** @internal Build URLSearchParams for incident log queries. */
-function _buildParams(timeRange: string, limit: number, before?: string): URLSearchParams {
-  const params = new URLSearchParams({ time_range: timeRange, limit: String(limit) })
-  if (before) params.set('before', before)
-  return params
-}
-
-// =============================================================================
-// Proxy-level API (legacy, single proxy)
-// =============================================================================
-
-/**
- * Get security shutdown logs.
- * Returns entries from shutdowns.jsonl.
- * These are INTENTIONAL security shutdowns (audit failure, session hijacking, etc.)
- */
-export async function getShutdowns(
-  timeRange: string = 'all',
-  limit: number = DEFAULT_INCIDENT_LIMIT,
-  before?: string,
-  options?: RequestOptions
-): Promise<LogsResponse> {
-  return apiGet<LogsResponse>(
-    `/incidents/shutdowns?${_buildParams(timeRange, limit, before)}`,
-    options
-  )
-}
-
-/**
- * Get bootstrap/startup error logs.
- * Returns entries from bootstrap.jsonl.
- */
-export async function getBootstrapLogs(
-  timeRange: string = 'all',
-  limit: number = DEFAULT_INCIDENT_LIMIT,
-  before?: string,
-  options?: RequestOptions
-): Promise<LogsResponse> {
-  return apiGet<LogsResponse>(
-    `/incidents/bootstrap?${_buildParams(timeRange, limit, before)}`,
-    options
-  )
-}
-
-/**
- * Get emergency audit logs.
- * Returns entries from emergency_audit.jsonl.
- */
-export async function getEmergencyLogs(
-  timeRange: string = 'all',
-  limit: number = DEFAULT_INCIDENT_LIMIT,
-  before?: string,
-  options?: RequestOptions
-): Promise<LogsResponse> {
-  return apiGet<LogsResponse>(
-    `/incidents/emergency?${_buildParams(timeRange, limit, before)}`,
-    options
-  )
 }
 
 /**
  * Get incidents summary with counts and latest timestamp.
  * Used for badge state calculation.
+ *
+ * Uses manager-level endpoint to aggregate from all proxies.
  */
 export async function getIncidentsSummary(options?: RequestOptions): Promise<IncidentsSummary> {
-  return apiGet<IncidentsSummary>('/incidents/summary', options)
+  return apiGet<IncidentsSummary>('/manager/incidents/summary', options)
 }

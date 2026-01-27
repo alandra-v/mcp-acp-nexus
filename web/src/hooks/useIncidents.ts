@@ -1,32 +1,37 @@
 /**
  * Hook for fetching and managing incident logs.
  *
- * Fetches all incident types and merges them into a unified timeline:
- * - Shutdowns: Intentional security shutdowns
- * - Bootstrap: Startup validation errors
- * - Emergency: Audit fallback entries
+ * Uses the aggregated /api/manager/incidents endpoint which combines:
+ * - Shutdowns: Intentional security shutdowns (per-proxy)
+ * - Bootstrap: Startup validation errors (global)
+ * - Emergency: Audit fallback entries (global)
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  getShutdowns,
-  getBootstrapLogs,
-  getEmergencyLogs,
+  getAggregatedIncidents,
   type IncidentType,
 } from '@/api/incidents'
 import { notifyError } from '@/hooks/useErrorSound'
-import type { LogEntry } from '@/types/api'
+import { DEFAULT_INCIDENT_LIMIT } from '@/constants'
+import type { IncidentEntry } from '@/types/api'
 
-export interface IncidentEntry extends LogEntry {
-  /** Type of incident for styling */
-  incident_type: IncidentType
+export interface UseIncidentsOptions {
+  /** Filter by proxy name */
+  proxy?: string
+  /** Filter by incident type */
+  incidentType?: IncidentType
+  /** Time range filter */
+  timeRange?: string
 }
 
 export interface UseIncidentsResult {
-  /** All incidents merged and sorted by time (newest first) */
+  /** All incidents sorted by time (newest first) */
   incidents: IncidentEntry[]
   /** Loading state */
   loading: boolean
+  /** Error if fetch failed */
+  error: Error | null
   /** Whether there are more entries to load */
   hasMore: boolean
   /** Load more entries */
@@ -35,121 +40,105 @@ export interface UseIncidentsResult {
   refresh: () => void
 }
 
-const PAGE_SIZE = 50
-
 /**
- * Hook for fetching incident logs from all sources.
+ * Hook for fetching incident logs from the aggregated endpoint.
  *
- * Merges shutdowns, bootstrap errors, and emergency audit logs into
- * a single timeline sorted by timestamp (newest first).
+ * Supports filtering by proxy name and incident type.
  */
-export function useIncidents(): UseIncidentsResult {
-  const [shutdowns, setShutdowns] = useState<LogEntry[]>([])
-  const [bootstrap, setBootstrap] = useState<LogEntry[]>([])
-  const [emergency, setEmergency] = useState<LogEntry[]>([])
+export function useIncidents(options: UseIncidentsOptions = {}): UseIncidentsResult {
+  const { proxy, incidentType, timeRange = 'all' } = options
+
+  const [incidents, setIncidents] = useState<IncidentEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<Error | null>(null)
+  const [hasMore, setHasMore] = useState(false)
 
-  // Track cursors for pagination (oldest timestamp seen for each type)
-  const shutdownsCursor = useRef<string | undefined>(undefined)
-  const bootstrapCursor = useRef<string | undefined>(undefined)
-  const emergencyCursor = useRef<string | undefined>(undefined)
+  // Track cursor for pagination (oldest timestamp seen)
+  const cursorRef = useRef<string | undefined>(undefined)
+  const hasShownErrorRef = useRef(false)
+  const mountedRef = useRef(true)
 
-  // Track if there are more entries for each type
-  const [shutdownsHasMore, setShutdownsHasMore] = useState(true)
-  const [bootstrapHasMore, setBootstrapHasMore] = useState(true)
-  const [emergencyHasMore, setEmergencyHasMore] = useState(true)
-
-  const fetchAll = useCallback(async (reset = false) => {
+  const fetchIncidents = useCallback(async (reset = false, signal?: AbortSignal) => {
     setLoading(true)
+    setError(null)
 
     if (reset) {
-      shutdownsCursor.current = undefined
-      bootstrapCursor.current = undefined
-      emergencyCursor.current = undefined
-      setShutdownsHasMore(true)
-      setBootstrapHasMore(true)
-      setEmergencyHasMore(true)
+      cursorRef.current = undefined
     }
 
     try {
-      const [shutdownsRes, bootstrapRes, emergencyRes] = await Promise.all([
-        getShutdowns('all', PAGE_SIZE, reset ? undefined : shutdownsCursor.current),
-        getBootstrapLogs('all', PAGE_SIZE, reset ? undefined : bootstrapCursor.current),
-        getEmergencyLogs('all', PAGE_SIZE, reset ? undefined : emergencyCursor.current),
-      ])
+      const response = await getAggregatedIncidents(
+        {
+          proxy,
+          incident_type: incidentType,
+          time_range: timeRange,
+          limit: DEFAULT_INCIDENT_LIMIT,
+          before: reset ? undefined : cursorRef.current,
+        },
+        { signal }
+      )
 
-      // Update cursors based on oldest entry in each response
-      if (shutdownsRes.entries.length > 0) {
-        const oldest = shutdownsRes.entries[shutdownsRes.entries.length - 1]
-        shutdownsCursor.current = oldest.time
-      }
-      if (bootstrapRes.entries.length > 0) {
-        const oldest = bootstrapRes.entries[bootstrapRes.entries.length - 1]
-        bootstrapCursor.current = oldest.time
-      }
-      if (emergencyRes.entries.length > 0) {
-        const oldest = emergencyRes.entries[emergencyRes.entries.length - 1]
-        emergencyCursor.current = oldest.time
+      if (!mountedRef.current) return
+
+      // Update cursor based on oldest entry
+      if (response.entries.length > 0) {
+        const oldest = response.entries[response.entries.length - 1]
+        cursorRef.current = oldest.time
       }
 
-      // Update has_more flags
-      setShutdownsHasMore(shutdownsRes.has_more)
-      setBootstrapHasMore(bootstrapRes.has_more)
-      setEmergencyHasMore(emergencyRes.has_more)
+      setHasMore(response.has_more)
 
-      // Update state
       if (reset) {
-        setShutdowns(shutdownsRes.entries)
-        setBootstrap(bootstrapRes.entries)
-        setEmergency(emergencyRes.entries)
+        setIncidents(response.entries)
       } else {
-        setShutdowns((prev) => [...prev, ...shutdownsRes.entries])
-        setBootstrap((prev) => [...prev, ...bootstrapRes.entries])
-        setEmergency((prev) => [...prev, ...emergencyRes.entries])
+        setIncidents((prev) => [...prev, ...response.entries])
       }
-    } catch {
-      notifyError('Failed to load incidents')
+
+      hasShownErrorRef.current = false
+    } catch (err) {
+      // Ignore abort errors
+      if (err instanceof DOMException && err.name === 'AbortError') return
+
+      if (mountedRef.current) {
+        const error = err instanceof Error ? err : new Error('Failed to load incidents')
+        setError(error)
+        if (!hasShownErrorRef.current) {
+          notifyError('Failed to load incidents')
+          hasShownErrorRef.current = true
+        }
+      }
     } finally {
-      setLoading(false)
+      if (mountedRef.current) {
+        setLoading(false)
+      }
     }
-  }, [])
+  }, [proxy, incidentType, timeRange])
 
-  // Initial fetch
+  // Initial fetch and refetch when filters change
   useEffect(() => {
-    fetchAll(true)
-  }, [fetchAll])
-
-  // Merge and sort all incidents
-  const incidents = useMemo<IncidentEntry[]>(() => {
-    const all: IncidentEntry[] = [
-      ...shutdowns.map((e) => ({ ...e, incident_type: 'shutdown' as const })),
-      ...bootstrap.map((e) => ({ ...e, incident_type: 'bootstrap' as const })),
-      ...emergency.map((e) => ({ ...e, incident_type: 'emergency' as const })),
-    ]
-
-    // Sort by time descending (newest first)
-    return all.sort((a, b) => {
-      const timeA = a.time || ''
-      const timeB = b.time || ''
-      return timeB.localeCompare(timeA)
-    })
-  }, [shutdowns, bootstrap, emergency])
-
-  const hasMore = shutdownsHasMore || bootstrapHasMore || emergencyHasMore
+    mountedRef.current = true
+    const controller = new AbortController()
+    fetchIncidents(true, controller.signal)
+    return () => {
+      mountedRef.current = false
+      controller.abort()
+    }
+  }, [fetchIncidents])
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore) {
-      fetchAll(false)
+      fetchIncidents(false)
     }
-  }, [loading, hasMore, fetchAll])
+  }, [loading, hasMore, fetchIncidents])
 
   const refresh = useCallback(() => {
-    fetchAll(true)
-  }, [fetchAll])
+    fetchIncidents(true)
+  }, [fetchIncidents])
 
   return {
     incidents,
     loading,
+    error,
     hasMore,
     loadMore,
     refresh,

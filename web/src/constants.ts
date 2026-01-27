@@ -26,3 +26,12 @@ export const COPY_FEEDBACK_DURATION_MS = 2000
 
 /** Default HTTP timeout in seconds */
 export const DEFAULT_HTTP_TIMEOUT_SECONDS = 30
+
+/** Delay before marking incidents as read (allows summary to load first) */
+export const INCIDENTS_MARK_READ_DELAY_MS = 500
+
+/** Known MCP client IDs mapped to display names */
+export const CLIENT_DISPLAY_NAMES: Record<string, string> = {
+  'claude-ai': 'Claude Desktop',
+  'inspector-client': 'MCP Inspector',
+}
