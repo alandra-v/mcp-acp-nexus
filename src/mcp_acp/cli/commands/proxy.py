@@ -22,7 +22,6 @@ from mcp_acp.config import (
     StdioTransportConfig,
     HttpTransportConfig,
     generate_proxy_id,
-    load_proxy_config,
     save_proxy_config,
 )
 from mcp_acp.constants import (
@@ -35,11 +34,9 @@ from mcp_acp.manager.config import (
     get_manager_config_path,
     get_proxy_config_path,
     get_proxy_policy_path,
-    list_configured_proxies,
     validate_proxy_name,
 )
 from mcp_acp.pdp import create_default_policy
-from mcp_acp.utils.cli import check_proxy_running
 from mcp_acp.utils.policy import save_policy
 from mcp_acp.utils.transport import check_http_health
 from mcp_acp.utils.validation import validate_sha256_hex
@@ -52,170 +49,6 @@ from ..styling import style_dim, style_error, style_header, style_success, style
 def proxy() -> None:
     """Manage proxy configurations."""
     pass
-
-
-# =============================================================================
-# proxy list
-# =============================================================================
-
-
-@proxy.command("list")
-def proxy_list() -> None:
-    """List all configured proxies."""
-    proxies = list_configured_proxies()
-
-    if not proxies:
-        click.echo(style_dim("No proxies configured."))
-        click.echo(style_dim("Run 'mcp-acp proxy add' to create one."))
-        return
-
-    click.echo(style_header("Proxies"))
-    click.echo()
-
-    running_count = 0
-    for name in proxies:
-        try:
-            config = load_proxy_config(name)
-            is_running = check_proxy_running(name)
-            if is_running:
-                running_count += 1
-            _display_proxy_summary(name, config, is_running)
-        except (FileNotFoundError, ValueError, OSError) as e:
-            click.echo(f"  {style_error(name)}")
-            click.echo(f"    {style_dim(f'Error loading config: {e}')}")
-        click.echo()
-
-    click.echo(f"{len(proxies)} proxies configured, {running_count} running")
-
-
-def _display_proxy_summary(name: str, config: PerProxyConfig, is_running: bool) -> None:
-    """Display a single proxy summary for list view.
-
-    Args:
-        name: Proxy name to display.
-        config: Proxy configuration.
-        is_running: Whether proxy is currently running.
-    """
-    click.echo(f"  {style_success(name)}")
-
-    # Backend info
-    backend = config.backend
-    transport = backend.transport
-    click.echo(f"    Backend: {backend.server_name} ({transport})")
-
-    # Created date (parse ISO8601)
-    try:
-        created = datetime.fromisoformat(config.created_at.replace("Z", "+00:00"))
-        click.echo(f"    Created: {created.strftime('%Y-%m-%d')}")
-    except (ValueError, AttributeError):
-        pass
-
-    # Running status
-    if is_running:
-        click.echo(f"    Status: {click.style('running', fg='green')} ●")
-    else:
-        click.echo(f"    Status: {click.style('inactive', fg='yellow')} ○")
-
-
-# =============================================================================
-# proxy show
-# =============================================================================
-
-
-@proxy.command("show")
-@click.argument("name")
-def proxy_show(name: str) -> None:
-    """Show proxy configuration details."""
-    # Validate name exists
-    config_path = get_proxy_config_path(name)
-    if not config_path.exists():
-        click.echo(style_error(f"Proxy '{name}' not found."))
-        click.echo(style_dim("Run 'mcp-acp proxy list' to see available proxies."))
-        raise SystemExit(1)
-
-    try:
-        config = load_proxy_config(name)
-    except (FileNotFoundError, ValueError, OSError) as e:
-        click.echo(style_error(f"Failed to load config: {e}"))
-        raise SystemExit(1)
-
-    # Check running status
-    is_running = check_proxy_running(name)
-
-    # Header
-    click.echo(style_header(f"Proxy: {name}"))
-    click.echo(f"  ID: {config.proxy_id}")
-    click.echo(f"  Created: {config.created_at}")
-    if is_running:
-        click.echo(f"  Status: {click.style('running', fg='green')} ●")
-    else:
-        click.echo(f"  Status: {click.style('inactive', fg='yellow')} ○")
-    click.echo()
-
-    # Backend
-    click.echo(style_header("Backend"))
-    backend = config.backend
-    click.echo(f"  Name: {backend.server_name}")
-    click.echo(f"  Transport: {backend.transport}")
-
-    if backend.stdio:
-        click.echo(f"  Command: {backend.stdio.command}")
-        if backend.stdio.args:
-            click.echo(f"  Args: {' '.join(backend.stdio.args)}")
-        if backend.stdio.attestation:
-            att = backend.stdio.attestation
-            if att.slsa_owner:
-                click.echo(f"  SLSA Owner: {att.slsa_owner}")
-            if att.expected_sha256:
-                click.echo(f"  Expected SHA256: {att.expected_sha256[:16]}...")
-
-    if backend.http:
-        click.echo(f"  URL: {backend.http.url}")
-        click.echo(f"  Timeout: {backend.http.timeout}s")
-
-    click.echo()
-
-    # HITL
-    click.echo(style_header("HITL"))
-    click.echo(f"  Timeout: {config.hitl.timeout_seconds}s")
-    click.echo(f"  Approval TTL: {config.hitl.approval_ttl_seconds}s")
-    click.echo()
-
-    # mTLS (if configured)
-    if config.mtls:
-        click.echo(style_header("mTLS Certificate"))
-        click.echo(f"  Client cert: {config.mtls.client_cert_path}")
-        click.echo(f"  Client key: {config.mtls.client_key_path}")
-        click.echo(f"  CA bundle: {config.mtls.ca_bundle_path}")
-
-        # Check certificate status
-        from mcp_acp.utils.transport import get_certificate_expiry_info
-
-        cert_info = get_certificate_expiry_info(config.mtls.client_cert_path)
-        if cert_info.get("error"):
-            click.echo(f"  Status: {click.style('Error', fg='red')} - {cert_info['error']}")
-        else:
-            cert_status = cert_info.get("status", "unknown")
-            days = cert_info.get("days_until_expiry", 0)
-
-            if cert_status == "expired":
-                click.echo(f"  Status: {click.style('EXPIRED', fg='red', bold=True)}")
-                click.echo(f"  Expired: {abs(int(days))} days ago")
-            elif cert_status == "critical":
-                click.echo(f"  Status: {click.style('CRITICAL', fg='red', bold=True)}")
-                click.echo(f"  Expires in: {click.style(f'{days} days', fg='red')}")
-            elif cert_status == "warning":
-                click.echo(f"  Status: {click.style('Warning', fg='yellow')}")
-                click.echo(f"  Expires in: {click.style(f'{days} days', fg='yellow')}")
-            else:
-                click.echo(f"  Status: {click.style('Valid', fg='green')}")
-                click.echo(f"  Expires in: {days} days")
-        click.echo()
-
-    # Paths
-    click.echo(style_header("Paths"))
-    click.echo(f"  Config: {get_proxy_config_path(name)}")
-    click.echo(f"  Policy: {get_proxy_policy_path(name)}")
 
 
 # =============================================================================

@@ -5,15 +5,14 @@ Defines the CLI group and registers all subcommands.
 Commands:
     approvals - Approval cache management (cache, clear)
     audit     - Audit log integrity verification (verify, status)
-    auth      - Authentication commands (login, logout, status)
+    auth      - Authentication commands (login, logout, status, sessions)
     config    - Configuration management (show, path, edit, validate)
     init      - Initialize proxy configuration
     install   - Installation helpers (mcp-json)
     logs      - Log viewing (show, tail)
     manager   - Manager daemon commands (start, stop, status)
     policy    - Policy management (show, edit, add, validate, reload)
-    proxy     - Proxy management (add, list, show)
-    sessions  - Session management (list)
+    proxy     - Proxy management (add)
     start     - Start the proxy server manually
     status    - Show proxy runtime status
 
@@ -41,7 +40,6 @@ from .commands.logs import logs
 from .commands.manager import manager
 from .commands.policy import policy
 from .commands.proxy import proxy
-from .commands.sessions import sessions
 from .commands.start import start
 from .commands.status import status
 
@@ -84,7 +82,7 @@ Non-Interactive Setup:
 Connection Types (for proxy add --connection-type):
   stdio   Spawn local server process (npx, uvx, python)
   http    Connect to remote HTTP server (requires --url)
-  both    Auto-detect: tries HTTP first, falls back to STDIO
+  auto    Auto-detect: tries HTTP first, falls back to STDIO
 """
         )
 
@@ -116,7 +114,6 @@ cli.add_command(logs)
 cli.add_command(manager)
 cli.add_command(policy)
 cli.add_command(proxy)
-cli.add_command(sessions)
 cli.add_command(start)
 cli.add_command(status)
 

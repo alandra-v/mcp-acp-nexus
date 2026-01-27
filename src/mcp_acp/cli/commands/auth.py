@@ -1,21 +1,24 @@
 """Authentication commands for mcp-acp CLI.
 
 Commands:
-    auth login  - Authenticate via browser (Device Flow)
-    auth logout - Clear stored credentials
-    auth status - Show authentication status
+    auth login    - Authenticate via browser (Device Flow)
+    auth logout   - Clear stored credentials
+    auth status   - Show authentication status
+    auth sessions - Session management (list active sessions)
 """
 
 from __future__ import annotations
 
 __all__ = ["auth"]
 
+import json as json_module
 import webbrowser
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import click
 
-# Note: api_request import removed - token notification deferred to auth migration
+from mcp_acp.cli.api_client import api_request
 from mcp_acp.constants import CLI_NOTIFICATION_TIMEOUT_SECONDS
 from mcp_acp.exceptions import AuthenticationError
 from mcp_acp.security.auth.device_flow import (
@@ -463,4 +466,70 @@ def _print_status_formatted(
     click.echo(f"  Client ID: {oidc_config.client_id}")
     click.echo(f"  Audience: {oidc_config.audience}")
 
-    # Note: mTLS is per-proxy, shown in 'mcp-acp proxy show <name>'
+    # Note: mTLS is per-proxy, shown in 'mcp-acp config show --proxy <name>'
+
+
+# =============================================================================
+# auth sessions - Session management subgroup
+# =============================================================================
+
+
+@auth.group()
+def sessions() -> None:
+    """Session management commands.
+
+    View active authentication sessions.
+    Requires the proxy to be running.
+    """
+    pass
+
+
+@sessions.command("list")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
+def sessions_list(as_json: bool, proxy_name: str) -> None:
+    """List active sessions.
+
+    Shows all active authentication sessions with user info and timestamps.
+
+    Example:
+        mcp-acp auth sessions list --proxy filesystem
+    """
+    from ..styling import style_dim, style_label
+
+    data = api_request("GET", "/api/auth-sessions", proxy_name=proxy_name)
+
+    if not isinstance(data, list):
+        data = []
+
+    if as_json:
+        click.echo(json_module.dumps(data, indent=2))
+    else:
+        if not data:
+            click.echo(style_dim("No active sessions."))
+            return
+
+        click.echo("\n" + style_label("Active sessions") + f" {len(data)}\n")
+
+        for session in data:
+            session_id = session.get("session_id", "?")
+            user_id = session.get("user_id", "?")
+            started_at = session.get("started_at", "?")
+
+            # Format timestamp
+            if started_at and started_at != "?":
+                try:
+                    dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                    started_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, TypeError):
+                    started_str = started_at
+            else:
+                started_str = "?"
+
+            # Truncate session_id for display
+            short_id = session_id[:12] + "..." if len(session_id) > 15 else session_id
+
+            click.echo(f"  [{short_id}]")
+            click.echo(f"    User: {user_id}")
+            click.echo(f"    Started: {started_str}")
+            click.echo()
