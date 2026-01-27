@@ -29,14 +29,13 @@ from mcp_acp.api.schemas import IncidentsSummary, LogsResponse
 from mcp_acp.utils.api import (
     BeforeQuery,
     LimitQuery,
+    count_entries_and_latest,
     get_cutoff_time,
     get_log_base_path,
     parse_timestamp,
     read_jsonl_filtered,
     time_range_query,
 )
-from mcp_acp.security.integrity.emergency_audit import get_emergency_audit_path
-from mcp_acp.utils.config import get_config_dir
 
 router = APIRouter()
 
@@ -51,9 +50,18 @@ def _get_shutdowns_path(config: "ConfigDep") -> Path:
     return get_log_base_path(config) / "shutdowns.jsonl"
 
 
-def _get_bootstrap_path() -> Path:
-    """Get path to bootstrap.jsonl in config directory."""
-    return get_config_dir() / "bootstrap.jsonl"
+def _get_bootstrap_path(config: "ConfigDep") -> Path:
+    """Get path to bootstrap.jsonl in proxy config directory."""
+    from mcp_acp.manager.config import get_proxy_config_path
+
+    return get_proxy_config_path(config.proxy.name).parent / "bootstrap.jsonl"
+
+
+def _get_emergency_path(config: "ConfigDep") -> Path:
+    """Get path to emergency_audit.jsonl in proxy config directory."""
+    from mcp_acp.manager.config import get_proxy_config_path
+
+    return get_proxy_config_path(config.proxy.name).parent / "emergency_audit.jsonl"
 
 
 # =============================================================================
@@ -110,38 +118,6 @@ def _fetch_incident_logs(
     )
 
 
-def _count_entries_and_latest(log_path: Path) -> tuple[int, str | None]:
-    """Count entries in a JSONL file and get the latest timestamp.
-
-    Returns (count, latest_timestamp).
-    """
-    if not log_path.exists():
-        return 0, None
-
-    count = 0
-    latest: str | None = None
-
-    try:
-        with log_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                count += 1
-                try:
-                    entry = json.loads(line)
-                    time_val = entry.get("time")
-                    if time_val:
-                        if latest is None or time_val > latest:
-                            latest = time_val
-                except json.JSONDecodeError:
-                    continue
-    except OSError:
-        return 0, None
-
-    return count, latest
-
-
 # =============================================================================
 # Incident Log Endpoints
 # =============================================================================
@@ -171,6 +147,7 @@ async def get_shutdowns(
 
 @router.get("/bootstrap", response_model=LogsResponse)
 async def get_bootstrap_logs(
+    config: ConfigDep,
     time_range: str = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
@@ -181,7 +158,7 @@ async def get_bootstrap_logs(
     - Timestamp, event type, validation errors, component info
     """
     return _fetch_incident_logs(
-        _get_bootstrap_path(),
+        _get_bootstrap_path(config),
         time_range,
         limit,
         before,
@@ -190,6 +167,7 @@ async def get_bootstrap_logs(
 
 @router.get("/emergency", response_model=LogsResponse)
 async def get_emergency_logs(
+    config: ConfigDep,
     time_range: str = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
@@ -200,7 +178,7 @@ async def get_emergency_logs(
     - Timestamp, event type, failure reason, original operation data
     """
     return _fetch_incident_logs(
-        get_emergency_audit_path(),
+        _get_emergency_path(config),
         time_range,
         limit,
         before,
@@ -222,12 +200,12 @@ async def get_incidents_summary(config: ConfigDep) -> IncidentsSummary:
     - Bootstrap: Startup validation errors
     """
     shutdowns_path = _get_shutdowns_path(config)
-    bootstrap_path = _get_bootstrap_path()
-    emergency_path = get_emergency_audit_path()
+    bootstrap_path = _get_bootstrap_path(config)
+    emergency_path = _get_emergency_path(config)
 
-    shutdowns_count, shutdowns_latest = _count_entries_and_latest(shutdowns_path)
-    bootstrap_count, _ = _count_entries_and_latest(bootstrap_path)
-    emergency_count, emergency_latest = _count_entries_and_latest(emergency_path)
+    shutdowns_count, shutdowns_latest = count_entries_and_latest(shutdowns_path)
+    bootstrap_count, _ = count_entries_and_latest(bootstrap_path)
+    emergency_count, emergency_latest = count_entries_and_latest(emergency_path)
 
     # Latest critical timestamp is max of shutdowns and emergency (not bootstrap)
     critical_timestamps = [t for t in [shutdowns_latest, emergency_latest] if t]

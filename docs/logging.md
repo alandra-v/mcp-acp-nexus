@@ -34,8 +34,10 @@ Logging supports the Zero Trust security model with three primary goals:
     ├── .last_crash                 # Breadcrumb for crash popup
     └── shutdowns.jsonl             # Security shutdown history
 
-<config_dir>/emergency_audit.jsonl  # Fallback when primary audit fails
-<config_dir>/bootstrap.jsonl        # Startup validation errors
+<config_dir>/
+├── emergency_audit.jsonl           # Fallback when primary audit fails (global)
+└── proxies/<name>/
+    └── bootstrap.jsonl             # Startup validation errors (per-proxy)
 ```
 
 **Default log directory** (`<log_dir>`):
@@ -156,23 +158,27 @@ Not hash-chain protected (uses standard Python logging format).
 
 ### emergency_audit.jsonl
 
-Location: `<config_dir>/emergency_audit.jsonl`
+Location: `<config_dir>/emergency_audit.jsonl` (global, not per-proxy)
 
-Last-resort fallback when primary audit logging fails. Lives in config directory (not `log_dir`) to survive log directory deletion.
+Last-resort fallback when primary audit logging fails. Lives in config directory (not `log_dir`) to survive log directory deletion. This file is global because:
+1. It must survive even if a proxy's log directory is deleted
+2. Emergency situations may prevent accessing proxy-specific paths
+
+Each entry includes `proxy_id` and `proxy_name` fields for attribution, extracted from the operation that failed to log.
 
 **Fallback chain**: Primary audit log → `system.jsonl` → `emergency_audit.jsonl`. After any fallback, the proxy shuts down.
 
 ### bootstrap.jsonl
 
-Location: `<config_dir>/bootstrap.jsonl`
+Location: `<config_dir>/proxies/<name>/bootstrap.jsonl` (per-proxy)
 
-Startup validation errors when config or policy is invalid.
+Startup validation errors when config or policy is invalid. Stored per-proxy to correlate startup failures with specific proxy configurations.
 
 ### shutdowns.jsonl
 
-Location: `<log_dir>/mcp-acp/proxies/<name>/shutdowns.jsonl`
+Location: `<log_dir>/mcp-acp/proxies/<name>/shutdowns.jsonl` (per-proxy)
 
-JSONL history of security shutdowns for the Incidents page.
+JSONL history of security shutdowns for the Incidents page. Each proxy maintains its own shutdown history.
 
 ### .last_crash
 

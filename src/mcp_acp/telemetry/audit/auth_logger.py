@@ -60,13 +60,22 @@ class AuthLogger:
         logger.log_session_started(bound_session_id="...", subject=..., oidc=...)
     """
 
-    def __init__(self, logger: logging.Logger) -> None:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        proxy_id: str | None = None,
+        proxy_name: str | None = None,
+    ) -> None:
         """Initialize auth logger.
 
         Args:
             logger: Configured logger with fail-closed handler.
+            proxy_id: Stable proxy identifier for correlation.
+            proxy_name: Human-readable proxy name for display.
         """
         self._logger = logger
+        self._proxy_id = proxy_id
+        self._proxy_name = proxy_name
 
     def _log_event(self, event: AuthEvent) -> bool:
         """Log an auth event with fallback chain.
@@ -87,6 +96,8 @@ class AuthLogger:
             event_data=event_data,
             event_type="auth",
             source_file="auth.jsonl",
+            proxy_id=self._proxy_id,
+            proxy_name=self._proxy_name,
         )
         return success
 
@@ -320,6 +331,8 @@ def create_auth_logger(
     shutdown_callback: Callable[[str], None],
     state_manager: "IntegrityStateManager | None" = None,
     log_dir: Path | None = None,
+    proxy_id: str | None = None,
+    proxy_name: str | None = None,
 ) -> AuthLogger:
     """Create an auth logger with fail-closed behavior.
 
@@ -329,6 +342,8 @@ def create_auth_logger(
                            This callback must handle the sync-to-async transition.
         state_manager: Optional IntegrityStateManager for hash chain support.
         log_dir: Base log directory for computing relative file keys.
+        proxy_id: Stable proxy identifier for emergency audit attribution.
+        proxy_name: Human-readable proxy name for emergency audit attribution.
 
     Returns:
         AuthLogger: Configured logger for authentication events.
@@ -341,4 +356,4 @@ def create_auth_logger(
         state_manager=state_manager,
         log_dir=log_dir,
     )
-    return AuthLogger(logger)
+    return AuthLogger(logger, proxy_id=proxy_id, proxy_name=proxy_name)

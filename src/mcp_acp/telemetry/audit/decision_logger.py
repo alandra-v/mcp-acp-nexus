@@ -75,6 +75,8 @@ class DecisionEventLogger:
         system_logger: logging.Logger,
         backend_id: str,
         policy_version: str | None,
+        proxy_id: str | None = None,
+        proxy_name: str | None = None,
     ) -> None:
         """Initialize decision event logger.
 
@@ -83,11 +85,15 @@ class DecisionEventLogger:
             system_logger: System logger for fallback logging.
             backend_id: Backend server ID for audit trail.
             policy_version: Policy version for audit trail.
+            proxy_id: Stable proxy identifier for correlation.
+            proxy_name: Human-readable proxy name for display.
         """
         self._logger = logger
         self._system_logger = system_logger
         self._backend_id = backend_id
         self._policy_version = policy_version
+        self._proxy_id = proxy_id
+        self._proxy_name = proxy_name
 
     @property
     def policy_version(self) -> str | None:
@@ -200,6 +206,8 @@ class DecisionEventLogger:
             event_data=event_data,
             event_type="decision",
             source_file="decisions.jsonl",
+            proxy_id=self._proxy_id,
+            proxy_name=self._proxy_name,
         )
 
         # If primary audit failed, raise error to client before shutdown

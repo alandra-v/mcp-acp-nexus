@@ -81,7 +81,7 @@ def write_emergency_audit(
             except OSError:
                 pass  # Permission changes might fail on some systems
 
-        entry = {
+        entry: dict[str, Any] = {
             "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "event": "emergency_audit",
             "event_type": event_type,
@@ -89,6 +89,14 @@ def write_emergency_audit(
             "source_file": source_file,
             "operation": operation,
         }
+
+        # Extract proxy info from operation for attribution (top-level for easy access)
+        # proxy_id: stable identifier for correlation/logic
+        # proxy_name: human-readable name for display
+        if operation.get("proxy_id"):
+            entry["proxy_id"] = operation["proxy_id"]
+        if operation.get("proxy_name"):
+            entry["proxy_name"] = operation["proxy_name"]
 
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, default=str) + "\n")
@@ -106,6 +114,8 @@ def log_with_fallback(
     event_data: dict[str, Any],
     event_type: str,
     source_file: str,
+    proxy_id: str | None = None,
+    proxy_name: str | None = None,
 ) -> tuple[bool, str | None]:
     """Log an event with fallback chain.
 
@@ -117,6 +127,8 @@ def log_with_fallback(
         event_data: The event data to log.
         event_type: Type of event ("operation" or "decision").
         source_file: Name of the primary log file.
+        proxy_id: Stable proxy identifier (for emergency audit attribution).
+        proxy_name: Human-readable proxy name (for emergency audit attribution).
 
     Returns:
         Tuple of (success, failure_reason).
@@ -167,9 +179,15 @@ def log_with_fallback(
         pass  # system.jsonl also failed
 
     # Both failed - try emergency_audit.jsonl
+    # Add proxy attribution for the emergency audit entry
+    operation_with_proxy = {**event_data}
+    if proxy_id:
+        operation_with_proxy["proxy_id"] = proxy_id
+    if proxy_name:
+        operation_with_proxy["proxy_name"] = proxy_name
     write_emergency_audit(
         event_type=event_type,
-        operation=event_data,
+        operation=operation_with_proxy,
         failure_reason=failure_reason or "Unknown error",
         source_file=source_file,
     )

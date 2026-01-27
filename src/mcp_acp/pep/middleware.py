@@ -84,6 +84,7 @@ class PolicyEnforcementMiddleware(Middleware):
         rate_tracker: SessionRateTracker | None = None,
         engine: PolicyEngineProtocol | None = None,
         proxy_name: str | None = None,
+        proxy_id: str | None = None,
     ) -> None:
         """Initialize enforcement middleware.
 
@@ -100,6 +101,7 @@ class PolicyEnforcementMiddleware(Middleware):
             engine: Optional custom policy engine. If None, uses built-in PolicyEngine.
                 External engines (Casbin, OPA) can be injected here.
             proxy_name: Proxy instance name for multi-proxy deployments.
+            proxy_id: Stable proxy identifier for correlation.
         """
         self._shutdown_callback = shutdown_callback
         # Protected path checker - built-in security separate from policy
@@ -111,6 +113,7 @@ class PolicyEnforcementMiddleware(Middleware):
         self._logger = logger
         self._policy_version = policy_version
         self._proxy_name = proxy_name
+        self._proxy_id = proxy_id
         self._hitl_handler = HITLHandler(hitl_config)
         self._hitl_config = hitl_config  # For cache settings
         # Approval cache for reducing HITL dialog fatigue
@@ -129,6 +132,8 @@ class PolicyEnforcementMiddleware(Middleware):
             system_logger=_system_logger,
             backend_id=backend_id,
             policy_version=policy_version,
+            proxy_id=proxy_id,
+            proxy_name=proxy_name,
         )
         # Rate breach handler (only if rate tracking enabled)
         self._rate_breach_handler: RateBreachHandler | None = None
@@ -879,6 +884,7 @@ def create_enforcement_middleware(
     state_manager: "IntegrityStateManager | None" = None,
     log_dir: Path | None = None,
     proxy_name: str | None = None,
+    proxy_id: str | None = None,
 ) -> PolicyEnforcementMiddleware:
     """Create policy enforcement middleware.
 
@@ -901,6 +907,7 @@ def create_enforcement_middleware(
         state_manager: Optional IntegrityStateManager for hash chain support.
         log_dir: Base log directory for computing relative file keys.
         proxy_name: Proxy instance name for multi-proxy deployments.
+        proxy_id: Stable proxy identifier for correlation.
 
     Returns:
         Configured PolicyEnforcementMiddleware.
@@ -924,4 +931,5 @@ def create_enforcement_middleware(
         rate_tracker=rate_tracker,
         engine=engine,
         proxy_name=proxy_name,
+        proxy_id=proxy_id,
     )

@@ -85,6 +85,8 @@ class AuditLoggingMiddleware(Middleware):
         identity_provider: IdentityProvider,
         transport: str | None = None,
         config_version: str | None = None,
+        proxy_id: str | None = None,
+        proxy_name: str | None = None,
     ) -> None:
         """Initialize audit logging middleware.
 
@@ -95,12 +97,16 @@ class AuditLoggingMiddleware(Middleware):
             identity_provider: Provider for user identity (local or OIDC).
             transport: Backend transport type ("stdio" or "streamablehttp").
             config_version: Current config version (from config history).
+            proxy_id: Stable proxy identifier for correlation.
+            proxy_name: Human-readable proxy name for display.
         """
         self.logger = logger
         self.shutdown_coordinator = shutdown_coordinator
         self.backend_id = backend_id
         self.transport = transport
         self.config_version = config_version
+        self.proxy_id = proxy_id
+        self.proxy_name = proxy_name
         # Identity provider - get_identity() is async, so we fetch on first request
         self._identity_provider = identity_provider
         self._subject: SubjectIdentity | None = None
@@ -288,6 +294,8 @@ class AuditLoggingMiddleware(Middleware):
                 event_data=event_data,
                 event_type="operation",
                 source_file="operations.jsonl",
+                proxy_id=self.proxy_id,
+                proxy_name=self.proxy_name,
             )
 
             # If primary audit failed, raise error to client before shutdown
@@ -312,6 +320,8 @@ def create_audit_logging_middleware(
     config_version: str | None = None,
     state_manager: "IntegrityStateManager | None" = None,
     log_dir: Path | None = None,
+    proxy_id: str | None = None,
+    proxy_name: str | None = None,
 ) -> AuditLoggingMiddleware:
     """Create middleware for audit logging of MCP operations.
 
@@ -329,6 +339,8 @@ def create_audit_logging_middleware(
         config_version: Current config version (from log_config_loaded).
         state_manager: Optional IntegrityStateManager for hash chain support.
         log_dir: Base log directory for computing relative file keys.
+        proxy_id: Stable proxy identifier for correlation.
+        proxy_name: Human-readable proxy name for display.
 
     Returns:
         AuditLoggingMiddleware: Configured middleware for the proxy.
@@ -349,4 +361,6 @@ def create_audit_logging_middleware(
         identity_provider=identity_provider,
         transport=transport,
         config_version=config_version,
+        proxy_id=proxy_id,
+        proxy_name=proxy_name,
     )

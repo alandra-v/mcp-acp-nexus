@@ -302,6 +302,8 @@ def create_proxy(
         on_critical_failure,
         state_manager=integrity_manager,
         log_dir=log_dir_path,
+        proxy_id=config.proxy.proxy_id,
+        proxy_name=proxy_name,
     )
 
     # Wire auth logger to shutdown coordinator for session_ended logging on fatal errors
@@ -939,6 +941,8 @@ def create_proxy(
         config_version=config_version,
         state_manager=integrity_manager,
         log_dir=log_dir_path,
+        proxy_id=config.proxy.proxy_id,
+        proxy_name=proxy_name,
     )
     proxy.add_middleware(audit_middleware)
 
@@ -985,6 +989,7 @@ def create_proxy(
         state_manager=integrity_manager,
         log_dir=log_dir_path,
         proxy_name=proxy_name,
+        proxy_id=config.proxy.proxy_id,
     )
     proxy.add_middleware(enforcement_middleware)
 
