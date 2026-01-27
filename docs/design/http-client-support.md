@@ -520,30 +520,39 @@ With HTTP clients, the identity model becomes more complex:
 #### Possible Approaches
 
 **A. AI Service as Delegated Agent**
-```yaml
-identity:
-  type: delegated_agent
-  service: openai
-  service_account: user-registered-api-key
-  human_identity: unverified  # Cannot verify who prompted the AI
+```json
+{
+  "identity": {
+    "type": "delegated_agent",
+    "service": "openai",
+    "service_account": "user-registered-api-key",
+    "human_identity": "unverified"
+  }
+}
 ```
 
 **B. Pre-authenticated Session Token**
-```yaml
-identity:
-  type: session_token
-  issued_to: user@example.com  # Verified via OIDC before token issued
-  issued_at: 2024-01-15T10:00:00Z
-  expires_at: 2024-01-15T11:00:00Z
-  scope: [read_files, search]  # Limited capabilities
+```json
+{
+  "identity": {
+    "type": "session_token",
+    "issued_to": "user@example.com",
+    "issued_at": "2024-01-15T10:00:00Z",
+    "expires_at": "2024-01-15T11:00:00Z",
+    "scope": ["read_files", "search"]
+  }
+}
 ```
 
 **C. Per-Request Human Verification**
-```yaml
-identity:
-  type: per_request_verified
-  mechanism: push_notification  # Human approves each AI request
-  human_identity: user@example.com
+```json
+{
+  "identity": {
+    "type": "per_request_verified",
+    "mechanism": "push_notification",
+    "human_identity": "user@example.com"
+  }
+}
 ```
 
 ### Unverifiable Human Intent
@@ -608,28 +617,32 @@ HTTP clients from cloud services cannot fully satisfy these requirements - there
 
 Remote/HTTP clients should have different (stricter) policies than local clients:
 
-```yaml
-# Example: Differentiated policy for remote clients
-policies:
-  - name: local-client-tools
-    match:
-      client_type: local
-    tools:
-      - pattern: "*"
-        action: prompt  # HITL for sensitive, allow for safe
-
-  - name: remote-client-tools
-    match:
-      client_type: remote
-    tools:
-      - pattern: "filesystem/*"
-        action: deny  # No filesystem access from remote
-      - pattern: "database/read"
-        action: allow  # Read-only allowed
-      - pattern: "database/write"
-        action: deny  # No writes from remote
-      - pattern: "*"
-        action: deny  # Default deny for remote
+```json
+{
+  "policies": [
+    {
+      "name": "local-client-tools",
+      "match": {
+        "client_type": "local"
+      },
+      "tools": [
+        { "pattern": "*", "action": "prompt" }
+      ]
+    },
+    {
+      "name": "remote-client-tools",
+      "match": {
+        "client_type": "remote"
+      },
+      "tools": [
+        { "pattern": "filesystem/*", "action": "deny" },
+        { "pattern": "database/read", "action": "allow" },
+        { "pattern": "database/write", "action": "deny" },
+        { "pattern": "*", "action": "deny" }
+      ]
+    }
+  ]
+}
 ```
 
 ### Required Authentication Stack
@@ -704,14 +717,20 @@ The bastion host:
 
 Instead of real-time tool access, pre-approve specific actions:
 
-```yaml
-approved_actions:
-  - id: daily-report
-    description: "Generate daily sales report"
-    tools_allowed:
-      - database/query: "SELECT * FROM sales WHERE date = TODAY"
-    valid_until: 2024-12-31
-    max_executions_per_day: 1
+```json
+{
+  "approved_actions": [
+    {
+      "id": "daily-report",
+      "description": "Generate daily sales report",
+      "tools_allowed": [
+        { "database/query": "SELECT * FROM sales WHERE date = TODAY" }
+      ],
+      "valid_until": "2024-12-31",
+      "max_executions_per_day": 1
+    }
+  ]
+}
 ```
 
 The AI can only execute pre-defined, pre-approved action bundles.
