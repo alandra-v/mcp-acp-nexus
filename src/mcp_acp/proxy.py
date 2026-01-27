@@ -91,6 +91,7 @@ def create_proxy(
     config_version: str | None = None,
     policy_version: str | None = None,
     enable_ui: bool = True,
+    proxy_id: str | None = None,
 ) -> tuple[FastMCP, str]:
     """Create a transparent proxy that forwards all requests to backend.
 
@@ -134,6 +135,10 @@ def create_proxy(
         config: Application configuration (built from per-proxy config).
         config_version: Current config version from config history (e.g., "v1").
         policy_version: Current policy version from policy history (e.g., "v1").
+        enable_ui: Whether to enable the web UI for HITL approvals. Defaults to True.
+        proxy_id: Stable proxy identifier from config (e.g., "px_a1b2c3d4:server-name").
+            Used for SSE event correlation with API data. If None, falls back to
+            instance ID.
 
     Returns:
         Tuple of (FastMCP proxy instance, actual transport type used).
@@ -1011,6 +1016,7 @@ def create_proxy(
         url=backend_url,
         backend_transport=transport_type,
         mtls_enabled=mtls_enabled,
+        proxy_id=proxy_id,
     )
 
     # Set global proxy state for SSE emission from non-middleware code paths

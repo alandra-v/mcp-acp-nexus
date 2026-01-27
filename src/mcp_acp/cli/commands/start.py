@@ -146,9 +146,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
                 click.echo(f"  - {name}", err=True)
             click.echo(err=True)
             click.echo("Start a specific proxy with: mcp-acp start --proxy <name>", err=True)
-            click.echo(err=True)
-            click.echo("Note: Each proxy runs in STDIO mode and needs its own terminal.", err=True)
-            click.echo("Claude Desktop starts each proxy automatically.", err=True)
+            click.echo("Proxies communicate via STDIO.", err=True)
         else:
             click.echo("No proxies configured.", err=True)
             click.echo("Run 'mcp-acp proxy add' to create one.", err=True)
@@ -252,6 +250,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
             config_version=config_version,
             policy_version=policy_version,
             enable_ui=not headless,
+            proxy_id=per_proxy_config.proxy_id,
         )
 
         # Display actual transport used (after detection)

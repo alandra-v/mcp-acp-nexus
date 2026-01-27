@@ -90,6 +90,7 @@ class ProxyState:
         url: str | None = None,
         backend_transport: str = "stdio",
         mtls_enabled: bool = False,
+        proxy_id: str | None = None,
     ) -> None:
         """Initialize proxy state.
 
@@ -103,9 +104,12 @@ class ProxyState:
             url: Backend URL (for HTTP transport).
             backend_transport: Transport type for proxy-to-backend ("stdio" or "streamablehttp").
             mtls_enabled: Whether mTLS is enabled for backend connection.
+            proxy_id: Stable proxy identifier from config (for SSE event correlation).
         """
-        # Generate unique proxy ID: 8-char UUID prefix + backend ID
-        self._id = f"{uuid.uuid4().hex[:8]}:{backend_id}"
+        # Generate unique instance ID: 8-char UUID prefix + backend ID
+        self._instance_id = f"{uuid.uuid4().hex[:8]}:{backend_id}"
+        # Stable proxy ID from config (for SSE correlation with API data)
+        self._proxy_id = proxy_id or self._instance_id
         self._backend_id = backend_id
         self._api_port = api_port
         self._approval_store = approval_store
@@ -149,8 +153,13 @@ class ProxyState:
 
     @property
     def proxy_id(self) -> str:
-        """Get the unique proxy ID."""
-        return self._id
+        """Get the stable proxy ID (from config, for correlation)."""
+        return self._proxy_id
+
+    @property
+    def instance_id(self) -> str:
+        """Get the unique instance ID (changes each proxy run)."""
+        return self._instance_id
 
     def set_client_id(self, client_id: str) -> None:
         """Set MCP client ID from initialize request.
@@ -172,7 +181,7 @@ class ProxyState:
         """
         now = datetime.now(UTC)
         return ProxyRuntimeInfo(
-            id=self._id,
+            id=self._instance_id,
             backend_id=self._backend_id,
             status="running",
             started_at=self._started_at,
@@ -195,12 +204,29 @@ class ProxyState:
     def record_request(self) -> None:
         """Record a policy-evaluated request for stats tracking.
 
-        Called by middleware for policy-evaluated requests only (not discovery).
+        Called by middleware for policy-evaluated requests.
         Must be followed by record_decision() which emits the SSE event.
         """
         self._requests_total += 1
         # No SSE emit here - record_decision() is always called immediately after
         # and will emit the complete updated stats
+
+    def record_discovery(self) -> None:
+        """Record a discovery request (tools/list, resources/list, etc.).
+
+        Discovery requests bypass policy evaluation but still count toward
+        total requests. Emits SSE event for live UI updates.
+        """
+        self._requests_total += 1
+
+        # Emit live updates to connected UI clients
+        if self.is_ui_connected:
+            self.emit_system_event(
+                SSEEventType.STATS_UPDATED,
+                stats=self.get_stats().to_dict(),
+            )
+            # Notify about new log entries (for ActivitySection live updates)
+            self.emit_system_event(SSEEventType.NEW_LOG_ENTRIES, count=1)
 
     def record_decision(self, decision: "Decision") -> None:
         """Record a policy decision for stats tracking.
@@ -406,7 +432,7 @@ class ProxyState:
         approval_id = uuid.uuid4().hex[:16]
         info = PendingApprovalInfo(
             id=approval_id,
-            proxy_id=self._id,
+            proxy_id=self._proxy_id,
             tool_name=tool_name,
             path=path,
             subject_id=subject_id,
@@ -669,7 +695,7 @@ class ProxyState:
             "type": event_type.value,
             "severity": severity,
             "timestamp": datetime.now(UTC).isoformat(),
-            "proxy_id": self._id,
+            "proxy_id": self._proxy_id,
         }
         if message is not None:
             event["message"] = message
