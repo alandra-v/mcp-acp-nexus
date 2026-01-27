@@ -54,12 +54,10 @@ Log settings are configured in two places:
 **Manager** (`manager.json`):
 ```json
 {
-  "log_dir": "~/Library/Logs",
-  "log_level": "INFO"
+  "log_dir": "~/Library/Logs"
 }
 ```
 - `log_dir`: Base directory for all logs (manager and proxies). Platform default if not specified.
-- `log_level`: Manager daemon logging level (`DEBUG` or `INFO`). Controls what gets written to `manager/system.jsonl`.
 
 **Per-proxy** (`proxies/<name>/config.json`):
 ```json
@@ -146,7 +144,7 @@ Manager operational logs including:
 
 **Log destinations:**
 - **stderr** (foreground mode): INFO+ always visible
-- **File**: Respects `log_level` in manager.json (`INFO` or `DEBUG`)
+- **File**: WARNING+ only (errors and issues worth reviewing)
 
 Not hash-chain protected (uses standard Python logging format).
 

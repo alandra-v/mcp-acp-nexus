@@ -9,7 +9,6 @@ from __future__ import annotations
 __all__ = ["init"]
 
 import sys
-from typing import Literal
 
 import click
 
@@ -136,36 +135,16 @@ def _prompt_oidc_config() -> OIDCConfig:
     )
 
 
-def _prompt_log_level() -> Literal["DEBUG", "INFO"]:
-    """Prompt for log level setting.
-
-    Returns:
-        Log level (DEBUG or INFO).
-    """
-    click.echo()
-    click.echo(style_header("Logging"))
-    click.echo("DEBUG enables wire logs showing all MCP message traffic.")
-    click.echo("INFO logs only important events (recommended for production).")
-    click.echo()
-    log_level = click.prompt(
-        "Log level",
-        type=click.Choice(["DEBUG", "INFO"], case_sensitive=False),
-        default="INFO",
-    )
-    result: str = log_level.upper()
-    return result  # type: ignore[return-value]
-
-
 # =============================================================================
 # Setup Flows
 # =============================================================================
 
 
-def _run_interactive_init() -> tuple[AuthConfig, Literal["DEBUG", "INFO"]]:
+def _run_interactive_init() -> AuthConfig:
     """Run interactive configuration wizard.
 
     Returns:
-        Tuple of (AuthConfig, log_level) with user-provided values.
+        AuthConfig with user-provided values.
     """
     click.echo("\nWelcome to mcp-acp!\n")
     click.echo("This wizard configures authentication for all proxies.")
@@ -177,28 +156,23 @@ def _run_interactive_init() -> tuple[AuthConfig, Literal["DEBUG", "INFO"]]:
     # OIDC settings (required)
     oidc_config = _prompt_oidc_config()
 
-    # Log level
-    log_level = _prompt_log_level()
-
-    return AuthConfig(oidc=oidc_config), log_level
+    return AuthConfig(oidc=oidc_config)
 
 
 def _run_non_interactive_init(
     oidc_issuer: str | None,
     oidc_client_id: str | None,
     oidc_audience: str | None,
-    log_level: str,
-) -> tuple[AuthConfig, Literal["DEBUG", "INFO"]]:
+) -> AuthConfig:
     """Run non-interactive configuration setup.
 
     Args:
         oidc_issuer: OIDC issuer URL.
         oidc_client_id: Auth0 client ID.
         oidc_audience: API audience.
-        log_level: Logging level (DEBUG or INFO).
 
     Returns:
-        Tuple of (AuthConfig, log_level) with validated configuration.
+        AuthConfig with validated configuration.
 
     Raises:
         SystemExit: If required flags are missing or validation fails.
@@ -219,10 +193,7 @@ def _run_non_interactive_init(
         audience=oidc_audience,
     )
 
-    # Normalize log level
-    normalized_log_level: Literal["DEBUG", "INFO"] = "DEBUG" if log_level.upper() == "DEBUG" else "INFO"
-
-    return AuthConfig(oidc=oidc_config), normalized_log_level
+    return AuthConfig(oidc=oidc_config)
 
 
 def _display_next_steps() -> None:
@@ -254,20 +225,12 @@ def _display_next_steps() -> None:
 @click.option("--oidc-issuer", help="OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
 @click.option("--oidc-client-id", help="Auth0 client ID")
 @click.option("--oidc-audience", help="API audience for token validation")
-# Logging options
-@click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO"], case_sensitive=False),
-    default="INFO",
-    help="Logging level. DEBUG enables wire logs (default: INFO).",
-)
 @click.option("--force", is_flag=True, help="Overwrite existing config without prompting")
 def init(
     non_interactive: bool,
     oidc_issuer: str | None,
     oidc_client_id: str | None,
     oidc_audience: str | None,
-    log_level: str,
     force: bool,
 ) -> None:
     """Initialize mcp-acp with authentication configuration.
@@ -316,14 +279,13 @@ def init(
     # Gather configuration values
     try:
         if non_interactive:
-            auth_config, resolved_log_level = _run_non_interactive_init(
+            auth_config = _run_non_interactive_init(
                 oidc_issuer,
                 oidc_client_id,
                 oidc_audience,
-                log_level,
             )
         else:
-            auth_config, resolved_log_level = _run_interactive_init()
+            auth_config = _run_interactive_init()
     except click.Abort:
         click.echo(style_dim("Aborted."))
         sys.exit(0)
@@ -332,7 +294,7 @@ def init(
     _check_oidc_change_warning(old_config, auth_config)
 
     # Create and save configuration
-    manager_config = ManagerConfig(auth=auth_config, log_level=resolved_log_level)
+    manager_config = ManagerConfig(auth=auth_config)
 
     try:
         save_manager_config(manager_config)

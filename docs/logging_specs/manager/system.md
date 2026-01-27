@@ -7,7 +7,7 @@ The manager system log schema draws inspiration from two OCSF classes. From Appl
 
 **Model**: `ManagerSystemEvent` in `manager/models.py`
 
-**Level filter**: INFO+ to file (respects `config.log_level`), INFO+ to console
+**Level filter**: WARNING+ to file, INFO+ to console
 
 Note: This schema uses standard Python logging (no hash chains). Additional fields beyond those listed may appear.
 

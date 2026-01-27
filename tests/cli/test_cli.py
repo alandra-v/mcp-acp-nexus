@@ -30,7 +30,6 @@ def valid_manager_config() -> dict:
     return {
         "ui_port": 8765,
         "log_dir": "/tmp/test-logs",
-        "log_level": "INFO",
         "auth": {
             "oidc": {
                 "issuer": "https://test.auth0.com",
@@ -295,7 +294,7 @@ class TestStartCommand:
 class TestInitCommand:
     """Tests for init command.
 
-    The init command creates manager.json with auth config (OIDC, log_level).
+    The init command creates manager.json with auth config (OIDC).
     mTLS is now per-proxy, configured in 'proxy add'.
     """
 
@@ -434,40 +433,6 @@ class TestInitCommand:
             assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
             assert config["auth"]["oidc"]["client_id"] == "test-client"
             assert config["auth"]["oidc"]["audience"] == "https://api.example.com"
-            assert config["log_level"] == "INFO"  # Default
-
-    def test_init_non_interactive_with_log_level(self, runner: CliRunner) -> None:
-        """Given --log-level DEBUG, saves DEBUG in config."""
-        with runner.isolated_filesystem() as tmpdir:
-            manager_path = Path(tmpdir) / "manager.json"
-
-            with patch(
-                "mcp_acp.cli.commands.init.get_manager_config_path",
-                return_value=manager_path,
-            ):
-                with patch(
-                    "mcp_acp.manager.config.get_manager_config_path",
-                    return_value=manager_path,
-                ):
-                    result = runner.invoke(
-                        cli,
-                        [
-                            "init",
-                            "--non-interactive",
-                            "--oidc-issuer",
-                            "https://test.auth0.com",
-                            "--oidc-client-id",
-                            "test-client",
-                            "--oidc-audience",
-                            "https://api.example.com",
-                            "--log-level",
-                            "DEBUG",
-                        ],
-                    )
-
-            assert result.exit_code == 0
-            config = json.loads(manager_path.read_text())
-            assert config["log_level"] == "DEBUG"
 
     def test_init_existing_file_without_force_fails(self, runner: CliRunner) -> None:
         """Given existing config without --force in non-interactive mode, fails."""

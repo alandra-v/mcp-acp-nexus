@@ -35,7 +35,6 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -83,9 +82,6 @@ class ManagerConfig(BaseModel):
             - macOS: ~/Library/Logs
             - Linux: $XDG_STATE_HOME (~/.local/state)
             Manager logs stored in <log_dir>/mcp-acp/manager/.
-        log_level: Logging level for manager daemon. Controls what gets
-            written to manager's system.jsonl file.
-            Note: Proxy log levels are per-proxy in each proxy's config.json.
         auth: Authentication configuration (OIDC only).
             Shared across all proxies. Required for multi-proxy mode.
             Note: mTLS is per-proxy, configured via 'mcp-acp proxy add'.
@@ -101,10 +97,6 @@ class ManagerConfig(BaseModel):
         default=DEFAULT_MANAGER_LOG_DIR,
         min_length=1,
         description="Base directory for all logs (manager and proxies)",
-    )
-    log_level: Literal["DEBUG", "INFO"] = Field(
-        default="INFO",
-        description="Manager daemon logging level (proxies have their own log_level)",
     )
     auth: AuthConfig | None = Field(
         default=None,

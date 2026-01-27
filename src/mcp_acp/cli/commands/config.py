@@ -107,7 +107,6 @@ def _show_manager_config(as_json: bool) -> None:
     click.echo()
     click.echo(f"  ui_port: {manager_config.ui_port}")
     click.echo(f"  log_dir: {manager_config.log_dir}")
-    click.echo(f"  log_level: {manager_config.log_level}")
     click.echo()
 
     click.echo(style_header("Authentication"))
