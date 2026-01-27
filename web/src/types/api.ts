@@ -7,6 +7,7 @@ export interface ProxyStats {
   requests_hitl: number
 }
 
+/** Runtime proxy info from a running proxy's /api/proxies endpoint */
 export interface Proxy {
   id: string
   backend_id: string
@@ -23,6 +24,76 @@ export interface Proxy {
   mtls_enabled: boolean
   client_id: string | null
   stats: ProxyStats
+}
+
+/** Transport type for proxy configuration */
+export type TransportType = 'stdio' | 'streamablehttp' | 'auto'
+
+/** Enhanced proxy info from manager's /api/manager/proxies endpoint */
+export interface EnhancedProxy {
+  proxy_name: string
+  proxy_id: string
+  status: 'running' | 'stopped'
+  instance_id: string | null
+  server_name: string
+  transport: TransportType
+  created_at: string
+  stats: ProxyStats | null
+}
+
+/** Request to create a new proxy via POST /api/manager/proxies */
+export interface CreateProxyRequest {
+  name: string
+  server_name: string
+  transport: TransportType
+  // STDIO options
+  command?: string
+  args?: string[]
+  // STDIO attestation
+  attestation_slsa_owner?: string
+  attestation_sha256?: string
+  attestation_require_signature?: boolean
+  // HTTP options
+  url?: string
+  timeout?: number
+  api_key?: string
+  // mTLS options
+  mtls_cert?: string
+  mtls_key?: string
+  mtls_ca?: string
+}
+
+/** Response from POST /api/manager/proxies */
+export interface CreateProxyResponse {
+  ok: boolean
+  proxy_name: string
+  proxy_id: string | null
+  config_path: string | null
+  policy_path: string | null
+  claude_desktop_snippet: Record<string, { command: string; args: string[] }> | null
+  message: string
+}
+
+/** Aggregated incidents response from GET /api/manager/incidents */
+export interface AggregatedIncidentsResponse {
+  entries: IncidentEntry[]
+  total_returned: number
+  has_more: boolean
+  filters_applied: {
+    time_range: string
+    proxy?: string
+    incident_type?: string
+  }
+}
+
+/** Single incident entry with type annotation */
+export interface IncidentEntry {
+  time: string
+  incident_type: 'shutdown' | 'bootstrap' | 'emergency'
+  proxy_name?: string
+  message?: string
+  event?: string
+  [key: string]: unknown
 }
 
 export interface PendingApproval {

@@ -5,10 +5,15 @@
  * - Shutdowns: Intentional security shutdowns (audit failure, session hijacking)
  * - Bootstrap: Startup validation errors (config/policy issues)
  * - Emergency: Audit fallback entries when normal audit fails
+ *
+ * Two levels of API:
+ * - Manager level: /api/manager/incidents - aggregated from all proxies
+ * - Proxy level: /incidents/* - from a specific proxy (legacy)
  */
 
 import { apiGet, type RequestOptions } from './client'
-import type { LogsResponse } from '@/types/api'
+import { DEFAULT_INCIDENT_LIMIT } from '@/constants'
+import type { LogsResponse, AggregatedIncidentsResponse } from '@/types/api'
 
 // =============================================================================
 // Types
@@ -27,18 +32,51 @@ export interface IncidentsSummary {
 export type IncidentType = 'shutdown' | 'bootstrap' | 'emergency'
 
 // =============================================================================
+// Manager-level API (aggregated from all proxies)
+// =============================================================================
+
+export interface AggregatedIncidentsParams {
+  proxy?: string
+  incident_type?: IncidentType
+  time_range?: string
+  limit?: number
+  before?: string
+}
+
+/**
+ * Get aggregated incidents from all proxies.
+ * Combines shutdowns (per-proxy) with bootstrap and emergency (global).
+ * Each entry includes 'incident_type' and 'proxy_name' (for shutdowns).
+ */
+export async function getAggregatedIncidents(
+  params: AggregatedIncidentsParams = {},
+  options?: RequestOptions
+): Promise<AggregatedIncidentsResponse> {
+  const searchParams = new URLSearchParams()
+  if (params.proxy) searchParams.set('proxy', params.proxy)
+  if (params.incident_type) searchParams.set('incident_type', params.incident_type)
+  if (params.time_range) searchParams.set('time_range', params.time_range)
+  if (params.limit) searchParams.set('limit', String(params.limit))
+  if (params.before) searchParams.set('before', params.before)
+
+  const query = searchParams.toString()
+  const url = query ? `/api/manager/incidents?${query}` : '/api/manager/incidents'
+  return apiGet<AggregatedIncidentsResponse>(url, options)
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
-/** Build URLSearchParams for incident log queries. */
-function buildParams(timeRange: string, limit: number, before?: string): URLSearchParams {
+/** @internal Build URLSearchParams for incident log queries. */
+function _buildParams(timeRange: string, limit: number, before?: string): URLSearchParams {
   const params = new URLSearchParams({ time_range: timeRange, limit: String(limit) })
   if (before) params.set('before', before)
   return params
 }
 
 // =============================================================================
-// API Functions
+// Proxy-level API (legacy, single proxy)
 // =============================================================================
 
 /**
@@ -48,10 +86,14 @@ function buildParams(timeRange: string, limit: number, before?: string): URLSear
  */
 export async function getShutdowns(
   timeRange: string = 'all',
-  limit: number = 100,
-  before?: string
+  limit: number = DEFAULT_INCIDENT_LIMIT,
+  before?: string,
+  options?: RequestOptions
 ): Promise<LogsResponse> {
-  return apiGet<LogsResponse>(`/incidents/shutdowns?${buildParams(timeRange, limit, before)}`)
+  return apiGet<LogsResponse>(
+    `/incidents/shutdowns?${_buildParams(timeRange, limit, before)}`,
+    options
+  )
 }
 
 /**
@@ -60,10 +102,14 @@ export async function getShutdowns(
  */
 export async function getBootstrapLogs(
   timeRange: string = 'all',
-  limit: number = 100,
-  before?: string
+  limit: number = DEFAULT_INCIDENT_LIMIT,
+  before?: string,
+  options?: RequestOptions
 ): Promise<LogsResponse> {
-  return apiGet<LogsResponse>(`/incidents/bootstrap?${buildParams(timeRange, limit, before)}`)
+  return apiGet<LogsResponse>(
+    `/incidents/bootstrap?${_buildParams(timeRange, limit, before)}`,
+    options
+  )
 }
 
 /**
@@ -72,10 +118,14 @@ export async function getBootstrapLogs(
  */
 export async function getEmergencyLogs(
   timeRange: string = 'all',
-  limit: number = 100,
-  before?: string
+  limit: number = DEFAULT_INCIDENT_LIMIT,
+  before?: string,
+  options?: RequestOptions
 ): Promise<LogsResponse> {
-  return apiGet<LogsResponse>(`/incidents/emergency?${buildParams(timeRange, limit, before)}`)
+  return apiGet<LogsResponse>(
+    `/incidents/emergency?${_buildParams(timeRange, limit, before)}`,
+    options
+  )
 }
 
 /**
