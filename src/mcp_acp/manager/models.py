@@ -362,14 +362,17 @@ class ProxyRuntimeInfo(FrozenModel):
 class ProxyStats(FrozenModel):
     """Request statistics for a proxy.
 
-    Only counts policy-evaluated requests (tools/call). Discovery requests
-    (tools/list, resources/list, etc.) are not included in these counts.
+    Tracks all requests through the proxy including discovery (tools/list,
+    resources/list, etc.) and policy-evaluated requests (tools/call).
 
     Attributes:
-        requests_total: Total policy-evaluated requests (= allowed + denied + hitl).
-        requests_allowed: Requests allowed by policy.
-        requests_denied: Requests denied by policy.
-        requests_hitl: Requests that triggered HITL approval dialog.
+        requests_total: All requests through the proxy (discovery + policy-evaluated).
+        requests_allowed: Policy-evaluated requests allowed by policy.
+        requests_denied: Policy-evaluated requests denied by policy.
+        requests_hitl: Policy-evaluated requests that triggered HITL approval.
+
+    Note: requests_total >= requests_allowed + requests_denied + requests_hitl
+    because total includes discovery requests which bypass policy evaluation.
     """
 
     requests_total: int

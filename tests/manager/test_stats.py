@@ -153,11 +153,65 @@ class TestRecordDecision:
         assert proxy_state.get_stats().requests_total == 0
 
 
-class TestStatsInvariant:
-    """Tests for the stats invariant: total == allowed + denied + hitl."""
+class TestRecordDiscovery:
+    """Tests for record_discovery()."""
 
-    def test_invariant_holds_after_mixed_operations(self, proxy_state: ProxyState) -> None:
-        """Total equals sum of decision counters after mixed operations."""
+    def test_increments_total(self, proxy_state: ProxyState) -> None:
+        """record_discovery increments requests_total."""
+        assert proxy_state.get_stats().requests_total == 0
+
+        proxy_state.record_discovery()
+        assert proxy_state.get_stats().requests_total == 1
+
+        proxy_state.record_discovery()
+        assert proxy_state.get_stats().requests_total == 2
+
+    def test_does_not_increment_decision_counters(self, proxy_state: ProxyState) -> None:
+        """record_discovery only affects requests_total, not decision counters."""
+        proxy_state.record_discovery()
+        proxy_state.record_discovery()
+
+        stats = proxy_state.get_stats()
+        assert stats.requests_total == 2
+        assert stats.requests_allowed == 0
+        assert stats.requests_denied == 0
+        assert stats.requests_hitl == 0
+
+    @pytest.mark.asyncio
+    async def test_emits_sse_event(self, proxy_state: ProxyState) -> None:
+        """record_discovery emits SSE events when UI is connected."""
+        queue = proxy_state.subscribe()
+
+        proxy_state.record_discovery()
+
+        # Should have received stats_updated event
+        event = queue.get_nowait()
+        assert event["type"] == SSEEventType.STATS_UPDATED.value
+        assert event["stats"]["requests_total"] == 1
+
+        # Also emits NEW_LOG_ENTRIES event
+        event2 = queue.get_nowait()
+        assert event2["type"] == SSEEventType.NEW_LOG_ENTRIES.value
+
+        proxy_state.unsubscribe(queue)
+
+    def test_no_event_when_no_subscribers(self, proxy_state: ProxyState) -> None:
+        """No SSE event emitted when no UI is connected."""
+        assert not proxy_state.is_ui_connected
+
+        # Should not raise or emit anything
+        proxy_state.record_discovery()
+
+
+class TestStatsInvariant:
+    """Tests for the stats invariant: total >= allowed + denied + hitl.
+
+    Note: total >= (not ==) because discovery requests are counted in total
+    but don't have policy decisions (allowed/denied/hitl).
+    """
+
+    def test_invariant_holds_with_policy_only(self, proxy_state: ProxyState) -> None:
+        """Total equals sum when only policy-evaluated requests."""
         # Simulate typical middleware flow: record_request + record_decision together
         for _ in range(5):
             proxy_state.record_request()
@@ -177,6 +231,25 @@ class TestStatsInvariant:
         assert stats.requests_denied == 3
         assert stats.requests_hitl == 2
         assert stats.requests_total == stats.requests_allowed + stats.requests_denied + stats.requests_hitl
+
+    def test_invariant_holds_with_discovery(self, proxy_state: ProxyState) -> None:
+        """Total >= sum when discovery requests are included."""
+        # Policy-evaluated requests
+        for _ in range(5):
+            proxy_state.record_request()
+            proxy_state.record_decision(Decision.ALLOW)
+
+        # Discovery requests (no decision)
+        for _ in range(3):
+            proxy_state.record_discovery()
+
+        stats = proxy_state.get_stats()
+        assert stats.requests_total == 8  # 5 policy + 3 discovery
+        assert stats.requests_allowed == 5
+        assert stats.requests_denied == 0
+        assert stats.requests_hitl == 0
+        # Total > sum because of discovery
+        assert stats.requests_total >= stats.requests_allowed + stats.requests_denied + stats.requests_hitl
 
 
 class TestSSEEvents:

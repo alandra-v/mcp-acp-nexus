@@ -408,10 +408,15 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_eval_ms=eval_duration_ms,
         )
 
-        # Record stats for live UI updates (skip discovery - only count policy-evaluated)
-        if self._hitl_handler.proxy_state is not None and final_rule != "discovery_bypass":
-            self._hitl_handler.proxy_state.record_request()
-            self._hitl_handler.proxy_state.record_decision(Decision.ALLOW)
+        # Record stats for live UI updates
+        if self._hitl_handler.proxy_state is not None:
+            if final_rule == "discovery_bypass":
+                # Discovery requests count toward total but have no policy decision
+                self._hitl_handler.proxy_state.record_discovery()
+            else:
+                # Policy-evaluated requests track both total and decision
+                self._hitl_handler.proxy_state.record_request()
+                self._hitl_handler.proxy_state.record_decision(Decision.ALLOW)
 
         # Execute backend call with error detection for SSE events
         # NOTE: Connection errors during get_tools() (before middleware runs) are caught
