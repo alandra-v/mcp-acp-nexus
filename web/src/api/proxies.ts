@@ -7,12 +7,13 @@
  */
 
 import { apiGet, apiPost, type RequestOptions } from './client'
-import { APP_NAME } from '@/constants'
 import type {
   Proxy,
   EnhancedProxy,
+  ProxyDetailResponse,
   CreateProxyRequest,
   CreateProxyResponse,
+  ConfigSnippetResponse,
 } from '@/types/api'
 
 // =============================================================================
@@ -25,7 +26,21 @@ import type {
  * Shows all configured proxies, not just running ones.
  */
 export async function getManagerProxies(options?: RequestOptions): Promise<EnhancedProxy[]> {
-  return apiGet<EnhancedProxy[]>('/api/manager/proxies', options)
+  return apiGet<EnhancedProxy[]>('/manager/proxies', options)
+}
+
+/**
+ * Get full proxy detail by proxy_id.
+ * Returns config + runtime data including pending/cached approvals.
+ */
+export async function getProxyDetail(
+  proxyId: string,
+  options?: RequestOptions
+): Promise<ProxyDetailResponse> {
+  return apiGet<ProxyDetailResponse>(
+    `/manager/proxies/${encodeURIComponent(proxyId)}`,
+    options
+  )
 }
 
 /**
@@ -36,35 +51,21 @@ export async function createProxy(
   request: CreateProxyRequest,
   options?: RequestOptions
 ): Promise<CreateProxyResponse> {
-  return apiPost<CreateProxyResponse>('/api/manager/proxies', request, options)
+  return apiPost<CreateProxyResponse>('/manager/proxies', request, options)
 }
 
 /**
- * Generate Claude Desktop config snippet for a proxy.
- * Used for copy-to-clipboard functionality.
+ * Get Claude Desktop config snippet from backend.
+ * Uses full executable path for reliable config.
+ *
+ * @param proxy - Optional proxy name. If omitted, returns all proxies.
  */
-export function generateClaudeDesktopSnippet(proxyName: string): Record<string, unknown> {
-  return {
-    [proxyName]: {
-      command: APP_NAME,
-      args: ['start', '--proxy', proxyName],
-    },
-  }
-}
-
-/**
- * Generate Claude Desktop config snippet for all proxies.
- * Used for "Export All Configs" functionality.
- */
-export function generateAllProxiesSnippet(proxies: EnhancedProxy[]): Record<string, unknown> {
-  const mcpServers: Record<string, unknown> = {}
-  for (const proxy of proxies) {
-    mcpServers[proxy.proxy_name] = {
-      command: APP_NAME,
-      args: ['start', '--proxy', proxy.proxy_name],
-    }
-  }
-  return { mcpServers }
+export async function getConfigSnippet(
+  proxy?: string,
+  options?: RequestOptions
+): Promise<ConfigSnippetResponse> {
+  const url = proxy ? `/manager/config-snippet?proxy=${encodeURIComponent(proxy)}` : '/manager/config-snippet'
+  return apiGet<ConfigSnippetResponse>(url, options)
 }
 
 // =============================================================================

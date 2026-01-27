@@ -37,8 +37,17 @@ export interface EnhancedProxy {
   instance_id: string | null
   server_name: string
   transport: TransportType
+  command: string | null
+  args: string[] | null
+  url: string | null
   created_at: string
   stats: ProxyStats | null
+}
+
+/** Full proxy detail from GET /api/manager/proxies/{proxy_id} */
+export interface ProxyDetailResponse extends EnhancedProxy {
+  pending_approvals: PendingApproval[] | null
+  cached_approvals: CachedApproval[] | null
 }
 
 /** Request to create a new proxy via POST /api/manager/proxies */
@@ -72,6 +81,12 @@ export interface CreateProxyResponse {
   policy_path: string | null
   claude_desktop_snippet: Record<string, { command: string; args: string[] }> | null
   message: string
+}
+
+/** Response from GET /api/manager/config-snippet */
+export interface ConfigSnippetResponse {
+  mcpServers: Record<string, { command: string; args: string[] }>
+  executable_path: string
 }
 
 /** Aggregated incidents response from GET /api/manager/incidents */
