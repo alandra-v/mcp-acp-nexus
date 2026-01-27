@@ -267,9 +267,9 @@ def status(as_json: bool) -> None:
         click.echo(style_label("Proxies"))
         if proxies:
             for proxy in proxies:
-                name = proxy.get("name", "unknown")
-                instance_id = proxy.get("instance_id", "")[:8]
-                connected_at = proxy.get("connected_at", "")
+                name = proxy.get("proxy_name") or proxy.get("name") or "unknown"
+                instance_id = (proxy.get("instance_id") or "")[:8]
+                connected_at = proxy.get("connected_at") or ""
                 click.echo(f"  {name} ({instance_id}) - connected {connected_at}")
         else:
             click.echo("  No proxies registered")
