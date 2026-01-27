@@ -7,7 +7,8 @@ API Response Models (FrozenModel-based):
 - ManagerStatusResponse: Manager health status
 - RegisteredProxyInfo: Manager's view of a registered proxy
 - CachedApprovalSummary: Cached approval for API responses
-- ProxyInfo: Full proxy runtime information
+- Proxy: Proxy info for manager list endpoint
+- ProxyRuntimeInfo: Full proxy runtime information (internal API)
 - ProxyStats: Request statistics
 - PendingApprovalInfo: Pending approval for API/SSE
 
@@ -30,12 +31,12 @@ __all__ = [
     "ConfigSnippetResponse",
     "CreateProxyRequest",
     "CreateProxyResponse",
-    "EnhancedProxyInfo",
     "FrozenModel",
     "ManagerStatusResponse",
     "PendingApprovalInfo",
+    "Proxy",
     "ProxyDetailResponse",
-    "ProxyInfo",
+    "ProxyRuntimeInfo",
     "ProxyStats",
     "RegisteredProxyInfo",
     # Logging Models
@@ -49,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # Type aliases for constrained values
 TransportType = Literal["stdio", "streamablehttp", "auto"]
-ProxyStatus = Literal["running", "stopped"]
+ProxyStatus = Literal["running", "inactive"]
 IncidentType = Literal["shutdown", "bootstrap", "emergency"]
 
 
@@ -212,15 +213,15 @@ class CreateProxyResponse(FrozenModel):
     message: str
 
 
-class EnhancedProxyInfo(FrozenModel):
-    """Enhanced proxy information combining config and runtime data.
+class Proxy(FrozenModel):
+    """Proxy information combining config and runtime data.
 
     Used by GET /api/manager/proxies to provide a complete view of each proxy.
 
     Attributes:
         proxy_name: User-defined proxy name (directory name).
         proxy_id: Stable proxy identifier from config.
-        status: Current status ('running' if registered, 'stopped' otherwise).
+        status: Current status ('running' if registered, 'inactive' otherwise).
         instance_id: Unique instance ID (None if not running).
         server_name: Backend server name from config.
         transport: Transport type (stdio, streamablehttp, auto).
@@ -228,6 +229,8 @@ class EnhancedProxyInfo(FrozenModel):
         args: Command arguments (for stdio/auto transport).
         url: Backend URL (for streamablehttp/auto transport).
         created_at: ISO timestamp of proxy creation.
+        backend_transport: Actual backend transport in use (stdio or streamablehttp).
+        mtls_enabled: Whether mTLS is enabled for backend connection.
         stats: Request statistics (None if not running).
     """
 
@@ -241,42 +244,24 @@ class EnhancedProxyInfo(FrozenModel):
     args: list[str] | None = None
     url: str | None = None
     created_at: str
+    backend_transport: str = "stdio"
+    mtls_enabled: bool = False
     stats: "ProxyStats | None" = None  # Forward reference - ProxyStats defined later
 
 
-class ProxyDetailResponse(FrozenModel):
+class ProxyDetailResponse(Proxy):
     """Full proxy detail including config and runtime data.
 
+    Extends Proxy with additional runtime data from proxy UDS.
     Returned by GET /api/manager/proxies/{proxy_id}.
-    Combines static config with live runtime data from proxy UDS.
 
     Attributes:
-        proxy_name: User-defined proxy name (directory name).
-        proxy_id: Stable proxy identifier from config.
-        status: Current status ('running' or 'stopped').
-        instance_id: Unique instance ID (None if not running).
-        server_name: Backend server name from config.
-        transport: Transport type (stdio, streamablehttp, auto).
-        command: Command to run (for stdio/auto transport).
-        args: Command arguments (for stdio/auto transport).
-        url: Backend URL (for streamablehttp/auto transport).
-        created_at: ISO timestamp of proxy creation.
-        stats: Request statistics (None if not running).
+        client_id: MCP client application name (None if not running).
         pending_approvals: Pending HITL approvals (None if not running).
         cached_approvals: Cached approvals (None if not running).
     """
 
-    proxy_name: str
-    proxy_id: str
-    status: ProxyStatus
-    instance_id: str | None = None
-    server_name: str
-    transport: TransportType
-    command: str | None = None
-    args: list[str] | None = None
-    url: str | None = None
-    created_at: str
-    stats: "ProxyStats | None" = None
+    client_id: str | None = None
     pending_approvals: list[dict[str, Any]] | None = None
     cached_approvals: list[dict[str, Any]] | None = None
 
@@ -299,7 +284,7 @@ class RegisteredProxyInfo(FrozenModel):
     """API response model for a registered proxy.
 
     This is the manager's view of a proxy - minimal registration info.
-    For full proxy details (transport, stats), use ProxyInfo which
+    For full proxy details (transport, stats), use ProxyRuntimeInfo which
     is returned by the proxy itself.
 
     Attributes:
@@ -334,11 +319,12 @@ class CachedApprovalSummary(FrozenModel):
     expires_in_seconds: float
 
 
-class ProxyInfo(FrozenModel):
-    """Information about a running proxy.
+class ProxyRuntimeInfo(FrozenModel):
+    """Runtime information about a running proxy (internal API).
 
     Contains full runtime information about a proxy instance,
     including transport configuration, status, and timing.
+    Used by per-proxy /api/proxies endpoint.
 
     Attributes:
         id: Unique proxy ID in format {uuid}:{backend_id}.

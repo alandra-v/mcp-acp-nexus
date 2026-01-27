@@ -9,17 +9,17 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getManagerProxies } from '@/api/proxies'
 import { notifyError } from '@/hooks/useErrorSound'
 import { SSE_EVENTS } from '@/constants'
-import type { EnhancedProxy } from '@/types/api'
+import type { Proxy } from '@/types/api'
 
 export interface UseManagerProxiesResult {
-  proxies: EnhancedProxy[]
+  proxies: Proxy[]
   loading: boolean
   error: Error | null
   refetch: () => Promise<void>
 }
 
 export function useManagerProxies(): UseManagerProxiesResult {
-  const [proxies, setProxies] = useState<EnhancedProxy[]>([])
+  const [proxies, setProxies] = useState<Proxy[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const hasShownErrorRef = useRef(false)

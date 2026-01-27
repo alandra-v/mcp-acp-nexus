@@ -7,33 +7,14 @@ export interface ProxyStats {
   requests_hitl: number
 }
 
-/** Runtime proxy info from a running proxy's /api/proxies endpoint */
-export interface Proxy {
-  id: string
-  backend_id: string
-  status: 'running' | 'stopped' | 'error'
-  started_at: string
-  pid: number
-  api_port: number
-  uptime_seconds: number
-  command: string | null
-  args: string[] | null
-  url: string | null
-  client_transport: 'stdio' | 'sse' | 'streamable-http'
-  backend_transport: 'stdio' | 'streamablehttp'
-  mtls_enabled: boolean
-  client_id: string | null
-  stats: ProxyStats
-}
-
 /** Transport type for proxy configuration */
 export type TransportType = 'stdio' | 'streamablehttp' | 'auto'
 
-/** Enhanced proxy info from manager's /api/manager/proxies endpoint */
-export interface EnhancedProxy {
+/** Proxy info from manager's /api/manager/proxies endpoint */
+export interface Proxy {
   proxy_name: string
   proxy_id: string
-  status: 'running' | 'stopped'
+  status: 'running' | 'inactive'
   instance_id: string | null
   server_name: string
   transport: TransportType
@@ -41,11 +22,16 @@ export interface EnhancedProxy {
   args: string[] | null
   url: string | null
   created_at: string
+  /** Actual backend transport in use (resolved from 'auto' if needed) */
+  backend_transport: 'stdio' | 'streamablehttp'
+  /** Whether mTLS is enabled for backend connection */
+  mtls_enabled: boolean
   stats: ProxyStats | null
 }
 
 /** Full proxy detail from GET /api/manager/proxies/{proxy_id} */
-export interface ProxyDetailResponse extends EnhancedProxy {
+export interface ProxyDetailResponse extends Proxy {
+  client_id: string | null
   pending_approvals: PendingApproval[] | null
   cached_approvals: CachedApproval[] | null
 }

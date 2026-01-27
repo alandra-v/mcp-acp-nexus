@@ -4,6 +4,7 @@ from __future__ import annotations
 
 __all__ = [
     "build_filters_applied",
+    "count_entries_and_latest",
     "extract_versions",
     "get_cutoff_time",
     "get_log_base_path",
@@ -331,6 +332,46 @@ def read_jsonl_filtered(
             break
 
     return entries, has_more, scanned
+
+
+def count_entries_and_latest(log_path: Path) -> tuple[int, str | None]:
+    """Count entries in a JSONL file and find the latest timestamp.
+
+    Scans the entire file to count entries and track the maximum timestamp.
+    Used for incident summary calculations.
+
+    Args:
+        log_path: Path to the JSONL log file.
+
+    Returns:
+        Tuple of (entry_count, latest_timestamp).
+        Returns (0, None) if file doesn't exist or can't be read.
+    """
+    if not log_path.exists():
+        return 0, None
+
+    count = 0
+    latest: str | None = None
+
+    try:
+        with log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                count += 1
+                try:
+                    entry = json.loads(line)
+                    time_val = entry.get("time")
+                    if time_val:
+                        if latest is None or time_val > latest:
+                            latest = time_val
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return 0, None
+
+    return count, latest
 
 
 # =============================================================================

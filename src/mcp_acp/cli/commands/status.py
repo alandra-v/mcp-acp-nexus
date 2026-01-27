@@ -114,7 +114,7 @@ def _show_all_proxies_status(as_json: bool) -> None:
             if is_running:
                 status_str = click.style("running", fg="green")
             else:
-                status_str = click.style("stopped", fg="red")
+                status_str = click.style("inactive", fg="yellow")
             click.echo(f"  {name:20} {status_str}")
         click.echo()
         click.echo(f"{running_count}/{len(proxies)} proxies running")
@@ -131,7 +131,7 @@ def _print_status_formatted(result: dict[str, Any]) -> None:
     if running:
         click.echo(click.style("Proxy: Running", fg="green", bold=True))
     else:
-        click.echo(click.style("Proxy: Not running", fg="red", bold=True))
+        click.echo(click.style("Proxy: Inactive", fg="yellow", bold=True))
         return
 
     # Uptime

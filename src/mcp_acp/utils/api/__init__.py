@@ -7,6 +7,7 @@ Provides shared utilities for API routes including:
 
 from mcp_acp.utils.api.log_reader import (
     build_filters_applied,
+    count_entries_and_latest,
     extract_versions,
     get_cutoff_time,
     get_log_base_path,
@@ -26,6 +27,7 @@ __all__ = [
     "LOG_PATHS",
     # log_reader.py
     "build_filters_applied",
+    "count_entries_and_latest",
     "extract_versions",
     "get_cutoff_time",
     "get_log_base_path",

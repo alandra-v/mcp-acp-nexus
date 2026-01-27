@@ -112,9 +112,9 @@ def _display_proxy_summary(name: str, config: PerProxyConfig, is_running: bool) 
 
     # Running status
     if is_running:
-        click.echo(f"    Status: {click.style('connected', fg='green')} ●")
+        click.echo(f"    Status: {click.style('running', fg='green')} ●")
     else:
-        click.echo(f"    Status: {style_dim('not running')} ○")
+        click.echo(f"    Status: {click.style('inactive', fg='yellow')} ○")
 
 
 # =============================================================================
@@ -147,9 +147,9 @@ def proxy_show(name: str) -> None:
     click.echo(f"  ID: {config.proxy_id}")
     click.echo(f"  Created: {config.created_at}")
     if is_running:
-        click.echo(f"  Status: {click.style('connected', fg='green')} ●")
+        click.echo(f"  Status: {click.style('running', fg='green')} ●")
     else:
-        click.echo(f"  Status: {style_dim('not running')} ○")
+        click.echo(f"  Status: {click.style('inactive', fg='yellow')} ○")
     click.echo()
 
     # Backend

@@ -29,7 +29,7 @@ from mcp_acp.manager.events import EventSeverity, SSEEventType
 from mcp_acp.manager.models import (
     CachedApprovalSummary,
     PendingApprovalInfo,
-    ProxyInfo,
+    ProxyRuntimeInfo,
     ProxyStats,
 )
 from mcp_acp.manager.pending import PendingApprovalRequest
@@ -164,14 +164,14 @@ class ProxyState:
         if self._client_id is None:
             self._client_id = client_id
 
-    def get_proxy_info(self) -> ProxyInfo:
+    def get_proxy_info(self) -> ProxyRuntimeInfo:
         """Get current proxy information.
 
         Returns:
-            ProxyInfo with current status and metrics.
+            ProxyRuntimeInfo with current status and metrics.
         """
         now = datetime.now(UTC)
-        return ProxyInfo(
+        return ProxyRuntimeInfo(
             id=self._id,
             backend_id=self._backend_id,
             status="running",

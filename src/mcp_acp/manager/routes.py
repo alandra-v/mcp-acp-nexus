@@ -84,16 +84,17 @@ from mcp_acp.manager.models import (
     ConfigSnippetResponse,
     CreateProxyRequest,
     CreateProxyResponse,
-    EnhancedProxyInfo,
+    Proxy,
     IncidentType,
     ManagerStatusResponse,
     ProxyDetailResponse,
     ProxyStats,
 )
+from mcp_acp.api.schemas import IncidentsSummary
 from mcp_acp.manager.registry import ProxyConnection, ProxyRegistry, get_proxy_registry
 from mcp_acp.pdp import create_default_policy
 from mcp_acp.security.integrity.emergency_audit import get_emergency_audit_path
-from mcp_acp.utils.api import get_cutoff_time, parse_timestamp, read_jsonl_filtered
+from mcp_acp.utils.api import count_entries_and_latest, get_cutoff_time, parse_timestamp, read_jsonl_filtered
 from mcp_acp.utils.config import get_config_dir
 from mcp_acp.utils.policy import save_policy
 from mcp_acp.utils.validation import SHA256_HEX_LENGTH, validate_sha256_hex
@@ -186,35 +187,36 @@ async def fetch_proxy_snapshots(
         client: HTTP client configured for UDS communication.
 
     Returns:
-        Dict with keys: pending, cached, stats. Each may be None on error.
+        Dict with keys: pending, cached, stats, client_id. Each may be None on error.
     """
-    result: dict[str, Any] = {"pending": None, "cached": None, "stats": None}
+    result: dict[str, Any] = {"pending": None, "cached": None, "stats": None, "client_id": None}
 
     # Fetch pending approvals
     try:
         resp = await client.get("/api/approvals/pending/list")
         if resp.status_code == 200:
             result["pending"] = resp.json()
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError):
-        pass  # Expected during startup race
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
+        _logger.debug("Pending approvals fetch failed (expected during startup): %s", e)
 
     # Fetch cached approvals
     try:
         resp = await client.get("/api/approvals/cached")
         if resp.status_code == 200:
             result["cached"] = resp.json()
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError):
-        pass  # Expected during startup race
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
+        _logger.debug("Cached approvals fetch failed (expected during startup): %s", e)
 
-    # Fetch stats from /api/proxies (stats included in proxy response)
+    # Fetch stats and client_id from /api/proxies
     try:
         resp = await client.get("/api/proxies")
         if resp.status_code == 200:
             proxies = resp.json()
             if proxies and len(proxies) > 0:
                 result["stats"] = proxies[0].get("stats")
-    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError):
-        pass  # Expected during startup race
+                result["client_id"] = proxies[0].get("client_id")
+    except (httpx.HTTPError, httpx.TimeoutException, json.JSONDecodeError) as e:
+        _logger.debug("Proxy info fetch failed (expected during startup): %s", e)
 
     return result
 
@@ -475,8 +477,8 @@ def create_manager_api_app(
             proxies_connected=await reg.proxy_count(),
         )
 
-    @app.get("/api/manager/proxies", response_model=list[EnhancedProxyInfo])
-    async def list_proxies_enhanced(request: Request) -> list[EnhancedProxyInfo]:
+    @app.get("/api/manager/proxies", response_model=list[Proxy])
+    async def list_proxies_enhanced(request: Request) -> list[Proxy]:
         """List all configured proxies with config and runtime data.
 
         Returns enhanced proxy information combining:
@@ -551,7 +553,7 @@ def create_manager_api_app(
                 stats_by_name[proxy_name] = stats_result
 
         # Build result
-        result: list[EnhancedProxyInfo] = []
+        result: list[Proxy] = []
         for proxy_name, config in configs.items():
             reg_info = registered_by_name.get(proxy_name)
             is_running = reg_info is not None
@@ -566,11 +568,18 @@ def create_manager_api_app(
             if config.backend.http:
                 url = config.backend.http.url
 
+            # Determine actual backend transport
+            # - "auto" resolves to stdio if command present, else streamablehttp
+            # - explicit transport types are used as-is
+            backend_transport = config.backend.transport
+            if backend_transport == "auto":
+                backend_transport = "stdio" if config.backend.stdio else "streamablehttp"
+
             result.append(
-                EnhancedProxyInfo(
+                Proxy(
                     proxy_name=proxy_name,
                     proxy_id=config.proxy_id,
-                    status="running" if is_running else "stopped",
+                    status="running" if is_running else "inactive",
                     instance_id=reg_info.get("instance_id") if reg_info else None,
                     server_name=config.backend.server_name,
                     transport=config.backend.transport,
@@ -578,6 +587,8 @@ def create_manager_api_app(
                     args=args if args else None,
                     url=url,
                     created_at=config.created_at,
+                    backend_transport=backend_transport,
+                    mtls_enabled=config.mtls is not None,
                     stats=stats_by_name.get(proxy_name),
                 )
             )
@@ -645,8 +656,14 @@ def create_manager_api_app(
         if config.backend.http:
             url = config.backend.http.url
 
+        # Determine actual backend transport
+        backend_transport = config.backend.transport
+        if backend_transport == "auto":
+            backend_transport = "stdio" if config.backend.stdio else "streamablehttp"
+
         # Fetch runtime data if running
         stats = None
+        client_id = None
         pending_approvals = None
         cached_approvals = None
 
@@ -668,6 +685,9 @@ def create_manager_api_app(
                             requests_hitl=snapshots["stats"].get("requests_hitl", 0),
                         )
 
+                    # Extract client_id
+                    client_id = snapshots.get("client_id")
+
                     # Extract pending approvals
                     pending_approvals = snapshots["pending"]
 
@@ -675,13 +695,13 @@ def create_manager_api_app(
                     if snapshots["cached"]:
                         cached_approvals = snapshots["cached"].get("approvals", [])
 
-            except (httpx.ConnectError, OSError, httpx.TimeoutException):
-                pass  # Failed to fetch runtime data
+            except (httpx.ConnectError, OSError, httpx.TimeoutException) as e:
+                _logger.debug("Runtime data fetch failed for proxy '%s': %s", proxy_name, e)
 
         return ProxyDetailResponse(
             proxy_name=proxy_name,
             proxy_id=config.proxy_id,
-            status="running" if is_running else "stopped",
+            status="running" if is_running else "inactive",
             instance_id=reg_info.get("instance_id") if reg_info else None,
             server_name=config.backend.server_name,
             transport=config.backend.transport,
@@ -689,7 +709,10 @@ def create_manager_api_app(
             args=args if args else None,
             url=url,
             created_at=config.created_at,
+            backend_transport=backend_transport,
+            mtls_enabled=config.mtls is not None,
             stats=stats,
+            client_id=client_id,
             pending_approvals=pending_approvals,
             cached_approvals=cached_approvals,
         )
@@ -899,6 +922,7 @@ def create_manager_api_app(
         cutoff_time: datetime | None,
         before_dt: datetime | None,
         proxy_name: str | None = None,
+        proxy_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Fetch incidents from a log file and annotate with type.
 
@@ -909,9 +933,10 @@ def create_manager_api_app(
             cutoff_time: Time cutoff for filtering.
             before_dt: Pagination cursor.
             proxy_name: Proxy name to annotate (for per-proxy logs).
+            proxy_id: Proxy ID to annotate (for correlation).
 
         Returns:
-            List of incident entries with incident_type (and proxy_name if provided).
+            List of incident entries with incident_type and proxy info.
         """
         entries, _, _ = read_jsonl_filtered(
             log_path,
@@ -923,7 +948,11 @@ def create_manager_api_app(
         for entry in entries:
             # Copy entry to avoid mutating original
             annotated = {**entry, "incident_type": incident_type}
-            if proxy_name is not None:
+            # Add proxy info if provided (for per-proxy logs)
+            # Preserve existing values from entry (for emergency audit which has them embedded)
+            if proxy_id is not None and "proxy_id" not in annotated:
+                annotated["proxy_id"] = proxy_id
+            if proxy_name is not None and "proxy_name" not in annotated:
                 annotated["proxy_name"] = proxy_name
             result.append(annotated)
         return result
@@ -958,26 +987,51 @@ def create_manager_api_app(
 
         all_entries: list[dict[str, Any]] = []
 
+        # Build proxy info cache (name -> id) for annotation
+        proxy_names_to_fetch = [proxy] if proxy else list_configured_proxies()
+        proxy_id_map: dict[str, str] = {}
+        for pname in proxy_names_to_fetch:
+            try:
+                config = load_proxy_config(pname)
+                proxy_id_map[pname] = config.proxy_id
+            except (FileNotFoundError, ValueError, OSError):
+                pass  # Skip if config can't be loaded
+
         # Collect shutdowns from all proxies (per-proxy log dirs)
         if incident_type is None or incident_type == "shutdown":
-            proxy_names = [proxy] if proxy else list_configured_proxies()
-            for proxy_name in proxy_names:
+            for proxy_name in proxy_names_to_fetch:
                 log_dir = get_proxy_log_dir(proxy_name, manager_config)
                 shutdowns_path = log_dir / "shutdowns.jsonl"
                 all_entries.extend(
                     _fetch_incidents(
-                        shutdowns_path, "shutdown", fetch_limit, cutoff_time, before_dt, proxy_name
+                        shutdowns_path,
+                        "shutdown",
+                        fetch_limit,
+                        cutoff_time,
+                        before_dt,
+                        proxy_name=proxy_name,
+                        proxy_id=proxy_id_map.get(proxy_name),
                     )
                 )
 
-        # Collect bootstrap errors (global - config dir)
+        # Collect bootstrap errors from all proxies (per-proxy directories)
         if incident_type is None or incident_type == "bootstrap":
-            bootstrap_path = get_config_dir() / "bootstrap.jsonl"
-            all_entries.extend(
-                _fetch_incidents(bootstrap_path, "bootstrap", fetch_limit, cutoff_time, before_dt)
-            )
+            for proxy_name in proxy_names_to_fetch:
+                proxy_dir = get_proxy_config_path(proxy_name).parent
+                bootstrap_path = proxy_dir / "bootstrap.jsonl"
+                all_entries.extend(
+                    _fetch_incidents(
+                        bootstrap_path,
+                        "bootstrap",
+                        fetch_limit,
+                        cutoff_time,
+                        before_dt,
+                        proxy_name=proxy_name,
+                        proxy_id=proxy_id_map.get(proxy_name),
+                    )
+                )
 
-        # Collect emergency audit (global - config dir)
+        # Collect emergency audit (global - has proxy_id/proxy_name embedded in entries)
         if incident_type is None or incident_type == "emergency":
             emergency_path = get_emergency_audit_path()
             all_entries.extend(
@@ -1003,6 +1057,57 @@ def create_manager_api_app(
             total_returned=len(entries_to_return),
             has_more=has_more,
             filters_applied=filters_applied,
+        )
+
+    @app.get("/api/manager/incidents/summary", response_model=IncidentsSummary)
+    async def get_incidents_summary() -> IncidentsSummary:
+        """Get aggregated incidents summary from all proxies.
+
+        Combines shutdown counts from all proxy log directories with
+        global bootstrap and emergency counts.
+
+        Returns:
+            IncidentsSummary with counts and latest critical timestamp.
+        """
+        manager_config = load_manager_config()
+
+        # Count shutdowns from all proxies
+        shutdowns_count = 0
+        shutdowns_latest: str | None = None
+        proxy_names = list_configured_proxies()
+        for proxy_name in proxy_names:
+            log_dir = get_proxy_log_dir(proxy_name, manager_config)
+            shutdowns_path = log_dir / "shutdowns.jsonl"
+            count, latest = count_entries_and_latest(shutdowns_path)
+            shutdowns_count += count
+            if latest and (shutdowns_latest is None or latest > shutdowns_latest):
+                shutdowns_latest = latest
+
+        # Count bootstrap from all proxies (per-proxy directories)
+        bootstrap_count = 0
+        for proxy_name in proxy_names:
+            proxy_dir = get_proxy_config_path(proxy_name).parent
+            bootstrap_path = proxy_dir / "bootstrap.jsonl"
+            count, _ = count_entries_and_latest(bootstrap_path)
+            bootstrap_count += count
+
+        # Count emergency (global)
+        emergency_path = get_emergency_audit_path()
+        emergency_count, emergency_latest = count_entries_and_latest(emergency_path)
+
+        # Latest critical timestamp (shutdowns + emergency, not bootstrap)
+        critical_timestamps = [t for t in [shutdowns_latest, emergency_latest] if t]
+        latest_critical = max(critical_timestamps) if critical_timestamps else None
+
+        return IncidentsSummary(
+            shutdowns_count=shutdowns_count,
+            emergency_count=emergency_count,
+            bootstrap_count=bootstrap_count,
+            latest_critical_timestamp=latest_critical,
+            # Paths not meaningful for aggregated summary (per-proxy files)
+            shutdowns_path=None,
+            emergency_path=str(emergency_path) if emergency_path.exists() else None,
+            bootstrap_path=None,
         )
 
     # ==========================================================================

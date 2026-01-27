@@ -69,7 +69,8 @@ from .events import (
 from .models import (
     CachedApprovalSummary,
     PendingApprovalInfo,
-    ProxyInfo,
+    Proxy,
+    ProxyRuntimeInfo,
     ProxyStats,
 )
 
@@ -114,7 +115,8 @@ __all__ = [
     # Models
     "CachedApprovalSummary",
     "PendingApprovalInfo",
-    "ProxyInfo",
+    "Proxy",
+    "ProxyRuntimeInfo",
     "ProxyStats",
     # Pending
     "PendingApprovalRequest",
