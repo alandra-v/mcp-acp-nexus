@@ -20,9 +20,17 @@ export function AuthDropdown() {
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
   const [logoutType, setLogoutType] = useState<LogoutType>('local')
 
+  const isConfigured = status?.configured ?? false
   const isAuthenticated = status?.authenticated ?? false
   const hasProvider = !!status?.provider
-  const displayName = status?.email || status?.name || (isAuthenticated ? 'Authenticated' : 'Not logged in')
+
+  // Display name logic:
+  // - If authenticated: show email/name
+  // - If not configured: show "Auth disabled"
+  // - Otherwise: show "Not logged in"
+  const displayName = isAuthenticated
+    ? (status?.email || status?.name || 'Authenticated')
+    : (isConfigured ? 'Not logged in' : 'Auth disabled')
 
   const handleLogoutClick = useCallback(() => {
     setLogoutType('local')
@@ -55,7 +63,9 @@ export function AuthDropdown() {
               'w-2 h-2 rounded-full',
               isAuthenticated
                 ? 'bg-success shadow-[0_0_6px_var(--success-border)]'
-                : 'bg-error-indicator shadow-[0_0_6px_var(--error-indicator)]'
+                : isConfigured
+                  ? 'bg-error-indicator shadow-[0_0_6px_var(--error-indicator)]'
+                  : 'bg-base-600'
             )}
           />
           <span className={loading ? 'opacity-50' : ''}>

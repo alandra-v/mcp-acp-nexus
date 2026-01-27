@@ -30,8 +30,9 @@ export function useAuth(): UseAuthReturn {
       const data = await getAuthStatus()
       setStatus(data)
     } catch {
-      // Set unauthenticated on error
+      // Set not configured on error (can't reach manager)
       setStatus({
+        configured: false,
         authenticated: false,
         subject_id: null,
         email: null,

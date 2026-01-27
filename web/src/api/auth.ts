@@ -1,6 +1,7 @@
 import { apiGet, apiPost } from './client'
 
 export interface AuthStatus {
+  configured: boolean
   authenticated: boolean
   subject_id: string | null
   email: string | null
@@ -37,7 +38,7 @@ export interface FederatedLogoutResponse {
 }
 
 export async function getAuthStatus(): Promise<AuthStatus> {
-  return apiGet<AuthStatus>('/auth/status')
+  return apiGet<AuthStatus>('/manager/auth/status')
 }
 
 export async function startLogin(): Promise<DeviceFlowStart> {
