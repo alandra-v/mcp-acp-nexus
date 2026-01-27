@@ -32,6 +32,7 @@ vi.mock('@/hooks/useErrorSound', () => ({
 
 describe('useAuth', () => {
   const mockAuthStatus: authApi.AuthStatus = {
+    configured: true,
     authenticated: true,
     subject_id: 'user-123',
     email: 'user@example.com',

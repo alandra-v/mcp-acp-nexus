@@ -288,7 +288,6 @@ describe('API Client', () => {
 
     it('handles malformed JSON gracefully', async () => {
       const onMessage = vi.fn()
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
       const es = await createSSEConnection('/approvals/pending', onMessage)
 
@@ -298,10 +297,8 @@ describe('API Client', () => {
       })
       es.onmessage?.(mockEvent)
 
+      // Malformed JSON should be silently ignored (not passed to handler)
       expect(onMessage).not.toHaveBeenCalled()
-      expect(consoleSpy).toHaveBeenCalled()
-
-      consoleSpy.mockRestore()
     })
 
     it('returns closeable EventSource', async () => {

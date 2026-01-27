@@ -128,7 +128,7 @@ class TestProxyList:
         # Proxy is not running (no socket)
         result = cli_runner.invoke(proxy, ["list"])
         assert result.exit_code == 0
-        assert "not running" in result.output
+        assert "inactive" in result.output
         assert "0 running" in result.output or "1 proxies configured, 0 running" in result.output
 
 
