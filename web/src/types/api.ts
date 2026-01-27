@@ -272,6 +272,8 @@ export interface SSECriticalEvent extends SSESystemEventBase {
 export interface SSEStatsUpdatedEvent extends SSESystemEventBase {
   type: 'stats_updated'
   stats: ProxyStats
+  proxy_id?: string
+  proxy_name?: string  // Added by manager when forwarding proxy events
 }
 
 export interface SSENewLogEntriesEvent extends SSESystemEventBase {

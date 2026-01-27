@@ -182,6 +182,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         case 'stats_updated':
           if (event.stats) {
             setStats(event.stats)
+            // Dispatch event for proxy list to update individual proxy stats
+            window.dispatchEvent(new CustomEvent('stats-updated', {
+              detail: { proxy_id: event.proxy_id, stats: event.stats }
+            }))
           }
           break
 
@@ -198,15 +202,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           window.dispatchEvent(new CustomEvent('proxy-registered')) // Same event triggers refetch
           break
 
-        // Critical shutdown - show persistent toast and stop reconnecting
+        // Critical shutdown - show persistent toast but DON'T change connection status
+        // The manager connection is still fine, only the proxy shut down
         case 'critical_shutdown':
           isShutdownRef.current = true
-          setConnected(false)
-          setConnectionStatus('disconnected')
           toast.error(event.message || 'Proxy shut down', { duration: Infinity })
           playErrorSound()
-          // Close EventSource to stop reconnection attempts
-          eventSourceRef.current?.close()
           break
 
         // System events with severity - show toast

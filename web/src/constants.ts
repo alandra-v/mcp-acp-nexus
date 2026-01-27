@@ -19,6 +19,7 @@ export const SSE_EVENTS = {
   PROXY_REGISTERED: 'proxy-registered',
   PROXY_DISCONNECTED: 'proxy-disconnected',
   AUTH_STATE_CHANGED: 'auth-state-changed',
+  STATS_UPDATED: 'stats-updated',
 } as const
 
 /** Duration to show "Copied!" feedback before reverting */

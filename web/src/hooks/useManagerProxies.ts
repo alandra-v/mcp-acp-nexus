@@ -87,6 +87,21 @@ export function useManagerProxies(): UseManagerProxiesResult {
     }
   }, [fetchProxies])
 
+  // Listen for stats_updated SSE events to update proxy stats in-place
+  useEffect(() => {
+    const handleStatsUpdated = (e: CustomEvent<{ proxy_id: string; stats: Proxy['stats'] }>) => {
+      const { proxy_id, stats } = e.detail
+      setProxies((prev) =>
+        prev.map((p) => (p.proxy_id === proxy_id ? { ...p, stats } : p))
+      )
+    }
+
+    window.addEventListener(SSE_EVENTS.STATS_UPDATED, handleStatsUpdated as EventListener)
+    return () => {
+      window.removeEventListener(SSE_EVENTS.STATS_UPDATED, handleStatsUpdated as EventListener)
+    }
+  }, [])
+
   const refetch = useCallback(async () => {
     await fetchProxies()
   }, [fetchProxies])

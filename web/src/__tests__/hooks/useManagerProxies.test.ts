@@ -171,6 +171,73 @@ describe('useManagerProxies', () => {
         expect(proxiesApi.getManagerProxies).toHaveBeenCalledTimes(2)
       })
     })
+
+    it('updates proxy stats on stats_updated event', async () => {
+      vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
+
+      const { result } = renderHook(() => useManagerProxies())
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
+
+      // Verify initial stats for proxy-123
+      expect(result.current.proxies[0].stats?.requests_total).toBe(100)
+
+      // Dispatch stats_updated event for proxy-123
+      const newStats = {
+        requests_total: 150,
+        requests_allowed: 140,
+        requests_denied: 5,
+        requests_hitl: 5,
+      }
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(SSE_EVENTS.STATS_UPDATED, {
+            detail: { proxy_id: 'proxy-123', stats: newStats },
+          })
+        )
+      })
+
+      // Stats should be updated without refetch
+      await waitFor(() => {
+        expect(result.current.proxies[0].stats?.requests_total).toBe(150)
+      })
+
+      // Should NOT have triggered a refetch
+      expect(proxiesApi.getManagerProxies).toHaveBeenCalledTimes(1)
+
+      // Other proxy stats should remain unchanged
+      expect(result.current.proxies[1].stats).toBeNull()
+    })
+
+    it('ignores stats_updated for unknown proxy_id', async () => {
+      vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
+
+      const { result } = renderHook(() => useManagerProxies())
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
+
+      const originalStats = result.current.proxies[0].stats
+
+      // Dispatch stats_updated for unknown proxy
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(SSE_EVENTS.STATS_UPDATED, {
+            detail: {
+              proxy_id: 'unknown-proxy',
+              stats: { requests_total: 999, requests_allowed: 999, requests_denied: 0, requests_hitl: 0 },
+            },
+          })
+        )
+      })
+
+      // Stats should remain unchanged
+      expect(result.current.proxies[0].stats).toEqual(originalStats)
+    })
   })
 
   describe('abort on unmount', () => {
@@ -214,6 +281,10 @@ describe('useManagerProxies', () => {
       )
       expect(removeEventListenerSpy).toHaveBeenCalledWith(
         SSE_EVENTS.PROXY_DISCONNECTED,
+        expect.any(Function)
+      )
+      expect(removeEventListenerSpy).toHaveBeenCalledWith(
+        SSE_EVENTS.STATS_UPDATED,
         expect.any(Function)
       )
     })
