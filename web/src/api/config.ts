@@ -1,4 +1,4 @@
-import { apiGet, apiPut } from './client'
+import { apiGet, apiPut, type RequestOptions } from './client'
 
 // =============================================================================
 // Response Types
@@ -12,6 +12,8 @@ export interface StdioTransportConfig {
 export interface HttpTransportConfig {
   url: string
   timeout: number
+  /** Keychain reference for API key (if configured). The actual key is never exposed. */
+  credential_key: string | null
 }
 
 export type TransportType = 'stdio' | 'streamablehttp' | 'auto'
@@ -182,4 +184,47 @@ export async function updateConfig(
  */
 export async function compareConfig(): Promise<ConfigComparisonResponse> {
   return apiGet<ConfigComparisonResponse>('/config/compare')
+}
+
+// =============================================================================
+// Manager-Level Config API (for accessing config when proxy is not running)
+// =============================================================================
+
+/**
+ * Get configuration for a specific proxy via manager endpoint.
+ * Works regardless of whether the proxy is running.
+ *
+ * @param proxyId - Stable proxy identifier
+ * @param options - Request options with optional abort signal
+ * @returns Configuration from disk
+ */
+export async function getProxyConfig(
+  proxyId: string,
+  options?: RequestOptions
+): Promise<ConfigResponse> {
+  return apiGet<ConfigResponse>(`/manager/proxies/${encodeURIComponent(proxyId)}/config`, options)
+}
+
+/**
+ * Update configuration for a specific proxy via manager endpoint.
+ * Saves to disk. Changes take effect on proxy restart.
+ *
+ * Note: Config comparison is not available at manager level
+ * (requires running proxy's in-memory state).
+ *
+ * @param proxyId - Stable proxy identifier
+ * @param updates - Configuration updates to apply
+ * @param options - Request options with optional abort signal
+ * @returns Updated configuration with message
+ */
+export async function updateProxyConfig(
+  proxyId: string,
+  updates: ConfigUpdateRequest,
+  options?: RequestOptions
+): Promise<ConfigUpdateResponse> {
+  return apiPut<ConfigUpdateResponse>(
+    `/manager/proxies/${encodeURIComponent(proxyId)}/config`,
+    updates,
+    options
+  )
 }

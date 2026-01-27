@@ -583,21 +583,7 @@ class ManagerClient:
         msg_type = msg.get("type")
 
         if msg_type == "ui_status":
-            old_status = self._browser_connected
             self._browser_connected = msg.get("browser_connected", False)
-            subscriber_count = msg.get("subscriber_count", 0)
-
-            if old_status != self._browser_connected:
-                # Log at WARNING so it appears in system log files (not just stderr)
-                _logger.warning(
-                    {
-                        "event": "browser_status_changed",
-                        "message": f"Browser connectivity changed: {self._browser_connected}",
-                        "browser_connected": self._browser_connected,
-                        "subscriber_count": subscriber_count,
-                        "proxy_name": self._proxy_name,
-                    }
-                )
 
         elif msg_type == "heartbeat":
             # Heartbeat received - connection is alive

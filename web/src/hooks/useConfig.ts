@@ -3,6 +3,8 @@ import {
   getConfig,
   updateConfig,
   compareConfig,
+  getProxyConfig,
+  updateProxyConfig,
   ConfigResponse,
   ConfigUpdateRequest,
   ConfigChange,
@@ -23,6 +25,19 @@ export interface UseConfigResult {
   refresh: () => Promise<void>
 }
 
+/** Options for useConfig hook */
+export interface UseConfigOptions {
+  /**
+   * When provided, uses manager-level endpoints to access config
+   * regardless of whether the proxy is running.
+   * When undefined, uses the default proxy-level endpoints.
+   *
+   * Note: Config comparison is NOT available at manager level
+   * (requires running proxy's in-memory state).
+   */
+  proxyId?: string
+}
+
 /**
  * Hook for fetching and updating proxy configuration.
  *
@@ -35,8 +50,11 @@ export interface UseConfigResult {
  * - hasPendingChanges: True if saved config differs from running
  * - save: Function to save updates (returns true on success)
  * - refresh: Function to re-fetch config
+ *
+ * @param options - Optional configuration including proxyId for manager-level access
  */
-export function useConfig(): UseConfigResult {
+export function useConfig(options?: UseConfigOptions): UseConfigResult {
+  const proxyId = options?.proxyId
   const [config, setConfig] = useState<ConfigResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -50,21 +68,32 @@ export function useConfig(): UseConfigResult {
       setLoading(true)
       setError(null)
 
-      // Fetch config first (required)
-      const configData = await getConfig()
+      // Fetch config (use manager endpoint if proxyId provided)
+      const configData = proxyId
+        ? await getProxyConfig(proxyId)
+        : await getConfig()
       if (mountedRef.current) {
         setConfig(configData)
       }
 
-      // Then try to fetch comparison (optional - don't fail if this errors)
-      try {
-        const comparison = await compareConfig()
-        if (mountedRef.current) {
-          setPendingChanges(comparison.changes)
-          setHasPendingChanges(comparison.has_changes)
+      // Only fetch comparison for default proxy (not available at manager level)
+      // Config comparison requires running proxy's in-memory state
+      if (!proxyId) {
+        try {
+          const comparison = await compareConfig()
+          if (mountedRef.current) {
+            setPendingChanges(comparison.changes)
+            setHasPendingChanges(comparison.has_changes)
+          }
+        } catch {
+          // Comparison failed - that's OK, just don't show pending changes
+          if (mountedRef.current) {
+            setPendingChanges([])
+            setHasPendingChanges(false)
+          }
         }
-      } catch {
-        // Comparison failed - that's OK, just don't show pending changes
+      } else {
+        // Manager-level access: comparison not available
         if (mountedRef.current) {
           setPendingChanges([])
           setHasPendingChanges(false)
@@ -81,12 +110,14 @@ export function useConfig(): UseConfigResult {
         setLoading(false)
       }
     }
-  }, [])
+  }, [proxyId])
 
   const save = useCallback(async (updates: ConfigUpdateRequest): Promise<boolean> => {
     setSaving(true)
     try {
-      const result = await updateConfig(updates)
+      const result = proxyId
+        ? await updateProxyConfig(proxyId, updates)
+        : await updateConfig(updates)
       if (mountedRef.current) {
         setConfig(result.config)
         toast.success(result.message)
@@ -108,7 +139,7 @@ export function useConfig(): UseConfigResult {
         setSaving(false)
       }
     }
-  }, [])
+  }, [proxyId])
 
   useEffect(() => {
     mountedRef.current = true

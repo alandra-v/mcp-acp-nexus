@@ -1,11 +1,7 @@
-import { apiGet, apiPost, apiDelete, createSSEConnection } from './client'
-import type { PendingApproval, SSEEvent } from '@/types/api'
+import { apiPost, apiDelete, createSSEConnection } from './client'
+import type { SSEEvent } from '@/types/api'
 
-// Pending approvals
-export async function getPendingApprovals(): Promise<PendingApproval[]> {
-  return apiGet<PendingApproval[]>('/approvals/pending/list')
-}
-
+// SSE subscription for real-time updates (pending approvals come via this)
 export async function subscribeToPendingApprovals(
   onEvent: (event: SSEEvent) => void,
   onError?: (error: Event) => void

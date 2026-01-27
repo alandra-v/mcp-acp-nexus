@@ -28,6 +28,9 @@ __all__ = [
     "OIDCConfigUpdate",
     "ProxyConfigUpdate",
     "StdioTransportUpdate",
+    # API Key schemas
+    "ApiKeySetRequest",
+    "ApiKeyResponse",
 ]
 
 from typing import Literal
@@ -61,6 +64,10 @@ class HttpTransportResponse(BaseModel):
 
     url: str
     timeout: int
+    credential_key: str | None = Field(
+        default=None,
+        description="Keychain reference for API key (actual key never exposed)",
+    )
 
 
 class BackendConfigResponse(BaseModel):
@@ -263,3 +270,31 @@ class ConfigComparisonResponse(BaseModel):
     has_changes: bool
     changes: list[ConfigChange]
     message: str
+
+
+# =============================================================================
+# API Key Management Schemas
+# =============================================================================
+
+
+class ApiKeySetRequest(BaseModel):
+    """Request to set or update backend API key.
+
+    The key is stored securely in the OS keychain, not in config files.
+    """
+
+    api_key: str = Field(
+        min_length=1,
+        description="API key or bearer token for backend authentication",
+    )
+
+
+class ApiKeyResponse(BaseModel):
+    """Response for API key operations."""
+
+    success: bool = Field(description="Whether the operation succeeded")
+    message: str = Field(description="Human-readable result message")
+    credential_key: str | None = Field(
+        default=None,
+        description="Keychain reference (only set on successful save)",
+    )

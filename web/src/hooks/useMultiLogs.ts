@@ -1,27 +1,46 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { getLogs, type LogType, type LogFilters } from '@/api/logs'
+import { getLogs, getProxyLogs, type LogType, type LogFilters } from '@/api/logs'
 import { notifyError } from '@/hooks/useErrorSound'
 import type { LogEntry } from '@/types/api'
 
+/** Result interface for useMultiLogs hook */
 export interface UseMultiLogsResult {
   logs: LogEntry[]
   loading: boolean
   hasMore: boolean
   totalScanned: number
+  logFile: string | null
   loadMore: () => void
   refresh: () => void
+}
+
+/** Options for useMultiLogs hook */
+export interface UseMultiLogsOptions {
+  /**
+   * When provided, uses manager-level endpoints to access logs
+   * regardless of whether the proxy is running.
+   * When undefined, uses the default proxy-level endpoints.
+   */
+  proxyId?: string
 }
 
 /**
  * Hook for fetching and merging logs from multiple log types.
  * Used for "All Files" view within a folder.
  * Entries are sorted by timestamp (newest first).
+ *
+ * @param types - Array of log types to fetch
+ * @param filters - Filter parameters (excluding before/limit)
+ * @param pageSize - Number of entries per page per log type
+ * @param options - Optional configuration including proxyId for manager-level access
  */
 export function useMultiLogs(
   types: LogType[],
   filters: Omit<LogFilters, 'before' | 'limit'> = {},
-  pageSize = 50
+  pageSize = 50,
+  options?: UseMultiLogsOptions
 ): UseMultiLogsResult {
+  const proxyId = options?.proxyId
   const [logsByType, setLogsByType] = useState<Record<string, LogEntry[]>>({})
   const [loading, setLoading] = useState(true)
   const [hasMoreByType, setHasMoreByType] = useState<Record<string, boolean>>({})
@@ -70,11 +89,17 @@ export function useMultiLogs(
       const results = await Promise.all(
         types.map(async (type) => {
           const before = reset ? undefined : cursorsRef.current[type]
-          const data = await getLogs(type, {
+          const filterParams = {
             ...filters,
             limit: pageSize,
             before,
-          })
+          }
+
+          // Use manager endpoint when proxyId is provided
+          const data = proxyId
+            ? await getProxyLogs(proxyId, type, filterParams)
+            : await getLogs(type, filterParams)
+
           return { type, data }
         })
       )
@@ -109,7 +134,7 @@ export function useMultiLogs(
     } finally {
       setLoading(false)
     }
-  }, [types, filtersKey, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [types, filtersKey, pageSize, proxyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset and fetch when types or filters change
   useEffect(() => {
@@ -145,5 +170,6 @@ export function useMultiLogs(
     fetchLogs(true)
   }, [fetchLogs])
 
-  return { logs, loading, hasMore, totalScanned, loadMore, refresh }
+  // Multi-type view doesn't have a single log file path
+  return { logs, loading, hasMore, totalScanned, logFile: null, loadMore, refresh }
 }

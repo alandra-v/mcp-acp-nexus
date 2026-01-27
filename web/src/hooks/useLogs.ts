@@ -1,16 +1,28 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getLogs, type LogType, type LogFilters } from '@/api/logs'
+import { getLogs, getProxyLogs, type LogType, type LogFilters } from '@/api/logs'
 import { toast } from '@/components/ui/sonner'
 import { notifyError } from '@/hooks/useErrorSound'
 import { ApiError, type LogEntry } from '@/types/api'
 
+/** Result interface for useLogs hook */
 export interface UseLogsResult {
   logs: LogEntry[]
   loading: boolean
   hasMore: boolean
   totalScanned: number
+  logFile: string | null
   loadMore: () => void
   refresh: () => void
+}
+
+/** Options for useLogs hook */
+export interface UseLogsOptions {
+  /**
+   * When provided, uses manager-level endpoints to access logs
+   * regardless of whether the proxy is running.
+   * When undefined, uses the default proxy-level endpoints.
+   */
+  proxyId?: string
 }
 
 /**
@@ -21,17 +33,21 @@ export interface UseLogsResult {
  * @param filters - Filter parameters (excluding before/limit)
  * @param pageSize - Number of entries per page
  * @param enabled - Whether to fetch (false skips all API calls)
+ * @param options - Optional configuration including proxyId for manager-level access
  */
 export function useLogs(
   type: LogType,
   filters: Omit<LogFilters, 'before' | 'limit'> = {},
   pageSize = 50,
-  enabled = true
+  enabled = true,
+  options?: UseLogsOptions
 ): UseLogsResult {
+  const proxyId = options?.proxyId
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(enabled)
   const [hasMore, setHasMore] = useState(false)
   const [totalScanned, setTotalScanned] = useState(0)
+  const [logFile, setLogFile] = useState<string | null>(null)
 
   // Track the oldest timestamp for cursor pagination
   const cursorRef = useRef<string | undefined>(undefined)
@@ -46,14 +62,20 @@ export function useLogs(
       setLoading(true)
 
       const before = reset ? undefined : cursorRef.current
-      const data = await getLogs(type, {
+      const filterParams = {
         ...filters,
         limit: pageSize,
         before,
-      })
+      }
+
+      // Use manager endpoint when proxyId is provided, otherwise use proxy-level endpoint
+      const data = proxyId
+        ? await getProxyLogs(proxyId, type, filterParams)
+        : await getLogs(type, filterParams)
 
       if (reset) {
         setLogs(data.entries)
+        setLogFile(data.log_file || null)
       } else {
         setLogs((prev) => [...prev, ...data.entries])
       }
@@ -79,7 +101,7 @@ export function useLogs(
     } finally {
       setLoading(false)
     }
-  }, [type, filtersKey, pageSize, enabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [type, filtersKey, pageSize, enabled, proxyId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset and fetch when type or filters change (only if enabled)
   useEffect(() => {
@@ -88,6 +110,7 @@ export function useLogs(
       setLoading(false)
       setHasMore(false)
       setTotalScanned(0)
+      setLogFile(null)
       cursorRef.current = undefined
       return
     }
@@ -123,5 +146,5 @@ export function useLogs(
     fetchLogs(true)
   }, [fetchLogs, enabled])
 
-  return { logs, loading, hasMore, totalScanned, loadMore, refresh }
+  return { logs, loading, hasMore, totalScanned, logFile, loadMore, refresh }
 }

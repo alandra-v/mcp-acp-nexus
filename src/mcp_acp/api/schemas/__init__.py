@@ -17,6 +17,8 @@ from mcp_acp.api.schemas.auth import (
 
 # Config schemas
 from mcp_acp.api.schemas.config import (
+    ApiKeyResponse,
+    ApiKeySetRequest,
     AuthConfigResponse,
     AuthConfigUpdate,
     BackendConfigResponse,
@@ -96,6 +98,16 @@ from mcp_acp.api.schemas.incidents import (
     IncidentsSummary,
 )
 
+# Audit schemas
+from mcp_acp.api.schemas.audit import (
+    AuditFileStatus,
+    AuditRepairResponse,
+    AuditRepairResult,
+    AuditStatusResponse,
+    AuditVerifyResponse,
+    AuditVerifyResult,
+)
+
 # Error schemas (for API documentation)
 from mcp_acp.api.schemas.errors import (
     ErrorDetail,
@@ -112,6 +124,8 @@ __all__ = [
     "LogoutResponse",
     "NotifyResponse",
     # Config
+    "ApiKeyResponse",
+    "ApiKeySetRequest",
     "AuthConfigResponse",
     "AuthConfigUpdate",
     "BackendConfigResponse",
@@ -165,6 +179,13 @@ __all__ = [
     "LogsResponse",
     # Incidents
     "IncidentsSummary",
+    # Audit
+    "AuditFileStatus",
+    "AuditRepairResponse",
+    "AuditRepairResult",
+    "AuditStatusResponse",
+    "AuditVerifyResponse",
+    "AuditVerifyResult",
     # Errors
     "ErrorDetail",
     "ErrorResponse",

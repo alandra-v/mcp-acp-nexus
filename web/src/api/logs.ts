@@ -55,6 +55,11 @@ function buildParams(filters: LogFilters): URLSearchParams {
 
 /**
  * Fetch logs of a specific type with optional filters.
+ *
+ * Uses proxy-level endpoint (requires running proxy).
+ *
+ * @param type - Log type to fetch
+ * @param filters - Filter parameters
  */
 export async function getLogs(
   type: LogType,
@@ -63,5 +68,28 @@ export async function getLogs(
   const params = buildParams(filters)
   const query = params.toString()
   const path = query ? `/logs/${type}?${query}` : `/logs/${type}`
+  return apiGet<LogsResponse>(path)
+}
+
+/**
+ * Fetch logs for a specific proxy via manager endpoint.
+ *
+ * Reads from disk, works regardless of proxy running state.
+ *
+ * @param proxyId - Stable proxy identifier
+ * @param type - Log type to fetch
+ * @param filters - Filter parameters
+ */
+export async function getProxyLogs(
+  proxyId: string,
+  type: LogType,
+  filters: LogFilters = {}
+): Promise<LogsResponse> {
+  const params = buildParams(filters)
+  const query = params.toString()
+  const encodedProxyId = encodeURIComponent(proxyId)
+  const path = query
+    ? `/manager/proxies/${encodedProxyId}/logs/${type}?${query}`
+    : `/manager/proxies/${encodedProxyId}/logs/${type}`
   return apiGet<LogsResponse>(path)
 }

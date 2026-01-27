@@ -248,11 +248,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           return
         }
         eventSourceRef.current = es
-      } catch (e) {
+      } catch {
         // Token fetch or connection failed - trigger error handler
         // This can happen if the API server is unreachable
         if (!cancelled) {
-          console.error('Failed to establish SSE connection:', e)
+          // console.error('Failed to establish SSE connection:', e)
           handleError()
         }
       }
@@ -333,8 +333,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await clearCachedApprovals()
       // Note: State update comes from SSE cached_snapshot event
-    } catch (e) {
-      console.error('Failed to clear cache:', e)
+    } catch {
+      // console.error('Failed to clear cache:', e)
       notifyError('Failed to clear cache')
     }
   }, [])
@@ -343,8 +343,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await deleteCachedApproval(subjectId, toolName, path)
       // Note: State update comes from SSE cached_snapshot event
-    } catch (e) {
-      console.error('Failed to delete cached approval:', e)
+    } catch {
+      // console.error('Failed to delete cached approval:', e)
       notifyError('Failed to delete cached approval')
     }
   }, [])

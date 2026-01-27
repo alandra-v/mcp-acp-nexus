@@ -15,6 +15,11 @@ import {
   updatePolicyRule,
   deletePolicyRule,
   updateFullPolicy,
+  getProxyPolicy,
+  addProxyPolicyRule,
+  updateProxyPolicyRule,
+  deleteProxyPolicyRule,
+  updateProxyPolicy,
 } from '@/api/policy'
 import { notifyError } from '@/hooks/useErrorSound'
 import type {
@@ -105,44 +110,57 @@ function getErrorMessage(error: unknown): string {
   return 'Unknown error'
 }
 
+/** Options for usePolicy hook */
+export interface UsePolicyOptions {
+  /**
+   * When provided, uses manager-level endpoints to access policy
+   * regardless of whether the proxy is running.
+   * When undefined, uses the default proxy-level endpoints.
+   */
+  proxyId?: string
+}
+
 /**
  * Hook for managing policy configuration.
  *
  * Fetches policy on mount and provides mutation functions
  * that automatically refresh after success.
+ *
+ * @param options - Optional configuration including proxyId for manager-level access
  */
-export function usePolicy(): UsePolicyResult {
+export function usePolicy(options?: UsePolicyOptions): UsePolicyResult {
+  const proxyId = options?.proxyId
   const [policy, setPolicy] = useState<PolicyResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mutating, setMutating] = useState(false)
 
-  const fetchPolicy = useCallback(async () => {
+  const fetchPolicy = useCallback(async (options?: { signal?: AbortSignal; silent?: boolean }) => {
     try {
       setError(null)
-      const data = await getPolicy()
+      const data = proxyId
+        ? await getProxyPolicy(proxyId, { signal: options?.signal })
+        : await getPolicy({ signal: options?.signal })
       setPolicy(data)
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return
       const message = getErrorMessage(e)
       setError(message)
-      notifyError(`Failed to load policy: ${message}`)
+      // Only show notification for non-silent fetches (e.g., manual refresh)
+      if (!options?.silent) {
+        notifyError(`Failed to load policy: ${message}`)
+      }
     }
-  }, [])
+  }, [proxyId])
 
-  // Initial fetch
+  // Initial fetch (silent - no error notification on initial load)
   useEffect(() => {
     const controller = new AbortController()
 
     async function load() {
       setLoading(true)
       try {
-        const data = await getPolicy({ signal: controller.signal })
-        setPolicy(data)
-        setError(null)
-      } catch (e) {
-        if (e instanceof DOMException && e.name === 'AbortError') return
-        const message = getErrorMessage(e)
-        setError(message)
+        await fetchPolicy({ signal: controller.signal, silent: true })
       } finally {
         setLoading(false)
       }
@@ -150,7 +168,7 @@ export function usePolicy(): UsePolicyResult {
 
     load()
     return () => controller.abort()
-  }, [])
+  }, [fetchPolicy])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -164,8 +182,10 @@ export function usePolicy(): UsePolicyResult {
   const handleAddRule = useCallback(async (rule: PolicyRuleCreate): Promise<PolicyRuleResponse> => {
     setMutating(true)
     try {
-      const result = await addPolicyRule(rule)
-      // Success toast comes from SSE policy_reloaded event
+      const result = proxyId
+        ? await addProxyPolicyRule(proxyId, rule)
+        : await addPolicyRule(rule)
+      // Success toast comes from SSE policy_reloaded event (if proxy running)
       await fetchPolicy()
       return result.rule
     } catch (e) {
@@ -175,7 +195,7 @@ export function usePolicy(): UsePolicyResult {
     } finally {
       setMutating(false)
     }
-  }, [fetchPolicy])
+  }, [proxyId, fetchPolicy])
 
   const handleUpdateRule = useCallback(async (
     id: string,
@@ -183,8 +203,10 @@ export function usePolicy(): UsePolicyResult {
   ): Promise<PolicyRuleResponse> => {
     setMutating(true)
     try {
-      const result = await updatePolicyRule(id, rule)
-      // Success toast comes from SSE policy_reloaded event
+      const result = proxyId
+        ? await updateProxyPolicyRule(proxyId, id, rule)
+        : await updatePolicyRule(id, rule)
+      // Success toast comes from SSE policy_reloaded event (if proxy running)
       await fetchPolicy()
       return result.rule
     } catch (e) {
@@ -194,13 +216,17 @@ export function usePolicy(): UsePolicyResult {
     } finally {
       setMutating(false)
     }
-  }, [fetchPolicy])
+  }, [proxyId, fetchPolicy])
 
   const handleDeleteRule = useCallback(async (id: string): Promise<void> => {
     setMutating(true)
     try {
-      await deletePolicyRule(id)
-      // Success toast comes from SSE policy_reloaded event
+      if (proxyId) {
+        await deleteProxyPolicyRule(proxyId, id)
+      } else {
+        await deletePolicyRule(id)
+      }
+      // Success toast comes from SSE policy_reloaded event (if proxy running)
       await fetchPolicy()
     } catch (e) {
       const message = getErrorMessage(e)
@@ -209,13 +235,15 @@ export function usePolicy(): UsePolicyResult {
     } finally {
       setMutating(false)
     }
-  }, [fetchPolicy])
+  }, [proxyId, fetchPolicy])
 
   const handleUpdateFullPolicy = useCallback(async (policyData: PolicyFullUpdate): Promise<void> => {
     setMutating(true)
     try {
-      const result = await updateFullPolicy(policyData)
-      // Success toast comes from SSE policy_reloaded event
+      const result = proxyId
+        ? await updateProxyPolicy(proxyId, policyData)
+        : await updateFullPolicy(policyData)
+      // Success toast comes from SSE policy_reloaded event (if proxy running)
       setPolicy(result)
     } catch (e) {
       const message = getErrorMessage(e)
@@ -224,7 +252,7 @@ export function usePolicy(): UsePolicyResult {
     } finally {
       setMutating(false)
     }
-  }, [])
+  }, [proxyId])
 
   return {
     policy,
