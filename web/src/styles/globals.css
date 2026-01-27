@@ -122,4 +122,173 @@
   .card-gradient-dark {
     @apply bg-gradient-to-br from-[oklch(0.16_0.012_228)] to-[oklch(0.13_0.01_228)];
   }
+
+  /* Stat Card - compact filter buttons */
+  .stat-card {
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex: 1;
+    background: var(--base-900);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .stat-card:hover {
+    background: var(--base-800);
+    border-color: var(--base-700);
+  }
+
+  .stat-card.active {
+    background: var(--base-800);
+    border-color: var(--base-600);
+  }
+
+  .stat-card-inner {
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .stat-value {
+    font-family: 'Figtree', sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Proxy Card with gradient border */
+  .proxy-card {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: block;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .proxy-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 1px;
+    background: linear-gradient(135deg, oklch(0.35 0.02 228) 0%, oklch(0.18 0.01 228) 50%, oklch(0.25 0.015 228) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  .proxy-card-inner {
+    background: linear-gradient(145deg, oklch(0.20 0.014 228) 0%, oklch(0.16 0.012 228) 100%);
+    padding: 24px;
+    height: 100%;
+    position: relative;
+  }
+
+  .proxy-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px oklch(0.15 0.01 228 / 0.2);
+  }
+
+  .proxy-card:hover::before {
+    background: linear-gradient(135deg, oklch(0.38 0.022 228) 0%, oklch(0.2 0.012 228) 50%, oklch(0.28 0.018 228) 100%);
+  }
+
+  .proxy-card:hover .proxy-card-inner {
+    background: linear-gradient(145deg, oklch(0.24 0.016 228) 0%, oklch(0.20 0.014 228) 100%);
+  }
+
+  .proxy-name {
+    font-family: 'Figtree', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .proxy-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px oklch(0.7 0.15 145 / 0.5);
+  }
+
+  .status-dot.inactive {
+    background: var(--error-indicator);
+    box-shadow: 0 0 6px oklch(0.50 0.18 25 / 0.4);
+  }
+
+  .proxy-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+
+  .proxy-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .proxy-meta-label {
+    color: var(--base-600);
+    min-width: 56px;
+  }
+
+  .proxy-meta-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--base-400);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .proxy-stats {
+    display: flex;
+    gap: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .proxy-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .proxy-stat-value {
+    font-family: 'Figtree', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .proxy-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--base-500);
+  }
 }

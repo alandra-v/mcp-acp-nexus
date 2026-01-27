@@ -25,9 +25,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    // Log error to console in development
-    console.error('ErrorBoundary caught an error:', error, errorInfo)
+  componentDidCatch(_error: Error, _errorInfo: ErrorInfo): void {
+    // console.error('ErrorBoundary caught an error:', error, errorInfo)
   }
 
   handleReset = (): void => {
