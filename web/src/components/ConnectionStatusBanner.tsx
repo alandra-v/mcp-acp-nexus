@@ -3,9 +3,9 @@ import { CheckCircle2, Loader2, WifiOff, X } from 'lucide-react'
 import { useAppState, type ConnectionStatus } from '@/context/AppStateContext'
 
 /**
- * Persistent banner for SSE connection status.
+ * Persistent banner for SSE connection status to the manager.
  *
- * Shows when connection is lost or reconnecting.
+ * Shows when connection to the manager is lost or reconnecting.
  * Auto-dismisses after successful reconnection.
  *
  * Pattern:
@@ -97,7 +97,7 @@ export function ConnectionStatusBanner() {
       {connectionStatus === 'reconnecting' && (
         <>
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Connection lost. Reconnecting...</span>
+          <span>Connection to manager lost. Reconnecting...</span>
           <button
             onClick={handleDismiss}
             className="ml-2 p-1 hover:bg-white/20 rounded"
@@ -111,7 +111,7 @@ export function ConnectionStatusBanner() {
       {connectionStatus === 'disconnected' && (
         <>
           <WifiOff className="h-4 w-4" />
-          <span>Unable to connect to proxy</span>
+          <span>Unable to connect to manager</span>
           <button
             onClick={handleRetry}
             className="ml-2 px-2 py-0.5 bg-white/20 hover:bg-white/30 rounded text-xs"
