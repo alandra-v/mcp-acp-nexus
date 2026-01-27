@@ -1,9 +1,9 @@
 import { Lock, Monitor, Server, Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ClaudeLogo } from '@/assets/ClaudeLogo'
+import { CLIENT_DISPLAY_NAMES } from '@/constants'
 
 interface TransportFlowProps {
-  clientTransport: string
   backendTransport: string
   mtlsEnabled: boolean
   backendName: string
@@ -29,19 +29,19 @@ function formatTransport(transport: string): string {
 }
 
 export function TransportFlow({
-  clientTransport,
   backendTransport,
   mtlsEnabled,
   backendName,
   clientId,
   loaded = true,
 }: TransportFlowProps) {
-  const clientLabel = formatTransport(clientTransport)
+  // Client transport is always stdio (Claude Desktop → Proxy)
+  const clientLabel = 'stdio'
   const backendLabel = formatTransport(backendTransport)
 
   // Check if client is Claude Desktop
   const isClaudeDesktop = clientId === 'claude-ai'
-  const clientDisplayName = isClaudeDesktop ? 'Claude Desktop' : (clientId ?? 'Client')
+  const clientDisplayName = clientId ? (CLIENT_DISPLAY_NAMES[clientId] ?? clientId) : 'Client'
 
   return (
     <div

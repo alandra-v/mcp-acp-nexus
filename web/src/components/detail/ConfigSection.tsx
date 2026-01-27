@@ -19,6 +19,8 @@ import type { ConfigResponse, ConfigUpdateRequest, TransportType, ConfigChange }
 
 interface ConfigSectionProps {
   loaded?: boolean
+  /** When provided, uses manager-level endpoints to access config regardless of proxy status */
+  proxyId?: string
 }
 
 // Common OAuth scopes
@@ -214,8 +216,8 @@ function formStateToUpdateRequest(
   return updates
 }
 
-export function ConfigSection({ loaded = true }: ConfigSectionProps) {
-  const { config, loading, saving, save, refresh, pendingChanges, hasPendingChanges } = useConfig()
+export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
+  const { config, loading, saving, save, refresh, pendingChanges, hasPendingChanges } = useConfig({ proxyId })
   const { status: authStatus } = useAuth()
   const [form, setForm] = useState<FormState | null>(null)
 
@@ -396,6 +398,25 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
                 disabled={!isHttpActive}
               />
             </FormRow>
+            <FormRow label="API Key" hint="Backend authentication credential (stored in OS keychain)">
+              <div className="flex items-center gap-3">
+                {config.backend.http?.credential_key ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-success-bg text-success-muted text-xs font-medium rounded border border-success-border">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success" />
+                      Configured
+                    </span>
+                    <code className="text-xs text-muted-foreground font-mono">
+                      {config.backend.http.credential_key}
+                    </code>
+                  </>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-base-800 text-muted-foreground text-xs font-medium rounded border border-base-700">
+                    Not configured
+                  </span>
+                )}
+              </div>
+            </FormRow>
           </div>
         </FormSection>
 
@@ -419,12 +440,14 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
               </SelectContent>
             </Select>
           </FormRow>
-          <FormRow label="Include Payloads" hint="Include full message content in debug logs">
-            <Switch
-              checked={form.include_payloads}
-              onCheckedChange={(checked) => updateField('include_payloads', checked)}
-            />
-          </FormRow>
+          {form.log_level === 'DEBUG' && (
+            <FormRow label="Include Payloads" hint="Include full message content in debug logs">
+              <Switch
+                checked={form.include_payloads}
+                onCheckedChange={(checked) => updateField('include_payloads', checked)}
+              />
+            </FormRow>
+          )}
         </FormSection>
 
         {/* Auth - OIDC (only if configured) */}

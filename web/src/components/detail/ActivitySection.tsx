@@ -8,13 +8,17 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 
 interface ActivitySectionProps {
   loaded?: boolean
+  /** Proxy ID for manager-level API access */
+  proxyId?: string
 }
 
 export function ActivitySection({
   loaded = true,
+  proxyId,
 }: ActivitySectionProps) {
   // Fetch recent operations - last 5 minutes, max 20 entries
-  const { logs, loading } = useLogs('operations', { time_range: '5m' }, 20)
+  // Use manager endpoint when proxyId is provided
+  const { logs, loading } = useLogs('operations', { time_range: '5m' }, 20, true, { proxyId })
 
   return (
     <Section

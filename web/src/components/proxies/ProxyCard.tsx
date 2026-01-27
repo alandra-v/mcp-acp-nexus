@@ -7,10 +7,10 @@
 
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import type { EnhancedProxy } from '@/types/api'
+import type { Proxy } from '@/types/api'
 
 interface ProxyCardProps {
-  proxy: EnhancedProxy
+  proxy: Proxy
 }
 
 export function ProxyCard({ proxy }: ProxyCardProps) {
@@ -25,7 +25,7 @@ export function ProxyCard({ proxy }: ProxyCardProps) {
           <span className="proxy-name">{proxy.proxy_name}</span>
           <div className="proxy-status">
             <span className={cn('status-dot', !isActive && 'inactive')} />
-            {isActive ? 'Running' : 'Stopped'}
+            {isActive ? 'Running' : 'Inactive'}
           </div>
         </div>
 
@@ -73,7 +73,7 @@ export function ProxyCard({ proxy }: ProxyCardProps) {
               </div>
             </>
           ) : (
-            <div className="text-xs text-muted-foreground">Stopped</div>
+            <div className="text-xs text-muted-foreground">Inactive</div>
           )}
         </div>
       </div>

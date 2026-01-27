@@ -1,8 +1,8 @@
 import { ProxyCard } from './ProxyCard'
-import type { EnhancedProxy } from '@/types/api'
+import type { Proxy } from '@/types/api'
 
 interface ProxyGridProps {
-  proxies: EnhancedProxy[]
+  proxies: Proxy[]
 }
 
 export function ProxyGrid({ proxies }: ProxyGridProps) {

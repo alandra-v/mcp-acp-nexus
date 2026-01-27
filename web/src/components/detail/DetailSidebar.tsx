@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-export type DetailSection = 'overview' | 'logs' | 'policy' | 'config'
+export type DetailSection = 'overview' | 'audit' | 'policy' | 'config'
 
 interface DetailSidebarProps {
   activeSection: DetailSection
@@ -9,7 +9,7 @@ interface DetailSidebarProps {
 
 const sections: { id: DetailSection; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'logs', label: 'Logs' },
+  { id: 'audit', label: 'Audit' },
   { id: 'policy', label: 'Policy' },
   { id: 'config', label: 'Config' },
 ]

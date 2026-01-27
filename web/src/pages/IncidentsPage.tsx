@@ -8,10 +8,10 @@
  */
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, RefreshCw, ShieldAlert, ChevronDown } from 'lucide-react'
+import { RefreshCw, ShieldAlert, ChevronDown } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
+import { BackButton } from '@/components/ui/BackButton'
 import { IncidentCard } from '@/components/incidents/IncidentCard'
 import { useIncidents } from '@/hooks/useIncidents'
 import { useManagerProxies } from '@/hooks/useManagerProxies'
@@ -33,7 +33,6 @@ const TYPE_FILTER_OPTIONS: { value: FilterType; label: string }[] = [
 ]
 
 export function IncidentsPage() {
-  const navigate = useNavigate()
   const { markAsRead, lastSeenTimestamp } = useIncidentsContext()
   const { proxies } = useManagerProxies()
 
@@ -83,10 +82,6 @@ export function IncidentsPage() {
     ...proxies.map((p) => ({ value: p.proxy_name, label: p.proxy_name })),
   ], [proxies])
 
-  const handleBack = useCallback(() => {
-    navigate('/')
-  }, [navigate])
-
   // Mark incidents as read when page is viewed
   useEffect(() => {
     // Small delay to ensure summary is loaded
@@ -106,13 +101,7 @@ export function IncidentsPage() {
       <div className="max-w-[900px] mx-auto px-8 py-8">
         {/* Header */}
         <div className="flex items-center gap-6 pb-6 border-b border-[var(--border-subtle)] mb-6">
-          <button
-            onClick={handleBack}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-transparent border border-[var(--border-subtle)] rounded-lg text-muted-foreground text-sm hover:bg-base-900 hover:text-foreground transition-smooth"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
+          <BackButton />
           <h1 className="font-display text-xl font-semibold">Incidents</h1>
         </div>
 

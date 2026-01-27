@@ -1,5 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { Copy, Check } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
+import { Button } from '@/components/ui/button'
+import { BackButton } from '@/components/ui/BackButton'
 import { DetailSidebar, type DetailSection } from '@/components/detail/DetailSidebar'
 import { TransportFlow } from '@/components/detail/TransportFlow'
 import { StatsSection } from '@/components/detail/StatsSection'
@@ -10,26 +14,48 @@ import { LogViewer } from '@/components/logs'
 import { Section } from '@/components/detail/Section'
 import { ConfigSection } from '@/components/detail/ConfigSection'
 import { PolicySection } from '@/components/detail/PolicySection'
-import { useProxies } from '@/hooks/useProxies'
+import { AuditIntegritySection } from '@/components/detail/AuditIntegritySection'
+import { useManagerProxies } from '@/hooks/useManagerProxies'
+import { useProxyDetail } from '@/hooks/useProxyDetail'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
+import { getConfigSnippet } from '@/api/proxies'
+import { notifyError } from '@/hooks/useErrorSound'
+import { COPY_FEEDBACK_DURATION_MS } from '@/constants'
 import { cn } from '@/lib/utils'
 
+const VALID_SECTIONS: DetailSection[] = ['overview', 'audit', 'policy', 'config']
+
 export function ProxyDetailPage() {
-  const { proxies, loading: proxiesLoading } = useProxies()
-  const { pending, approve, approveOnce, deny } = useAppState()
-  const { cached, loading: cachedLoading, clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
-  const [activeSection, setActiveSection] = useState<DetailSection>('overview')
+  const { name: proxyName } = useParams<{ name: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { proxies: managerProxies, loading: managerLoading } = useManagerProxies()
+  const { approve, approveOnce, deny } = useAppState()
+  const { clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const [loaded, setLoaded] = useState(false)
+  const [copied, setCopied] = useState(false)
 
-  // Single proxy mode - use first proxy
-  const proxy = proxies[0]
+  // Get section from URL or default to 'overview'
+  const sectionParam = searchParams.get('section')
+  const activeSection: DetailSection = VALID_SECTIONS.includes(sectionParam as DetailSection)
+    ? (sectionParam as DetailSection)
+    : 'overview'
 
-  // Filter pending approvals for this proxy
-  const proxyPending = useMemo(
-    () => pending.filter((p) => p.proxy_id === proxy?.id),
-    [pending, proxy?.id]
+  const setActiveSection = useCallback((section: DetailSection) => {
+    setSearchParams({ section }, { replace: true })
+  }, [setSearchParams])
+
+  // Find proxy by name from manager proxies (config data)
+  const managerProxy = useMemo(
+    () => managerProxies.find((p) => p.proxy_name === proxyName),
+    [managerProxies, proxyName]
   )
+
+  // Get proxy_id for detail lookup
+  const proxyId = managerProxy?.proxy_id
+
+  // Fetch full proxy detail including pending/cached approvals
+  const { proxy: proxyDetail, loading: detailLoading } = useProxyDetail(proxyId)
 
   // Trigger section load animation
   useEffect(() => {
@@ -37,7 +63,20 @@ export function ProxyDetailPage() {
     return () => clearTimeout(timer)
   }, [])
 
-  if (proxiesLoading) {
+  const handleCopyConfig = useCallback(async () => {
+    if (!proxyName) return
+
+    try {
+      const response = await getConfigSnippet(proxyName)
+      await navigator.clipboard.writeText(JSON.stringify({ mcpServers: response.mcpServers }, null, 2))
+      setCopied(true)
+      setTimeout(() => setCopied(false), COPY_FEEDBACK_DURATION_MS)
+    } catch {
+      notifyError('Failed to copy config')
+    }
+  }, [proxyName])
+
+  if (managerLoading) {
     return (
       <Layout>
         <div className="text-center py-16 text-muted-foreground">
@@ -47,32 +86,69 @@ export function ProxyDetailPage() {
     )
   }
 
-  if (!proxy) {
+  if (!managerProxy) {
     return (
       <Layout>
-        <div className="max-w-[1200px] mx-auto px-8 py-12 text-center">
-          <h1 className="font-display text-2xl font-semibold mb-4">
-            Waiting for proxy...
-          </h1>
-          <p className="text-muted-foreground">
-            Unable to connect. Check that the proxy is running.
-          </p>
+        <div className="max-w-[1200px] mx-auto px-8 py-12">
+          <div className="mb-8">
+            <BackButton />
+          </div>
+          <div className="text-center">
+            <h1 className="font-display text-2xl font-semibold mb-4">
+              Proxy not found
+            </h1>
+            <p className="text-muted-foreground">
+              No proxy named "{proxyName}" exists in the configuration.
+            </p>
+          </div>
         </div>
       </Layout>
     )
   }
 
-  const isActive = proxy.status === 'running'
+  // Show connecting state if proxy is running but detail not yet loaded
+  if (detailLoading && managerProxy.status === 'running') {
+    return (
+      <Layout>
+        <div className="max-w-[1200px] mx-auto px-8 py-12">
+          <div className="mb-8">
+            <BackButton />
+          </div>
+          <div className="text-center">
+            <h1 className="font-display text-2xl font-semibold mb-4">
+              Connecting to proxy...
+            </h1>
+            <p className="text-muted-foreground">
+              Waiting for connection to {managerProxy.server_name}.
+            </p>
+          </div>
+        </div>
+      </Layout>
+    )
+  }
+
+  const isActive = managerProxy.status === 'running'
+  const isRunning = proxyDetail?.status === 'running'
+
+  // Get pending approvals from detail response
+  const proxyPending = proxyDetail?.pending_approvals ?? []
+
+  // Get cached approvals from detail response
+  const proxyCached = proxyDetail?.cached_approvals ?? []
 
   return (
     <Layout showFooter={false}>
       <div className="grid grid-cols-[180px_1fr] gap-12 max-w-[1200px] mx-auto px-8 py-8">
         {/* Header */}
         <div className="col-span-2 flex items-center gap-6 pb-6 border-b border-[var(--border-subtle)] mb-2">
+          <BackButton />
           <div className="flex-1 flex items-center gap-3">
             <h1 className="font-display text-xl font-semibold">
-              {proxy.backend_id}
+              {managerProxy.proxy_name}
             </h1>
+            <span className="text-sm text-muted-foreground">
+              ({managerProxy.server_name})
+            </span>
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
               <span
                 className={cn(
@@ -82,9 +158,22 @@ export function ProxyDetailPage() {
                     : 'bg-base-600'
                 )}
               />
-              {isActive ? 'Active' : 'Inactive'}
+              {isActive ? 'Running' : 'Inactive'}
             </div>
           </div>
+          <Button variant="outline" size="sm" onClick={handleCopyConfig}>
+            {copied ? (
+              <>
+                <Check className="w-4 h-4 mr-2" />
+                Copied!
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4 mr-2" />
+                Copy Client Config
+              </>
+            )}
+          </Button>
         </div>
 
         {/* Sidebar */}
@@ -97,49 +186,67 @@ export function ProxyDetailPage() {
         <div className="min-w-0">
           {activeSection === 'overview' && (
             <>
-              <TransportFlow
-                clientTransport={proxy.client_transport}
-                backendTransport={proxy.backend_transport}
-                mtlsEnabled={proxy.mtls_enabled}
-                backendName={proxy.backend_id}
-                clientId={proxy.client_id}
-                loaded={loaded}
-              />
-              <StatsSection loaded={loaded} />
-              <ApprovalsSection
-                approvals={proxyPending}
-                onApprove={approve}
-                onApproveOnce={approveOnce}
-                onDeny={deny}
-                loaded={loaded}
-              />
-              <CachedSection
-                cached={cached}
-                loading={cachedLoading}
-                onClear={clearCached}
-                onDelete={deleteCached}
-                loaded={loaded}
-              />
-              <ActivitySection loaded={loaded} />
+              {isRunning && proxyDetail ? (
+                <>
+                  <TransportFlow
+                    backendTransport={proxyDetail.backend_transport}
+                    mtlsEnabled={proxyDetail.mtls_enabled}
+                    backendName={managerProxy.server_name}
+                    clientId={proxyDetail.client_id}
+                    loaded={loaded}
+                  />
+                  <StatsSection loaded={loaded} />
+                  <ApprovalsSection
+                    approvals={proxyPending}
+                    onApprove={approve}
+                    onApproveOnce={approveOnce}
+                    onDeny={deny}
+                    loaded={loaded}
+                  />
+                  <CachedSection
+                    cached={proxyCached}
+                    loading={detailLoading}
+                    onClear={clearCached}
+                    onDelete={deleteCached}
+                    loaded={loaded}
+                  />
+                  <ActivitySection loaded={loaded} proxyId={proxyId} />
+                </>
+              ) : (
+                <Section index={0} title="Overview" loaded={loaded}>
+                  <div className="text-center py-12 text-muted-foreground">
+                    <p className="mb-2">This proxy is not running.</p>
+                    <p className="text-sm">
+                      Transport: <span className="text-foreground">{managerProxy.transport}</span>
+                    </p>
+                  </div>
+                </Section>
+              )}
             </>
           )}
 
-          {activeSection === 'logs' && (
-            <Section index={0} title="Logs" loaded={loaded}>
-              <LogViewer
-                initialFolder="audit"
-                initialLogType="_all"
-                initialTimeRange="5m"
-              />
-            </Section>
+          {activeSection === 'audit' && (
+            <>
+              <Section index={0} title="Audit Logs" loaded={loaded}>
+                <LogViewer
+                  initialFolder="audit"
+                  initialLogType="_all"
+                  initialTimeRange="all"
+                  proxyId={proxyId}
+                />
+              </Section>
+              <Section index={1} title="Log Integrity" loaded={loaded}>
+                <AuditIntegritySection proxyId={proxyId} />
+              </Section>
+            </>
           )}
 
           {activeSection === 'policy' && (
-            <PolicySection loaded={loaded} />
+            <PolicySection loaded={loaded} proxyId={proxyId} />
           )}
 
           {activeSection === 'config' && (
-            <ConfigSection loaded={loaded} />
+            <ConfigSection loaded={loaded} proxyId={proxyId} />
           )}
         </div>
       </div>

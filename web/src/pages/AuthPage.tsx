@@ -1,15 +1,14 @@
 import { useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, User, Shield, Key, RefreshCw, X } from 'lucide-react'
+import { User, Shield, Key, RefreshCw, X } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
+import { BackButton } from '@/components/ui/BackButton'
 import { LoginDialog } from '@/components/auth/LoginDialog'
 import { LogoutConfirmDialog, type LogoutType } from '@/components/auth/LogoutConfirmDialog'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
 export function AuthPage() {
-  const navigate = useNavigate()
   const { status, loading, logout, logoutFederated, refresh, popupBlockedUrl, clearPopupBlockedUrl } = useAuth()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
@@ -40,13 +39,7 @@ export function AuthPage() {
       <div className="max-w-[800px] mx-auto px-8 py-8">
         {/* Header */}
         <div className="flex items-center gap-6 pb-6 border-b border-[var(--border-subtle)] mb-8">
-          <button
-            onClick={() => navigate('/')}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-transparent border border-[var(--border-subtle)] rounded-lg text-muted-foreground text-sm hover:bg-base-900 hover:text-foreground transition-smooth"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
+          <BackButton />
           <h1 className="font-display text-xl font-semibold">Auth details</h1>
         </div>
 

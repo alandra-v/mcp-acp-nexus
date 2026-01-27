@@ -37,6 +37,7 @@ export function PendingDrawer({
             <button
               onClick={() => onOpenChange(false)}
               className="w-8 h-8 flex items-center justify-center bg-transparent border border-[var(--border-subtle)] rounded-full text-muted-foreground hover:bg-base-800 hover:text-foreground transition-smooth"
+              aria-label="Close pending approvals"
             >
               <X className="w-4 h-4" />
             </button>

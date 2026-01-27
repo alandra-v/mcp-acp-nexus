@@ -20,11 +20,13 @@ import type { PolicyRuleResponse, PolicyRuleCreate } from '@/types/api'
 
 interface PolicySectionProps {
   loaded?: boolean
+  /** When provided, uses manager-level endpoints to access policy regardless of proxy status */
+  proxyId?: string
 }
 
 type TabType = 'visual' | 'json'
 
-export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
+export function PolicySection({ loaded, proxyId }: PolicySectionProps): JSX.Element {
   const {
     policy,
     loading,
@@ -35,7 +37,7 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
     deleteRule,
     updateFullPolicy,
     mutating,
-  } = usePolicy()
+  } = usePolicy({ proxyId })
 
   const [activeTab, setActiveTab] = useState<TabType>('visual')
   const [dialogOpen, setDialogOpen] = useState(false)

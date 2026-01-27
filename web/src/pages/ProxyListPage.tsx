@@ -2,7 +2,7 @@
  * Proxy list page - landing page showing all configured proxies.
  *
  * Features:
- * - Filter chips (All, Running, Stopped)
+ * - Filter chips (All, Running, Inactive)
  * - Grid of proxy cards with name, server, cmd/url, status, stats
  * - "Add Proxy" button opens modal
  * - "Export All" button copies Claude Desktop JSON config
@@ -14,6 +14,7 @@ import { Plus, Copy, Check, Server } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { ProxyGrid } from '@/components/proxies/ProxyGrid'
+import { ProxyGridSkeleton } from '@/components/proxies/ProxyCardSkeleton'
 import { useManagerProxies } from '@/hooks/useManagerProxies'
 import { getConfigSnippet } from '@/api/proxies'
 import { AddProxyModal } from '@/components/proxy/AddProxyModal'
@@ -79,7 +80,7 @@ export function ProxyListPage() {
   const filterOptions: { value: FilterType; label: string; count: number }[] = [
     { value: 'all', label: 'All', count: counts.total },
     { value: 'active', label: 'Running', count: counts.active },
-    { value: 'inactive', label: 'Stopped', count: counts.inactive },
+    { value: 'inactive', label: 'Inactive', count: counts.inactive },
   ]
 
   const handleCopyAll = useCallback(async () => {
@@ -123,7 +124,7 @@ export function ProxyListPage() {
                 ) : (
                   <>
                     <Copy className="w-4 h-4 mr-2" />
-                    Export All
+                    Export All Client Configs
                   </>
                 )}
               </Button>
@@ -136,9 +137,7 @@ export function ProxyListPage() {
         </div>
 
         {proxiesLoading ? (
-          <div className="text-center py-16 text-muted-foreground">
-            Loading proxies...
-          </div>
+          <ProxyGridSkeleton count={3} />
         ) : proxies.length === 0 ? (
           <EmptyState onAddProxy={() => setAddModalOpen(true)} />
         ) : (

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { Row } from '@tanstack/react-table'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -78,6 +78,13 @@ const LOG_LEVELS: { value: string; label: string }[] = [
   { value: 'DEBUG', label: 'Debug' },
 ]
 
+// LocalStorage keys for filter persistence
+const STORAGE_KEYS = {
+  folder: 'logViewerFolder',
+  logType: 'logViewerLogType',
+  timeRange: 'logViewerTimeRange',
+} as const
+
 interface LogViewerProps {
   /** Initial folder to display */
   initialFolder?: string
@@ -89,6 +96,11 @@ interface LogViewerProps {
   hideLogTypeSelector?: boolean
   /** Show compact view (less padding) */
   compact?: boolean
+  /**
+   * When provided, uses manager-level endpoints to access logs
+   * regardless of whether the proxy is running.
+   */
+  proxyId?: string
 }
 
 export function LogViewer({
@@ -97,15 +109,33 @@ export function LogViewer({
   initialTimeRange = '5m',
   hideLogTypeSelector = false,
   compact = false,
+  proxyId,
 }: LogViewerProps) {
   // Config for checking debug log availability
-  const { config } = useConfig()
+  const { config } = useConfig({ proxyId })
   const debugEnabled = config?.logging.log_level === 'DEBUG'
 
-  // Filter state
-  const [folder, setFolder] = useState(initialFolder)
-  const [logType, setLogType] = useState<string>(initialLogType)
-  const [timeRange, setTimeRange] = useState<TimeRange>(initialTimeRange)
+  // Filter state - initialize from localStorage or props
+  const [folder, setFolder] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.folder)
+    return stored && LOG_FOLDERS[stored] ? stored : initialFolder
+  })
+  const [logType, setLogType] = useState<string>(() => {
+    const storedFolder = localStorage.getItem(STORAGE_KEYS.folder) || initialFolder
+    const stored = localStorage.getItem(STORAGE_KEYS.logType)
+    // Validate that stored logType is valid for the folder
+    if (stored && LOG_FOLDERS[storedFolder]?.files.some(f => f.value === stored)) {
+      return stored
+    }
+    return initialLogType
+  })
+  const [timeRange, setTimeRange] = useState<TimeRange>(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.timeRange)
+    if (stored && TIME_RANGES.some(t => t.value === stored)) {
+      return stored as TimeRange
+    }
+    return initialTimeRange
+  })
   const [sessionId, setSessionId] = useState('')
   const [requestId, setRequestId] = useState('')
   const [decision, setDecision] = useState('_all')
@@ -113,6 +143,19 @@ export function LogViewer({
   const [level, setLevel] = useState('_all')
   const [configVersion, setConfigVersion] = useState('')
   const [policyVersion, setPolicyVersion] = useState('')
+
+  // Persist filter selections to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.folder, folder)
+  }, [folder])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.logType, logType)
+  }, [logType])
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.timeRange, timeRange)
+  }, [timeRange])
 
   // Check if debug folder is selected but debug logging is not enabled
   const debugFolderWithoutDebug = folder === 'debug' && !debugEnabled
@@ -163,16 +206,18 @@ export function LogViewer({
     logType as LogType,
     filters,
     50,
-    !isMultiType && !debugFolderWithoutDebug
+    !isMultiType && !debugFolderWithoutDebug,
+    { proxyId }
   )
   const multiResult = useMultiLogs(
     isMultiType && !debugFolderWithoutDebug ? logTypesToFetch : [],
     filters,
-    50
+    50,
+    { proxyId }
   )
 
   // Select the active result
-  const { logs, loading, hasMore, totalScanned, loadMore, refresh } = isMultiType
+  const { logs, loading, hasMore, totalScanned, logFile, loadMore, refresh } = isMultiType
     ? multiResult
     : singleResult
 
@@ -315,6 +360,7 @@ export function LogViewer({
             value={sessionId}
             onChange={(e) => setSessionId(e.target.value)}
             className="w-[140px] h-8 text-xs"
+            aria-label="Filter by MCP session ID"
           />
         )}
 
@@ -325,6 +371,7 @@ export function LogViewer({
             value={requestId}
             onChange={(e) => setRequestId(e.target.value)}
             className="w-[140px] h-8 text-xs"
+            aria-label="Filter by request ID"
           />
         )}
 
@@ -335,6 +382,7 @@ export function LogViewer({
             value={policyVersion}
             onChange={(e) => setPolicyVersion(e.target.value)}
             className="w-[130px] h-8 text-xs"
+            aria-label="Filter by policy version"
           />
         )}
         {showConfigVersionFilter && (
@@ -343,6 +391,7 @@ export function LogViewer({
             value={configVersion}
             onChange={(e) => setConfigVersion(e.target.value)}
             className="w-[130px] h-8 text-xs"
+            aria-label="Filter by config version"
           />
         )}
 
@@ -365,6 +414,13 @@ export function LogViewer({
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
         </Button>
       </div>
+
+      {/* Log file path (when viewing single file) */}
+      {logFile && (
+        <div className="text-xs text-base-600 font-mono truncate" title={logFile}>
+          {logFile}
+        </div>
+      )}
 
       {/* Data Table or Debug Not Enabled Message */}
       {debugFolderWithoutDebug ? (
