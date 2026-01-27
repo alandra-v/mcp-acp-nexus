@@ -25,6 +25,7 @@ __all__ = [
     # API Response Models
     "AggregatedIncidentsResponse",
     "AuthActionResponse",
+    "AuthStatusResponse",
     "CachedApprovalSummary",
     "ConfigSnippetResponse",
     "CreateProxyRequest",
@@ -33,6 +34,7 @@ __all__ = [
     "FrozenModel",
     "ManagerStatusResponse",
     "PendingApprovalInfo",
+    "ProxyDetailResponse",
     "ProxyInfo",
     "ProxyStats",
     "RegisteredProxyInfo",
@@ -96,6 +98,35 @@ class AuthActionResponse(FrozenModel):
 
     ok: bool
     message: str
+
+
+class AuthStatusResponse(FrozenModel):
+    """Response model for manager auth status endpoint.
+
+    Mirrors the CLI 'auth status' output. Shows whether OIDC is configured
+    and the current authentication state.
+
+    Attributes:
+        configured: Whether OIDC authentication is configured.
+        authenticated: Whether user is currently authenticated.
+        subject_id: User subject ID from token (if authenticated).
+        email: User email from ID token (if available).
+        name: User name from ID token (if available).
+        provider: OIDC provider name (e.g., 'auth0').
+        token_expires_in_hours: Hours until token expires (if authenticated).
+        has_refresh_token: Whether a refresh token is available.
+        storage_backend: Token storage backend ('keyring' or 'file').
+    """
+
+    configured: bool
+    authenticated: bool
+    subject_id: str | None = None
+    email: str | None = None
+    name: str | None = None
+    provider: str | None = None
+    token_expires_in_hours: float | None = None
+    has_refresh_token: bool | None = None
+    storage_backend: str | None = None
 
 
 class CreateProxyRequest(BaseModel):
@@ -193,6 +224,9 @@ class EnhancedProxyInfo(FrozenModel):
         instance_id: Unique instance ID (None if not running).
         server_name: Backend server name from config.
         transport: Transport type (stdio, streamablehttp, auto).
+        command: Command to run (for stdio/auto transport).
+        args: Command arguments (for stdio/auto transport).
+        url: Backend URL (for streamablehttp/auto transport).
         created_at: ISO timestamp of proxy creation.
         stats: Request statistics (None if not running).
     """
@@ -203,8 +237,48 @@ class EnhancedProxyInfo(FrozenModel):
     instance_id: str | None = None
     server_name: str
     transport: TransportType
+    command: str | None = None
+    args: list[str] | None = None
+    url: str | None = None
     created_at: str
     stats: "ProxyStats | None" = None  # Forward reference - ProxyStats defined later
+
+
+class ProxyDetailResponse(FrozenModel):
+    """Full proxy detail including config and runtime data.
+
+    Returned by GET /api/manager/proxies/{proxy_id}.
+    Combines static config with live runtime data from proxy UDS.
+
+    Attributes:
+        proxy_name: User-defined proxy name (directory name).
+        proxy_id: Stable proxy identifier from config.
+        status: Current status ('running' or 'stopped').
+        instance_id: Unique instance ID (None if not running).
+        server_name: Backend server name from config.
+        transport: Transport type (stdio, streamablehttp, auto).
+        command: Command to run (for stdio/auto transport).
+        args: Command arguments (for stdio/auto transport).
+        url: Backend URL (for streamablehttp/auto transport).
+        created_at: ISO timestamp of proxy creation.
+        stats: Request statistics (None if not running).
+        pending_approvals: Pending HITL approvals (None if not running).
+        cached_approvals: Cached approvals (None if not running).
+    """
+
+    proxy_name: str
+    proxy_id: str
+    status: ProxyStatus
+    instance_id: str | None = None
+    server_name: str
+    transport: TransportType
+    command: str | None = None
+    args: list[str] | None = None
+    url: str | None = None
+    created_at: str
+    stats: "ProxyStats | None" = None
+    pending_approvals: list[dict[str, Any]] | None = None
+    cached_approvals: list[dict[str, Any]] | None = None
 
 
 class ManagerStatusResponse(FrozenModel):

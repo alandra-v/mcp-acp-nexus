@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import time
 from datetime import UTC, datetime
 from collections.abc import Awaitable, Callable
@@ -41,6 +42,13 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 
 if TYPE_CHECKING:
     from mcp_acp.manager.token_service import ManagerTokenService
+
+from mcp_acp.exceptions import AuthenticationError
+from mcp_acp.security.auth.jwt_validator import JWTValidator
+from mcp_acp.security.auth.token_storage import (
+    create_token_storage,
+    get_token_storage_info,
+)
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -72,12 +80,14 @@ from mcp_acp.config import (
 from mcp_acp.manager.models import (
     AggregatedIncidentsResponse,
     AuthActionResponse,
+    AuthStatusResponse,
     ConfigSnippetResponse,
     CreateProxyRequest,
     CreateProxyResponse,
     EnhancedProxyInfo,
     IncidentType,
     ManagerStatusResponse,
+    ProxyDetailResponse,
     ProxyStats,
 )
 from mcp_acp.manager.registry import ProxyConnection, ProxyRegistry, get_proxy_registry
@@ -546,6 +556,16 @@ def create_manager_api_app(
             reg_info = registered_by_name.get(proxy_name)
             is_running = reg_info is not None
 
+            # Extract command/args from stdio config, url from http config
+            command = None
+            args = None
+            url = None
+            if config.backend.stdio:
+                command = config.backend.stdio.command
+                args = config.backend.stdio.args or []
+            if config.backend.http:
+                url = config.backend.http.url
+
             result.append(
                 EnhancedProxyInfo(
                     proxy_name=proxy_name,
@@ -554,12 +574,125 @@ def create_manager_api_app(
                     instance_id=reg_info.get("instance_id") if reg_info else None,
                     server_name=config.backend.server_name,
                     transport=config.backend.transport,
+                    command=command,
+                    args=args if args else None,
+                    url=url,
                     created_at=config.created_at,
                     stats=stats_by_name.get(proxy_name),
                 )
             )
 
         return result
+
+    def _find_proxy_by_id(proxy_id: str) -> tuple[str, PerProxyConfig] | None:
+        """Find proxy config by proxy_id.
+
+        Args:
+            proxy_id: The stable proxy identifier.
+
+        Returns:
+            Tuple of (proxy_name, config) if found, None otherwise.
+        """
+        for proxy_name in list_configured_proxies():
+            try:
+                config = load_proxy_config(proxy_name)
+                if config.proxy_id == proxy_id:
+                    return (proxy_name, config)
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+        return None
+
+    @app.get("/api/manager/proxies/{proxy_id}", response_model=ProxyDetailResponse)
+    async def get_proxy_detail(proxy_id: str, request: Request) -> ProxyDetailResponse:
+        """Get full proxy detail by proxy_id.
+
+        Returns config and runtime data for a specific proxy.
+
+        Args:
+            proxy_id: Stable proxy identifier from config.
+            request: FastAPI request object.
+
+        Returns:
+            ProxyDetailResponse with config and runtime data.
+
+        Raises:
+            APIError: If proxy_id not found (404).
+        """
+        result = _find_proxy_by_id(proxy_id)
+        if result is None:
+            raise APIError(
+                status_code=404,
+                code=ErrorCode.PROXY_NOT_FOUND,
+                message=f"Proxy with ID '{proxy_id}' not found",
+                details={"proxy_id": proxy_id},
+            )
+
+        proxy_name, config = result
+        reg: ProxyRegistry = request.app.state.registry
+
+        # Check if running
+        registered = await reg.list_proxies()
+        reg_info = next((p for p in registered if p["name"] == proxy_name), None)
+        is_running = reg_info is not None
+
+        # Extract command/args from stdio config, url from http config
+        command = None
+        args = None
+        url = None
+        if config.backend.stdio:
+            command = config.backend.stdio.command
+            args = config.backend.stdio.args or []
+        if config.backend.http:
+            url = config.backend.http.url
+
+        # Fetch runtime data if running
+        stats = None
+        pending_approvals = None
+        cached_approvals = None
+
+        if is_running and reg_info and reg_info.get("socket_path"):
+            socket_path = reg_info["socket_path"]
+            try:
+                async with create_uds_client(
+                    socket_path,
+                    timeout=PROXY_SNAPSHOT_TIMEOUT_SECONDS,
+                ) as client:
+                    snapshots = await fetch_proxy_snapshots(client)
+
+                    # Extract stats
+                    if snapshots["stats"]:
+                        stats = ProxyStats(
+                            requests_total=snapshots["stats"].get("requests_total", 0),
+                            requests_allowed=snapshots["stats"].get("requests_allowed", 0),
+                            requests_denied=snapshots["stats"].get("requests_denied", 0),
+                            requests_hitl=snapshots["stats"].get("requests_hitl", 0),
+                        )
+
+                    # Extract pending approvals
+                    pending_approvals = snapshots["pending"]
+
+                    # Extract cached approvals
+                    if snapshots["cached"]:
+                        cached_approvals = snapshots["cached"].get("approvals", [])
+
+            except (httpx.ConnectError, OSError, httpx.TimeoutException):
+                pass  # Failed to fetch runtime data
+
+        return ProxyDetailResponse(
+            proxy_name=proxy_name,
+            proxy_id=config.proxy_id,
+            status="running" if is_running else "stopped",
+            instance_id=reg_info.get("instance_id") if reg_info else None,
+            server_name=config.backend.server_name,
+            transport=config.backend.transport,
+            command=command,
+            args=args if args else None,
+            url=url,
+            created_at=config.created_at,
+            stats=stats,
+            pending_approvals=pending_approvals,
+            cached_approvals=cached_approvals,
+        )
 
     @app.post("/api/manager/auth/reload", response_model=AuthActionResponse)
     async def reload_auth_tokens(request: Request) -> AuthActionResponse:
@@ -597,6 +730,88 @@ def create_manager_api_app(
         await ts.clear_token()
         return AuthActionResponse(ok=True, message="Token cleared, proxies notified")
 
+    @app.get("/api/manager/auth/status", response_model=AuthStatusResponse)
+    async def get_auth_status() -> AuthStatusResponse:
+        """Get authentication status.
+
+        Returns the current auth state from manager config and token storage.
+        Works without any running proxies since auth is managed at manager level.
+
+        Returns:
+            AuthStatusResponse with configured/authenticated state and user info.
+        """
+        manager_config = load_manager_config()
+
+        # Check if OIDC is configured
+        if manager_config.auth is None or manager_config.auth.oidc is None:
+            return AuthStatusResponse(
+                configured=False,
+                authenticated=False,
+            )
+
+        oidc_config = manager_config.auth.oidc
+        storage = create_token_storage(oidc_config)
+        storage_info = get_token_storage_info()
+
+        # Check for token
+        if not storage.exists():
+            return AuthStatusResponse(
+                configured=True,
+                authenticated=False,
+                provider=oidc_config.issuer,
+                storage_backend=storage_info.get("backend"),
+            )
+
+        # Load token
+        try:
+            token = storage.load()
+        except (AuthenticationError, OSError):
+            return AuthStatusResponse(
+                configured=True,
+                authenticated=False,
+                provider=oidc_config.issuer,
+                storage_backend=storage_info.get("backend"),
+            )
+
+        if token is None or token.is_expired:
+            return AuthStatusResponse(
+                configured=True,
+                authenticated=False,
+                provider=oidc_config.issuer,
+                storage_backend=storage_info.get("backend"),
+            )
+
+        # Extract user info from ID token
+        email = None
+        name = None
+        subject_id = None
+        if token.id_token:
+            try:
+                validator = JWTValidator(oidc_config)
+                claims = validator.decode_without_validation(token.id_token)
+                email = claims.get("email")
+                name = claims.get("name")
+                subject_id = claims.get("sub")
+            except (ValueError, KeyError):
+                pass
+
+        # Calculate hours until expiry
+        hours_until_expiry = None
+        if token.seconds_until_expiry > 0:
+            hours_until_expiry = round(token.seconds_until_expiry / 3600, 1)
+
+        return AuthStatusResponse(
+            configured=True,
+            authenticated=True,
+            subject_id=subject_id,
+            email=email,
+            name=name,
+            provider=oidc_config.issuer,
+            token_expires_in_hours=hours_until_expiry,
+            has_refresh_token=bool(token.refresh_token),
+            storage_backend=storage_info.get("backend"),
+        )
+
     # ==========================================================================
     # Config Snippet
     # ==========================================================================
@@ -604,12 +819,26 @@ def create_manager_api_app(
     def _get_executable_path() -> str:
         """Find absolute path to mcp-acp executable.
 
+        Tries multiple methods to find the executable:
+        1. shutil.which (PATH lookup)
+        2. sys.argv[0] if it contains 'mcp-acp' or 'mcp_acp'
+        3. Falls back to 'mcp-acp' (assumes it's in PATH)
+
         Returns:
-            Absolute path to mcp-acp executable, or 'mcp-acp' if not found.
+            Absolute path to mcp-acp executable.
         """
+        # Try PATH first
         path = shutil.which(APP_NAME)
         if path:
             return str(Path(path).resolve())
+
+        # Try sys.argv[0] - how the current process was invoked
+        argv0 = sys.argv[0] if sys.argv else ""
+        if "mcp-acp" in argv0 or "mcp_acp" in argv0:
+            resolved = Path(argv0).resolve()
+            if resolved.exists():
+                return str(resolved)
+
         return APP_NAME  # Fall back to name, assume it's in PATH
 
     @app.get("/api/manager/config-snippet", response_model=ConfigSnippetResponse)
