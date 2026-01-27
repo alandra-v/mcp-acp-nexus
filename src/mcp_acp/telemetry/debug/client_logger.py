@@ -225,6 +225,7 @@ def create_client_logging_middleware(
     log_path: Path,
     transport: str = "stdio",
     debug_enabled: bool = True,
+    include_payloads: bool = True,
 ) -> BidirectionalClientLoggingMiddleware:
     """Create middleware for wire-level logging of Client↔Proxy communication.
 
@@ -240,6 +241,7 @@ def create_client_logging_middleware(
         log_path: Path to the client wire log file (from config via get_client_log_path()).
         transport: Transport type being used ("stdio" or "streamablehttp").
         debug_enabled: Whether debug wire logging is enabled. If False, logs are discarded.
+        include_payloads: Whether to include full message payloads in logs.
 
     Returns:
         BidirectionalClientLoggingMiddleware: Configured middleware for the proxy server.
@@ -258,6 +260,6 @@ def create_client_logging_middleware(
     return BidirectionalClientLoggingMiddleware(
         logger=logger,
         log_level=logging.INFO,
-        include_payloads=True,
+        include_payloads=include_payloads,
         transport=transport,
     )

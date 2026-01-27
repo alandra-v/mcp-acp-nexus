@@ -957,6 +957,7 @@ def create_proxy(
         log_path=get_log_path(proxy_name, "client_wire", log_dir),
         transport=transport_type,
         debug_enabled=debug_enabled,
+        include_payloads=config.logging.include_payloads,
     )
     proxy.add_middleware(client_middleware)
 
