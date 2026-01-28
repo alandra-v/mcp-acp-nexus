@@ -60,7 +60,7 @@ export function DataTable<TData>({
 
   return (
     <div className="rounded-lg border border-[var(--border-subtle)] card-gradient overflow-hidden">
-      <ScrollArea className="h-[600px]">
+      <ScrollArea className="min-h-[200px] max-h-[600px]">
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (

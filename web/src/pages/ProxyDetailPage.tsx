@@ -20,20 +20,22 @@ import { useProxyDetail } from '@/hooks/useProxyDetail'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
 import { getConfigSnippet } from '@/api/proxies'
+import { getAuditStatus } from '@/api/audit'
 import { notifyError } from '@/hooks/useErrorSound'
-import { COPY_FEEDBACK_DURATION_MS } from '@/constants'
+import { COPY_FEEDBACK_DURATION_MS, SSE_EVENTS } from '@/constants'
 import { cn } from '@/lib/utils'
 
 const VALID_SECTIONS: DetailSection[] = ['overview', 'audit', 'policy', 'config']
 
 export function ProxyDetailPage() {
-  const { name: proxyName } = useParams<{ name: string }>()
+  const { id: proxyId } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const { proxies: managerProxies, loading: managerLoading } = useManagerProxies()
   const { approve, approveOnce, deny } = useAppState()
   const { clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const [loaded, setLoaded] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [auditHasIssues, setAuditHasIssues] = useState(false)
 
   // Get section from URL or default to 'overview'
   const sectionParam = searchParams.get('section')
@@ -45,14 +47,11 @@ export function ProxyDetailPage() {
     setSearchParams({ section }, { replace: true })
   }, [setSearchParams])
 
-  // Find proxy by name from manager proxies (config data)
+  // Find proxy by ID from manager proxies (config data)
   const managerProxy = useMemo(
-    () => managerProxies.find((p) => p.proxy_name === proxyName),
-    [managerProxies, proxyName]
+    () => managerProxies.find((p) => p.proxy_id === proxyId),
+    [managerProxies, proxyId]
   )
-
-  // Get proxy_id for detail lookup
-  const proxyId = managerProxy?.proxy_id
 
   // Fetch full proxy detail including pending/cached approvals
   const { proxy: proxyDetail, loading: detailLoading } = useProxyDetail(proxyId)
@@ -63,7 +62,38 @@ export function ProxyDetailPage() {
     return () => clearTimeout(timer)
   }, [])
 
+  // Fetch audit status for sidebar indicator
+  useEffect(() => {
+    if (!proxyId) return
+
+    const controller = new AbortController()
+
+    const fetchAuditStatus = async () => {
+      try {
+        const status = await getAuditStatus(proxyId, { signal: controller.signal })
+        const hasBroken = status.files.some((f) => f.status === 'broken')
+        setAuditHasIssues(hasBroken)
+      } catch (err) {
+        // Ignore aborted requests and other errors - indicator just won't show
+        if (err instanceof DOMException && err.name === 'AbortError') return
+        // Non-critical: indicator won't show but page still works
+      }
+    }
+
+    fetchAuditStatus()
+
+    // Refetch on proxy connect/disconnect
+    const handleProxyChange = () => fetchAuditStatus()
+    window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
+
+    return () => {
+      controller.abort()
+      window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
+    }
+  }, [proxyId])
+
   const handleCopyConfig = useCallback(async () => {
+    const proxyName = managerProxy?.proxy_name
     if (!proxyName) return
 
     try {
@@ -74,7 +104,7 @@ export function ProxyDetailPage() {
     } catch {
       notifyError('Failed to copy config')
     }
-  }, [proxyName])
+  }, [managerProxy?.proxy_name])
 
   if (managerLoading) {
     return (
@@ -98,7 +128,7 @@ export function ProxyDetailPage() {
               Proxy not found
             </h1>
             <p className="text-muted-foreground">
-              No proxy named "{proxyName}" exists in the configuration.
+              The requested proxy does not exist in the configuration.
             </p>
           </div>
         </div>
@@ -180,6 +210,7 @@ export function ProxyDetailPage() {
         <DetailSidebar
           activeSection={activeSection}
           onSectionChange={setActiveSection}
+          auditHasIssues={auditHasIssues}
         />
 
         {/* Content */}
@@ -236,7 +267,7 @@ export function ProxyDetailPage() {
                 />
               </Section>
               <Section index={1} title="Log Integrity" loaded={loaded}>
-                <AuditIntegritySection proxyId={proxyId} />
+                <AuditIntegritySection proxyId={proxyId} onBrokenStatusChange={setAuditHasIssues} />
               </Section>
             </>
           )}

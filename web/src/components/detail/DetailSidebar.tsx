@@ -5,6 +5,8 @@ export type DetailSection = 'overview' | 'audit' | 'policy' | 'config'
 interface DetailSidebarProps {
   activeSection: DetailSection
   onSectionChange: (section: DetailSection) => void
+  /** Show red indicator dot on Audit tab when integrity issues detected */
+  auditHasIssues?: boolean
 }
 
 const sections: { id: DetailSection; label: string }[] = [
@@ -17,6 +19,7 @@ const sections: { id: DetailSection; label: string }[] = [
 export function DetailSidebar({
   activeSection,
   onSectionChange,
+  auditHasIssues,
 }: DetailSidebarProps) {
   return (
     <aside className="sticky top-[100px] h-fit">
@@ -36,6 +39,9 @@ export function DetailSidebar({
               <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-base-500 rounded-r" />
             )}
             {section.label}
+            {section.id === 'audit' && auditHasIssues && (
+              <span className="w-2 h-2 rounded-full bg-error" />
+            )}
           </button>
         ))}
       </nav>

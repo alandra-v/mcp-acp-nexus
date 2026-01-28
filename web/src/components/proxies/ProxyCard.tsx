@@ -3,6 +3,11 @@
  *
  * Displays proxy name, server, command/URL, and stats.
  * Links to the proxy detail page.
+ *
+ * Status dot colors:
+ * - Green: running proxy, no issues
+ * - Grey: inactive proxy, no issues
+ * - Red: has issues (incidents or audit problems)
  */
 
 import { Link } from 'react-router-dom'
@@ -11,20 +16,28 @@ import type { Proxy } from '@/types/api'
 
 interface ProxyCardProps {
   proxy: Proxy
+  /** Whether proxy has issues (incidents or audit problems) */
+  hasIssues?: boolean
 }
 
-export function ProxyCard({ proxy }: ProxyCardProps) {
+export function ProxyCard({ proxy, hasIssues = false }: ProxyCardProps) {
   const isActive = proxy.status === 'running'
   const stats = proxy.stats
 
   return (
-    <Link to={`/proxy/${proxy.proxy_name}`} className="proxy-card">
+    <Link to={`/proxy/${proxy.proxy_id}`} className="proxy-card">
       <div className="proxy-card-inner flex flex-col">
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <span className="proxy-name">{proxy.proxy_name}</span>
           <div className="proxy-status">
-            <span className={cn('status-dot', !isActive && 'inactive')} />
+            <span
+              className={cn(
+                'status-dot',
+                hasIssues && 'has-issues',
+                !isActive && !hasIssues && 'inactive'
+              )}
+            />
             {isActive ? 'Running' : 'Inactive'}
           </div>
         </div>

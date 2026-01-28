@@ -233,6 +233,11 @@
   }
 
   .status-dot.inactive {
+    background: var(--base-500);
+    box-shadow: none;
+  }
+
+  .status-dot.has-issues {
     background: var(--error-indicator);
     box-shadow: 0 0 6px oklch(0.50 0.18 25 / 0.4);
   }
