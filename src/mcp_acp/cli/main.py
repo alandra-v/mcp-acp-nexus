@@ -12,7 +12,7 @@ Commands:
     logs      - Log viewing (list, show, tail)
     manager   - Manager daemon commands (start, stop, status)
     policy    - Policy management (show, path, edit, add, validate, reload)
-    proxy     - Proxy management (add)
+    proxy     - Proxy management (add, auth set-key, auth delete-key)
     start     - Start the proxy server manually
     status    - Show proxy runtime status
 
@@ -83,6 +83,11 @@ Connection Types (for proxy add --connection-type):
   stdio   Spawn local server process (npx, uvx, python)
   http    Connect to remote HTTP server (requires --url)
   auto    Auto-detect: tries HTTP first, falls back to STDIO
+
+API Key Management (for HTTP backends):
+  mcp-acp proxy auth set-key --proxy <name>       Set/update API key (prompts securely)
+  mcp-acp proxy auth set-key -p <name> -k <key>   Set API key non-interactively
+  mcp-acp proxy auth delete-key --proxy <name>    Remove API key from keychain
 """
         )
 
