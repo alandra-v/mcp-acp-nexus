@@ -40,6 +40,8 @@ from mcp_acp.api.schemas.config import (
     OIDCConfigUpdate,
     ProxyConfigResponse,
     ProxyConfigUpdate,
+    StdioAttestationResponse,
+    StdioAttestationUpdate,
     StdioTransportResponse,
     StdioTransportUpdate,
 )
@@ -145,6 +147,8 @@ __all__ = [
     "OIDCConfigUpdate",
     "ProxyConfigResponse",
     "ProxyConfigUpdate",
+    "StdioAttestationResponse",
+    "StdioAttestationUpdate",
     "StdioTransportResponse",
     "StdioTransportUpdate",
     # Policy

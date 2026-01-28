@@ -10,6 +10,8 @@ from fastapi import APIRouter
 
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas.config import (
+    ApiKeyResponse,
+    ApiKeySetRequest,
     AuthConfigResponse,
     BackendConfigResponse,
     ConfigResponse,
@@ -20,8 +22,10 @@ from mcp_acp.api.schemas.config import (
     LoggingConfigResponse,
     MTLSConfigResponse,
     ProxyConfigResponse,
+    StdioAttestationResponse,
     StdioTransportResponse,
 )
+from mcp_acp.security.credential_storage import BackendCredentialStorage
 from mcp_acp.config import PerProxyConfig, load_proxy_config, save_proxy_config
 from mcp_acp.manager.config import get_proxy_config_path, get_proxy_log_dir
 from pydantic import ValidationError as PydanticValidationError
@@ -61,9 +65,18 @@ def _build_config_response_from_proxy(config: PerProxyConfig, proxy_name: str) -
     # Build backend response
     stdio_response = None
     if config.backend.stdio:
+        attestation = config.backend.stdio.attestation
+        attestation_response = None
+        if attestation:
+            attestation_response = StdioAttestationResponse(
+                slsa_owner=attestation.slsa_owner,
+                expected_sha256=attestation.expected_sha256,
+                require_code_signature=attestation.require_signature,
+            )
         stdio_response = StdioTransportResponse(
             command=config.backend.stdio.command,
             args=config.backend.stdio.args,
+            attestation=attestation_response,
         )
 
     http_response = None
@@ -254,4 +267,148 @@ async def update_proxy_config(proxy_id: str, updates: ConfigUpdateRequest) -> Co
     return ConfigUpdateResponse(
         config=_build_config_response_from_proxy(new_config, proxy_name),
         message="Configuration saved. Restart the proxy to apply changes.",
+    )
+
+
+# ==========================================================================
+# API Key Management Endpoints
+# ==========================================================================
+
+
+@router.put("/{proxy_id}/config/api-key", response_model=ApiKeyResponse)
+async def set_api_key(proxy_id: str, request: ApiKeySetRequest) -> ApiKeyResponse:
+    """Set or update backend API key for a proxy.
+
+    Stores the key securely in the OS keychain and updates the config
+    with a credential reference. The actual key is never stored in config files.
+
+    Args:
+        proxy_id: Stable proxy identifier.
+        request: Request containing the API key.
+
+    Returns:
+        ApiKeyResponse with success status and credential reference.
+    """
+    result = find_proxy_by_id(proxy_id)
+    if result is None:
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.PROXY_NOT_FOUND,
+            message=f"Proxy with ID '{proxy_id}' not found",
+            details={"proxy_id": proxy_id},
+        )
+
+    proxy_name, config = result
+
+    # Verify proxy has HTTP transport configured
+    if config.backend.http is None:
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.VALIDATION_ERROR,
+            message="Cannot set API key: proxy does not use HTTP transport",
+            details={"proxy_id": proxy_id, "transport": config.backend.transport},
+        )
+
+    # Store key in keychain (reuses existing BackendCredentialStorage)
+    cred_storage = BackendCredentialStorage(proxy_name)
+    try:
+        cred_storage.save(request.api_key)
+    except RuntimeError as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Failed to store API key in keychain: {e}",
+        )
+
+    # Update config with credential reference
+    try:
+        current_config = load_proxy_config(proxy_name)
+        if current_config.backend.http is not None:
+            updated_http = current_config.backend.http.model_copy(
+                update={"credential_key": cred_storage.credential_key}
+            )
+            updated_backend = current_config.backend.model_copy(update={"http": updated_http})
+            updated_config = current_config.model_copy(update={"backend": updated_backend})
+            save_proxy_config(proxy_name, updated_config)
+    except Exception as e:
+        # Rollback: delete the stored credential
+        try:
+            cred_storage.delete()
+        except RuntimeError:
+            pass  # Best effort cleanup
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.CONFIG_SAVE_FAILED,
+            message=f"Failed to update config: {e}",
+        )
+
+    return ApiKeyResponse(
+        success=True,
+        message="API key stored securely in keychain",
+        credential_key=cred_storage.credential_key,
+    )
+
+
+@router.delete("/{proxy_id}/config/api-key", response_model=ApiKeyResponse)
+async def delete_api_key(proxy_id: str) -> ApiKeyResponse:
+    """Remove backend API key for a proxy.
+
+    Deletes the key from the OS keychain and removes the credential
+    reference from config.
+
+    Args:
+        proxy_id: Stable proxy identifier.
+
+    Returns:
+        ApiKeyResponse with success status.
+    """
+    result = find_proxy_by_id(proxy_id)
+    if result is None:
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.PROXY_NOT_FOUND,
+            message=f"Proxy with ID '{proxy_id}' not found",
+            details={"proxy_id": proxy_id},
+        )
+
+    proxy_name, config = result
+
+    # Check if there's an API key to delete
+    if config.backend.http is None or config.backend.http.credential_key is None:
+        return ApiKeyResponse(
+            success=True,
+            message="No API key configured",
+            credential_key=None,
+        )
+
+    # Delete from keychain
+    cred_storage = BackendCredentialStorage(proxy_name)
+    try:
+        cred_storage.delete()
+    except RuntimeError as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Failed to delete API key from keychain: {e}",
+        )
+
+    # Update config to remove credential reference
+    try:
+        current_config = load_proxy_config(proxy_name)
+        if current_config.backend.http is not None:
+            updated_http = current_config.backend.http.model_copy(update={"credential_key": None})
+            updated_backend = current_config.backend.model_copy(update={"http": updated_http})
+            updated_config = current_config.model_copy(update={"backend": updated_backend})
+            save_proxy_config(proxy_name, updated_config)
+    except Exception as e:
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.CONFIG_SAVE_FAILED,
+            message=f"Failed to update config: {e}",
+        )
+
+    return ApiKeyResponse(
+        success=True,
+        message="API key removed from keychain",
+        credential_key=None,
     )

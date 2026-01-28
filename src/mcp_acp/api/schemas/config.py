@@ -16,6 +16,7 @@ __all__ = [
     "MTLSConfigResponse",
     "OIDCConfigResponse",
     "ProxyConfigResponse",
+    "StdioAttestationResponse",
     "StdioTransportResponse",
     # Update schemas
     "AuthConfigUpdate",
@@ -27,6 +28,7 @@ __all__ = [
     "MTLSConfigUpdate",
     "OIDCConfigUpdate",
     "ProxyConfigUpdate",
+    "StdioAttestationUpdate",
     "StdioTransportUpdate",
     # API Key schemas
     "ApiKeySetRequest",
@@ -52,11 +54,29 @@ from mcp_acp.constants import (
 # =============================================================================
 
 
+class StdioAttestationResponse(BaseModel):
+    """STDIO attestation configuration for binary verification."""
+
+    slsa_owner: str | None = Field(
+        default=None,
+        description="GitHub owner for SLSA provenance verification",
+    )
+    expected_sha256: str | None = Field(
+        default=None,
+        description="Expected SHA-256 hash of the binary (64 hex characters)",
+    )
+    require_code_signature: bool = Field(
+        default=False,
+        description="Require code signature verification (macOS only)",
+    )
+
+
 class StdioTransportResponse(BaseModel):
     """STDIO transport configuration."""
 
     command: str
     args: list[str]
+    attestation: StdioAttestationResponse | None = None
 
 
 class HttpTransportResponse(BaseModel):
@@ -153,11 +173,30 @@ class LoggingConfigUpdate(BaseModel):
     include_payloads: bool | None = None
 
 
+class StdioAttestationUpdate(BaseModel):
+    """Updatable STDIO attestation fields for binary verification."""
+
+    slsa_owner: str | None = Field(
+        default=None,
+        description="GitHub owner for SLSA provenance verification",
+    )
+    expected_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[a-fA-F0-9]{64}$",
+        description="Expected SHA-256 hash of the binary (64 hex characters)",
+    )
+    require_code_signature: bool | None = Field(
+        default=None,
+        description="Require code signature verification (macOS only)",
+    )
+
+
 class StdioTransportUpdate(BaseModel):
     """Updatable STDIO transport fields."""
 
     command: str | None = Field(default=None, min_length=1)
     args: list[str] | None = None
+    attestation: StdioAttestationUpdate | None = None
 
 
 class HttpTransportUpdate(BaseModel):

@@ -32,6 +32,7 @@ from mcp_acp.api.schemas import (
     MTLSConfigResponse,
     OIDCConfigResponse,
     ProxyConfigResponse,
+    StdioAttestationResponse,
     StdioTransportResponse,
 )
 from mcp_acp.config import AppConfig
@@ -117,9 +118,18 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
     # Build backend response with transport details
     stdio_response = None
     if config.backend.stdio:
+        attestation = config.backend.stdio.attestation
+        attestation_response = None
+        if attestation:
+            attestation_response = StdioAttestationResponse(
+                slsa_owner=attestation.slsa_owner,
+                expected_sha256=attestation.expected_sha256,
+                require_code_signature=attestation.require_signature,
+            )
         stdio_response = StdioTransportResponse(
             command=config.backend.stdio.command,
             args=config.backend.stdio.args,
+            attestation=attestation_response,
         )
 
     http_response = None
