@@ -15,11 +15,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
-  getAuditStatus,
   verifyAuditLogs,
   repairAuditLogs,
-  type AuditStatusResponse,
-  type AuditFileStatus,
+  type AuditVerifyResponse,
+  type AuditFileResult,
 } from '@/api/audit'
 import { toast } from '@/components/ui/sonner'
 import { notifyError } from '@/hooks/useErrorSound'
@@ -74,7 +73,7 @@ const STATUS_CONFIG: Record<string, { icon: typeof Shield; color: string; label:
 // Files that are only protected during proxy runtime (CLI writes without hash chains)
 const RUNTIME_ONLY_FILES = ['config-history', 'policy-history']
 
-function FileStatusRow({ file }: { file: AuditFileStatus }) {
+function FileStatusRow({ file }: { file: AuditFileResult }) {
   const config = STATUS_CONFIG[file.status] || STATUS_CONFIG.error
   const Icon = config.icon
   const isRuntimeOnly = RUNTIME_ONLY_FILES.includes(file.name) && file.status === 'unprotected'
@@ -138,7 +137,7 @@ function LoadingSkeleton() {
 }
 
 export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIntegritySectionProps) {
-  const [status, setStatus] = useState<AuditStatusResponse | null>(null)
+  const [status, setStatus] = useState<AuditVerifyResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [verifying, setVerifying] = useState(false)
   const [repairing, setRepairing] = useState(false)
@@ -148,7 +147,7 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
     if (!proxyId) return
     try {
       setLoading(true)
-      const data = await getAuditStatus(proxyId, { signal })
+      const data = await verifyAuditLogs(proxyId, { signal })
       setStatus(data)
     } catch (err) {
       // Ignore aborted requests
@@ -179,24 +178,22 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
     try {
       setVerifying(true)
       const result = await verifyAuditLogs(proxyId)
+      setStatus(result)
 
       if (result.overall_status === 'passed') {
-        toast.success(`All ${result.total_passed} files passed integrity check`)
+        toast.success(`All ${result.total_protected} files passed integrity check`)
       } else if (result.overall_status === 'failed') {
-        toast.error(`${result.total_failed} file(s) failed integrity check`)
+        toast.error(`${result.total_broken} file(s) failed integrity check`)
       } else {
         toast.info('No log files to verify')
       }
-
-      // Refresh status after verify
-      await fetchStatus()
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
       notifyError('Verification failed')
     } finally {
       setVerifying(false)
     }
-  }, [proxyId, fetchStatus])
+  }, [proxyId])
 
   const handleRepairConfirm = useCallback(async () => {
     if (!proxyId) return
@@ -221,10 +218,10 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
     }
   }, [proxyId, fetchStatus])
 
-  // Calculate summary
-  const protectedCount = status?.files.filter((f) => f.status === 'protected').length ?? 0
-  const brokenFiles = status?.files.filter((f) => f.status === 'broken') ?? []
-  const brokenCount = brokenFiles.length
+  // Calculate summary using API totals
+  const protectedCount = status?.total_protected ?? 0
+  const brokenCount = status?.total_broken ?? 0
+  const brokenFiles = status?.files.filter((f) => f.status === 'broken' || f.status === 'error') ?? []
   const totalFiles = status?.files.length ?? 0
 
   const summaryStatus =

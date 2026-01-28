@@ -100,12 +100,10 @@ from mcp_acp.api.schemas.incidents import (
 
 # Audit schemas
 from mcp_acp.api.schemas.audit import (
-    AuditFileStatus,
+    AuditFileResult,
     AuditRepairResponse,
     AuditRepairResult,
-    AuditStatusResponse,
     AuditVerifyResponse,
-    AuditVerifyResult,
 )
 
 # Error schemas (for API documentation)
@@ -180,12 +178,10 @@ __all__ = [
     # Incidents
     "IncidentsSummary",
     # Audit
-    "AuditFileStatus",
+    "AuditFileResult",
     "AuditRepairResponse",
     "AuditRepairResult",
-    "AuditStatusResponse",
     "AuditVerifyResponse",
-    "AuditVerifyResult",
     # Errors
     "ErrorDetail",
     "ErrorResponse",

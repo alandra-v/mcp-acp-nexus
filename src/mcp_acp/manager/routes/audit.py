@@ -6,23 +6,29 @@ __all__ = ["router", "AUDIT_LOG_FILES"]
 
 import json
 from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
 
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas.audit import (
-    AuditFileStatus,
+    AuditFileResult,
     AuditRepairResponse,
     AuditRepairResult,
-    AuditStatusResponse,
     AuditVerifyResponse,
-    AuditVerifyResult,
 )
 from mcp_acp.manager.config import load_manager_config
 
 from .deps import find_proxy_by_id
 
+if TYPE_CHECKING:
+    from mcp_acp.security.integrity import IntegrityStateManager
+
 router = APIRouter(prefix="/api/manager/proxies", tags=["audit"])
+
+# Timestamp format for backup files
+_BACKUP_TIMESTAMP_FORMAT = "%Y-%m-%d_%H%M%S"
 
 # Log files that are protected by hash chains
 # CLI name -> (description, internal log_type for get_log_path)
@@ -41,28 +47,78 @@ AUDIT_LOG_FILES: dict[str, tuple[str, str]] = {
 # ==========================================================================
 
 
-def _build_audit_status(proxy_name: str, proxy_id: str) -> AuditStatusResponse:
-    """Build audit status response for a proxy."""
+def _backup_and_reset_file(
+    log_path: Path,
+    state_manager: "IntegrityStateManager",
+    reason: str = "",
+) -> AuditRepairResult:
+    """Backup a broken/invalid log file and create empty replacement.
+
+    Args:
+        log_path: Path to the log file to backup and reset.
+        state_manager: IntegrityStateManager to clear state from.
+        reason: Optional reason prefix for the message (e.g., "Invalid JSON").
+
+    Returns:
+        AuditRepairResult with action and message.
+    """
+    timestamp = datetime.now().strftime(_BACKUP_TIMESTAMP_FORMAT)
+    backup_path = log_path.with_suffix(f".broken.{timestamp}.jsonl")
+
+    try:
+        log_path.rename(backup_path)
+        log_path.touch()
+        state_manager.clear_state_for_file(log_path)
+
+        prefix = f"{reason} - " if reason else ""
+        return AuditRepairResult(
+            name="",  # Caller sets this
+            description="",  # Caller sets this
+            action="backed_up",
+            message=f"{prefix}Backed up to {backup_path.name}, created fresh file",
+        )
+    except OSError as e:
+        return AuditRepairResult(
+            name="",  # Caller sets this
+            description="",  # Caller sets this
+            action="error",
+            message=f"Failed to backup/reset: {e}",
+        )
+
+
+def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
+    """Build audit verification response for a proxy.
+
+    This is the single endpoint for audit integrity - it verifies all files
+    and returns comprehensive status including state file presence, per-file
+    status with entry counts/sequences, and overall summary.
+    """
     from mcp_acp.security.integrity import IntegrityStateManager
-    from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
+    from mcp_acp.security.integrity.hash_chain import verify_file_integrity
     from mcp_acp.utils.config import get_log_dir, get_log_path
 
     manager_config = load_manager_config()
     log_dir_str = manager_config.log_dir
     log_dir_path = get_log_dir(proxy_name, log_dir_str)
 
-    # Check state file
+    # Check state file and load state manager
     state_file = log_dir_path / IntegrityStateManager.STATE_FILE_NAME
     state_file_present = state_file.exists()
 
-    files: list[AuditFileStatus] = []
+    state_manager = IntegrityStateManager(log_dir_path)
+    state_manager.load_state()
+
+    files: list[AuditFileResult] = []
+    total_protected = 0
+    total_broken = 0
+    total_unprotected = 0
 
     for file_key, (description, internal_type) in AUDIT_LOG_FILES.items():
         log_path = get_log_path(proxy_name, internal_type, log_dir_str)
 
         if not log_path.exists():
             files.append(
-                AuditFileStatus(
+                AuditFileResult(
                     name=file_key,
                     description=description,
                     status="not_created",
@@ -76,7 +132,7 @@ def _build_audit_status(proxy_name: str, proxy_id: str) -> AuditStatusResponse:
 
             if not lines:
                 files.append(
-                    AuditFileStatus(
+                    AuditFileResult(
                         name=file_key,
                         description=description,
                         status="empty",
@@ -88,11 +144,15 @@ def _build_audit_status(proxy_name: str, proxy_id: str) -> AuditStatusResponse:
             # Check last entry for hash chain fields
             last_entry = json.loads(lines[-1])
             if "sequence" in last_entry and "entry_hash" in last_entry:
-                # Has hash chain - verify integrity
-                result = verify_chain_from_lines(lines)
+                # Has hash chain - use unified verification (state + chain check)
+                result = verify_file_integrity(
+                    log_path,
+                    state_manager=state_manager,
+                    log_dir=log_dir_path,
+                )
                 if result.success:
                     files.append(
-                        AuditFileStatus(
+                        AuditFileResult(
                             name=file_key,
                             description=description,
                             status="protected",
@@ -100,9 +160,10 @@ def _build_audit_status(proxy_name: str, proxy_id: str) -> AuditStatusResponse:
                             last_sequence=last_entry.get("sequence"),
                         )
                     )
+                    total_protected += 1
                 else:
                     files.append(
-                        AuditFileStatus(
+                        AuditFileResult(
                             name=file_key,
                             description=description,
                             status="broken",
@@ -111,118 +172,33 @@ def _build_audit_status(proxy_name: str, proxy_id: str) -> AuditStatusResponse:
                             errors=result.errors,
                         )
                     )
+                    total_broken += 1
             else:
                 files.append(
-                    AuditFileStatus(
+                    AuditFileResult(
                         name=file_key,
                         description=description,
                         status="unprotected",
                         entry_count=len(lines),
                     )
                 )
+                total_unprotected += 1
 
         except (json.JSONDecodeError, OSError) as e:
             files.append(
-                AuditFileStatus(
+                AuditFileResult(
                     name=file_key,
                     description=description,
                     status="error",
                     errors=[str(e)],
                 )
             )
-
-    return AuditStatusResponse(
-        proxy_name=proxy_name,
-        proxy_id=proxy_id,
-        state_file_present=state_file_present,
-        files=files,
-    )
-
-
-def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
-    """Build audit verification response for a proxy."""
-    from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
-    from mcp_acp.utils.config import get_log_path
-
-    manager_config = load_manager_config()
-    log_dir_str = manager_config.log_dir
-
-    results: list[AuditVerifyResult] = []
-    total_passed = 0
-    total_failed = 0
-    total_skipped = 0
-
-    for file_key, (description, internal_type) in AUDIT_LOG_FILES.items():
-        log_path = get_log_path(proxy_name, internal_type, log_dir_str)
-
-        if not log_path.exists():
-            results.append(
-                AuditVerifyResult(
-                    name=file_key,
-                    description=description,
-                    status="skipped",
-                    entry_count=0,
-                )
-            )
-            total_skipped += 1
-            continue
-
-        try:
-            with log_path.open(encoding="utf-8") as f:
-                lines = [line.strip() for line in f if line.strip()]
-
-            if not lines:
-                results.append(
-                    AuditVerifyResult(
-                        name=file_key,
-                        description=description,
-                        status="skipped",
-                        entry_count=0,
-                    )
-                )
-                total_skipped += 1
-                continue
-
-            # Verify chain integrity
-            result = verify_chain_from_lines(lines)
-
-            if result.success:
-                results.append(
-                    AuditVerifyResult(
-                        name=file_key,
-                        description=description,
-                        status="passed",
-                        entry_count=len(lines),
-                    )
-                )
-                total_passed += 1
-            else:
-                results.append(
-                    AuditVerifyResult(
-                        name=file_key,
-                        description=description,
-                        status="failed",
-                        entry_count=len(lines),
-                        errors=result.errors,
-                    )
-                )
-                total_failed += 1
-
-        except OSError as e:
-            results.append(
-                AuditVerifyResult(
-                    name=file_key,
-                    description=description,
-                    status="failed",
-                    errors=[f"Failed to read file: {e}"],
-                )
-            )
-            total_failed += 1
+            total_broken += 1
 
     # Determine overall status
-    if total_failed > 0:
+    if total_broken > 0:
         overall_status = "failed"
-    elif total_passed > 0:
+    elif total_protected > 0:
         overall_status = "passed"
     else:
         overall_status = "no_files"
@@ -230,16 +206,32 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
     return AuditVerifyResponse(
         proxy_name=proxy_name,
         proxy_id=proxy_id,
-        results=results,
-        total_passed=total_passed,
-        total_failed=total_failed,
-        total_skipped=total_skipped,
+        state_file_present=state_file_present,
+        files=files,
+        total_protected=total_protected,
+        total_broken=total_broken,
+        total_unprotected=total_unprotected,
         overall_status=overall_status,
     )
 
 
 def _build_audit_repair(proxy_name: str, proxy_id: str) -> AuditRepairResponse:
-    """Build audit repair response for a proxy."""
+    """Build audit repair response for a proxy.
+
+    Repairs integrity state for all audit log files. For each file:
+    - Missing file: clears stale state if present
+    - Empty file: clears stale state if present
+    - Unprotected file: no action needed
+    - Valid chain: syncs state file to match log
+    - Broken chain or invalid JSON: backs up file and creates fresh one
+
+    Args:
+        proxy_name: Human-readable proxy name.
+        proxy_id: Stable proxy identifier.
+
+    Returns:
+        AuditRepairResponse with per-file repair results and overall status.
+    """
     from mcp_acp.security.integrity import IntegrityStateManager
     from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
     from mcp_acp.utils.config import get_log_dir, get_log_path
@@ -249,6 +241,7 @@ def _build_audit_repair(proxy_name: str, proxy_id: str) -> AuditRepairResponse:
     log_dir_path = get_log_dir(proxy_name, log_dir_str)
 
     state_manager = IntegrityStateManager(log_dir_path)
+    state_manager.load_state()  # Load existing state before repairs
     results: list[AuditRepairResult] = []
     all_success = True
 
@@ -256,14 +249,26 @@ def _build_audit_repair(proxy_name: str, proxy_id: str) -> AuditRepairResponse:
         log_path = get_log_path(proxy_name, internal_type, log_dir_str)
 
         if not log_path.exists():
-            results.append(
-                AuditRepairResult(
-                    name=file_key,
-                    description=description,
-                    action="no_action",
-                    message="File not created yet",
+            # File doesn't exist - clear any stale state
+            success, message = state_manager.repair_state_for_file(log_path)
+            if success and "cleared" in message.lower():
+                results.append(
+                    AuditRepairResult(
+                        name=file_key,
+                        description=description,
+                        action="repaired",
+                        message=message,
+                    )
                 )
-            )
+            else:
+                results.append(
+                    AuditRepairResult(
+                        name=file_key,
+                        description=description,
+                        action="no_action",
+                        message="File not created yet",
+                    )
+                )
             continue
 
         try:
@@ -271,14 +276,14 @@ def _build_audit_repair(proxy_name: str, proxy_id: str) -> AuditRepairResponse:
                 lines = [line.strip() for line in f if line.strip()]
 
             if not lines:
-                # Empty file - clear any state
-                state_manager.clear_state_for_file(log_path)
+                # Empty file - clear any stale state
+                success, message = state_manager.repair_state_for_file(log_path)
                 results.append(
                     AuditRepairResult(
                         name=file_key,
                         description=description,
-                        action="repaired",
-                        message="Cleared state for empty file",
+                        action="repaired" if success else "error",
+                        message=message,
                     )
                 )
                 continue
@@ -302,51 +307,53 @@ def _build_audit_repair(proxy_name: str, proxy_id: str) -> AuditRepairResponse:
 
             if result.success:
                 # Chain is valid - repair state file to match
-                state_manager.repair_state_for_file(log_path)
+                success, message = state_manager.repair_state_for_file(log_path)
                 results.append(
                     AuditRepairResult(
                         name=file_key,
                         description=description,
-                        action="repaired",
-                        message=f"State synced with {len(lines)} entries",
+                        action="repaired" if success else "error",
+                        message=message,
                     )
                 )
+                if not success:
+                    all_success = False
             else:
                 # Chain is broken - backup and reset
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                backup_path = log_path.with_suffix(f".broken.{timestamp}.jsonl")
-
-                try:
-                    log_path.rename(backup_path)
-                    log_path.touch()
-                    state_manager.clear_state_for_file(log_path)
-                    results.append(
-                        AuditRepairResult(
-                            name=file_key,
-                            description=description,
-                            action="backed_up",
-                            message=f"Backed up to {backup_path.name}, created fresh file",
-                        )
+                repair_result = _backup_and_reset_file(log_path, state_manager)
+                results.append(
+                    AuditRepairResult(
+                        name=file_key,
+                        description=description,
+                        action=repair_result.action,
+                        message=repair_result.message,
                     )
-                except OSError as e:
+                )
+                if repair_result.action == "error":
                     all_success = False
-                    results.append(
-                        AuditRepairResult(
-                            name=file_key,
-                            description=description,
-                            action="error",
-                            message=f"Failed to backup/reset: {e}",
-                        )
-                    )
 
-        except (json.JSONDecodeError, OSError) as e:
+        except json.JSONDecodeError:
+            # File has invalid JSON - treat as broken chain, backup and reset
+            repair_result = _backup_and_reset_file(log_path, state_manager, reason="Invalid JSON")
+            results.append(
+                AuditRepairResult(
+                    name=file_key,
+                    description=description,
+                    action=repair_result.action,
+                    message=repair_result.message,
+                )
+            )
+            if repair_result.action == "error":
+                all_success = False
+
+        except OSError as e:
             all_success = False
             results.append(
                 AuditRepairResult(
                     name=file_key,
                     description=description,
                     action="error",
-                    message=f"Failed to process file: {e}",
+                    message=f"Failed to read file: {e}",
                 )
             )
 
@@ -364,46 +371,23 @@ def _build_audit_repair(proxy_name: str, proxy_id: str) -> AuditRepairResponse:
 # ==========================================================================
 
 
-@router.get("/{proxy_id}/audit/status", response_model=AuditStatusResponse)
-async def get_audit_status(proxy_id: str) -> AuditStatusResponse:
-    """Get audit log integrity status for a proxy.
-
-    Returns status of each audit log file including:
-    - Whether hash chain protection is enabled
-    - Number of entries
-    - Chain integrity status
-
-    Args:
-        proxy_id: Stable proxy identifier.
-
-    Returns:
-        AuditStatusResponse with file statuses.
-    """
-    result = find_proxy_by_id(proxy_id)
-    if result is None:
-        raise APIError(
-            status_code=404,
-            code=ErrorCode.PROXY_NOT_FOUND,
-            message=f"Proxy with ID '{proxy_id}' not found",
-            details={"proxy_id": proxy_id},
-        )
-
-    proxy_name, _ = result
-    return _build_audit_status(proxy_name, proxy_id)
-
-
 @router.get("/{proxy_id}/audit/verify", response_model=AuditVerifyResponse)
 async def verify_audit_logs(proxy_id: str) -> AuditVerifyResponse:
-    """Verify audit log hash chain integrity for a proxy.
+    """Verify audit log integrity and return comprehensive status.
 
-    Checks that log entries haven't been tampered with, deleted,
-    or reordered. Uses cryptographic hash chains for verification.
+    This is the single endpoint for audit integrity. It verifies all
+    files and returns:
+    - State file presence
+    - Per-file status (protected, broken, unprotected, empty, not_created, error)
+    - Entry counts and last sequence numbers
+    - Verification errors for broken files
+    - Overall summary (total protected/broken/unprotected)
 
     Args:
         proxy_id: Stable proxy identifier.
 
     Returns:
-        AuditVerifyResponse with verification results.
+        AuditVerifyResponse with verification results and status.
     """
     result = find_proxy_by_id(proxy_id)
     if result is None:

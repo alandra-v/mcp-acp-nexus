@@ -4,7 +4,7 @@ import { apiGet, apiPost, type RequestOptions } from './client'
 // Response Types
 // =============================================================================
 
-export interface AuditFileStatus {
+export interface AuditFileResult {
   name: string
   description: string
   /** Status: 'protected', 'unprotected', 'broken', 'empty', 'not_created', 'error' */
@@ -14,29 +14,14 @@ export interface AuditFileStatus {
   errors: string[]
 }
 
-export interface AuditStatusResponse {
-  proxy_name: string
-  proxy_id: string
-  state_file_present: boolean
-  files: AuditFileStatus[]
-}
-
-export interface AuditVerifyResult {
-  name: string
-  description: string
-  /** Status: 'passed', 'failed', 'skipped' */
-  status: string
-  entry_count: number
-  errors: string[]
-}
-
 export interface AuditVerifyResponse {
   proxy_name: string
   proxy_id: string
-  results: AuditVerifyResult[]
-  total_passed: number
-  total_failed: number
-  total_skipped: number
+  state_file_present: boolean
+  files: AuditFileResult[]
+  total_protected: number
+  total_broken: number
+  total_unprotected: number
   /** Overall: 'passed', 'failed', 'no_files' */
   overall_status: string
 }
@@ -62,28 +47,15 @@ export interface AuditRepairResponse {
 // =============================================================================
 
 /**
- * Get audit log integrity status for a proxy.
+ * Verify audit log integrity and get status for a proxy.
+ *
+ * This is the single endpoint for audit integrity - it verifies all files
+ * and returns comprehensive status including state file presence, per-file
+ * status, entry counts, and verification errors.
  *
  * @param proxyId - Stable proxy identifier
  * @param options - Request options with optional abort signal
- * @returns Status of each audit log file
- */
-export async function getAuditStatus(
-  proxyId: string,
-  options?: RequestOptions
-): Promise<AuditStatusResponse> {
-  return apiGet<AuditStatusResponse>(
-    `/manager/proxies/${encodeURIComponent(proxyId)}/audit/status`,
-    options
-  )
-}
-
-/**
- * Verify audit log hash chain integrity for a proxy.
- *
- * @param proxyId - Stable proxy identifier
- * @param options - Request options with optional abort signal
- * @returns Verification results for each file
+ * @returns Verification results and status for each file
  */
 export async function verifyAuditLogs(
   proxyId: string,

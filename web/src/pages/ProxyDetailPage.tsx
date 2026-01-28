@@ -20,7 +20,7 @@ import { useProxyDetail } from '@/hooks/useProxyDetail'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
 import { getConfigSnippet } from '@/api/proxies'
-import { getAuditStatus } from '@/api/audit'
+import { verifyAuditLogs } from '@/api/audit'
 import { notifyError } from '@/hooks/useErrorSound'
 import { COPY_FEEDBACK_DURATION_MS, SSE_EVENTS } from '@/constants'
 import { cn } from '@/lib/utils'
@@ -70,7 +70,7 @@ export function ProxyDetailPage() {
 
     const fetchAuditStatus = async () => {
       try {
-        const status = await getAuditStatus(proxyId, { signal: controller.signal })
+        const status = await verifyAuditLogs(proxyId, { signal: controller.signal })
         const hasBroken = status.files.some((f) => f.status === 'broken')
         setAuditHasIssues(hasBroken)
       } catch (err) {

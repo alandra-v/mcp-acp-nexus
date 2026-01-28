@@ -31,6 +31,9 @@ EXIT_PASSED = 0
 EXIT_FAILED = 1  # Tampering detected
 EXIT_UNABLE = 2  # Unable to verify (missing files, etc.)
 
+# Timestamp format for backup files
+_BACKUP_TIMESTAMP_FORMAT = "%Y-%m-%d_%H%M%S"
+
 # Log files that are protected by hash chains
 # CLI name -> (description, internal log_type for get_log_path)
 AUDIT_LOG_FILES: dict[str, tuple[str, str]] = {
@@ -41,50 +44,6 @@ AUDIT_LOG_FILES: dict[str, tuple[str, str]] = {
     "config-history": ("Config change history", "config_history"),
     "policy-history": ("Policy change history", "policy_history"),
 }
-
-
-def _verify_single_file(
-    log_path: Path,
-    log_name: str,
-) -> tuple[bool, list[str]]:
-    """Verify a single log file's hash chain.
-
-    Args:
-        log_path: Path to the log file.
-        log_name: Human-readable name for the log.
-
-    Returns:
-        Tuple of (success, error_messages).
-    """
-    errors: list[str] = []
-
-    if not log_path.exists():
-        return True, []  # File doesn't exist yet - not an error
-
-    # Read all lines from the file
-    try:
-        with log_path.open(encoding="utf-8") as f:
-            lines = [line.strip() for line in f if line.strip()]
-    except OSError as e:
-        errors.append(f"Failed to read {log_name}: {e}")
-        return False, errors
-
-    if not lines:
-        click.echo(f"  {log_name}: empty (no entries to verify)")
-        return True, []
-
-    # Verify chain integrity
-    result = verify_chain_from_lines(lines)
-
-    if result.success:
-        click.echo(f"  {log_name}: {len(lines)} entries - " + style_success("PASSED"))
-        return True, []
-    else:
-        errors.extend(result.errors)
-        click.echo(f"  {log_name}: " + style_error("FAILED"))
-        for err in result.errors:
-            click.echo(f"    - {err}")
-        return False, errors
 
 
 @click.group()
@@ -112,17 +71,20 @@ def audit() -> None:
     help="Log file to verify (default: all)",
 )
 def verify(proxy_name: str | None, log_file: str) -> None:
-    """Verify audit log hash chain integrity.
+    """Verify audit log integrity and show status.
 
     Without --proxy, verifies ALL proxies.
     With --proxy, verifies only the specified proxy.
 
-    Checks that log entries haven't been tampered with, deleted,
-    or reordered. Uses cryptographic hash chains for verification.
+    Performs the same checks as startup verification:
+    - Hash chain integrity (entries not tampered/deleted/reordered)
+    - State file consistency (inode match, last hash match)
+
+    Shows detailed status including entry counts and sequence numbers.
 
     Exit codes:
       0 - All checks passed
-      1 - Tampering detected (hash chain broken)
+      1 - Tampering detected (hash chain broken or state mismatch)
       2 - Unable to verify (missing files, read errors)
     """
     proxy_name = validate_proxy_if_provided(proxy_name)
@@ -151,143 +113,173 @@ def verify(proxy_name: str | None, log_file: str) -> None:
             sys.exit(EXIT_UNABLE)
         files_to_verify = [(log_file, AUDIT_LOG_FILES[log_file])]
 
-    total_passed = 0
-    total_failed = 0
-    total_skipped = 0
+    total_protected = 0
+    total_broken = 0
+    total_unprotected = 0
+    total_empty = 0
 
     for pname in proxies_to_verify:
-        if len(proxies_to_verify) > 1:
-            click.echo(f"Proxy: {pname}")
+        click.echo(f"Proxy: {pname}")
+
+        # Load state manager for this proxy
+        log_dir_path = get_log_dir(pname, log_dir_str)
+        state_manager = IntegrityStateManager(log_dir_path)
+        try:
+            state_manager.load_state()
+            state_loaded = True
+        except (ValueError, OSError):
+            state_loaded = False
+
+        # Show state file status
+        state_file = log_dir_path / IntegrityStateManager.STATE_FILE_NAME
+        if state_file.exists():
+            if state_loaded:
+                click.echo(f"  State file: {style_success('present')}")
+            else:
+                click.echo(f"  State file: {style_error('corrupted')}")
+        else:
+            click.echo(f"  State file: {style_warning('not found')}")
+
+        click.echo("  Log files:")
 
         for file_key, (description, internal_type) in files_to_verify:
             log_path = get_log_path(pname, internal_type, log_dir_str)
 
             if not log_path.exists():
-                click.echo(f"  {description}: " + style_warning("not found (skipped)"))
-                total_skipped += 1
-                continue
-
-            success, _errors = _verify_single_file(log_path, description)
-
-            if success:
-                total_passed += 1
+                # Check for stale state
+                rel_key = str(log_path.relative_to(log_dir_path))
+                if state_loaded and state_manager.has_state_for_file(rel_key):
+                    status_str = style_error("MISSING")
+                    info = "file deleted but state exists - run audit repair"
+                    total_broken += 1
+                else:
+                    status_str = style_warning("not created")
+                    info = ""
+                    total_empty += 1
             else:
-                total_failed += 1
+                # Check if file has hash chain entries and verify integrity
+                try:
+                    with log_path.open(encoding="utf-8") as f:
+                        lines = [line.strip() for line in f if line.strip()]
 
-        if len(proxies_to_verify) > 1:
-            click.echo()
+                    if not lines:
+                        # Check for stale state on empty file
+                        rel_key = str(log_path.relative_to(log_dir_path))
+                        if state_loaded and state_manager.has_state_for_file(rel_key):
+                            status_str = style_error("EMPTY")
+                            info = "file emptied but state exists - run audit repair"
+                            total_broken += 1
+                        else:
+                            status_str = style_warning("empty")
+                            info = "0 entries"
+                            total_empty += 1
+                    else:
+                        # Check last entry for hash chain fields
+                        last_entry = json.loads(lines[-1])
+                        if "sequence" in last_entry and "entry_hash" in last_entry:
+                            # Has hash chain - verify integrity AND state consistency
+                            result = verify_chain_from_lines(lines)
+                            state_issue = _check_state_consistency(
+                                log_path,
+                                log_dir_path,
+                                state_manager,
+                                state_loaded,
+                                last_entry_hash=last_entry.get("entry_hash"),
+                            )
+
+                            if not result.success:
+                                status_str = style_error("BROKEN")
+                                info = f"{len(lines)} entries - chain integrity failed"
+                                total_broken += 1
+                            elif state_issue:
+                                status_str = style_error("STATE MISMATCH")
+                                info = f"{len(lines)} entries - {state_issue}"
+                                total_broken += 1
+                            else:
+                                status_str = style_success("protected")
+                                info = f"{len(lines)} entries, seq #{last_entry.get('sequence', '?')}"
+                                total_protected += 1
+                        else:
+                            status_str = style_warning("unprotected")
+                            info = f"{len(lines)} entries (no hash chain)"
+                            total_unprotected += 1
+                except (json.JSONDecodeError, OSError):
+                    status_str = style_error("error reading")
+                    info = ""
+                    total_broken += 1
+
+            click.echo(f"    {file_key:15} - {status_str}")
+            if info:
+                click.echo(f"                       {info}")
+
+        click.echo()
 
     # Summary
-    click.echo()
-    if total_failed == 0:
-        if total_passed == 0:
+    if total_broken == 0:
+        if total_protected == 0 and total_unprotected == 0:
             click.echo(style_warning("No log files found to verify."))
             click.echo("Run the proxy to generate audit logs.")
             sys.exit(EXIT_UNABLE)
         else:
-            click.echo(style_success(f"All {total_passed} verified files passed integrity check."))
-            if total_skipped > 0:
-                click.echo(f"({total_skipped} files not yet created)")
+            msg = f"All {total_protected} protected file(s) passed integrity check."
+            if total_unprotected > 0:
+                msg += f" ({total_unprotected} unprotected)"
+            if total_empty > 0:
+                msg += f" ({total_empty} empty/not created)"
+            click.echo(style_success(msg))
             sys.exit(EXIT_PASSED)
     else:
-        click.echo(style_error(f"INTEGRITY CHECK FAILED: {total_failed} file(s) have issues"))
+        click.echo(style_error(f"INTEGRITY CHECK FAILED: {total_broken} file(s) have issues"))
         click.echo()
         click.echo("Run 'mcp-acp audit repair --proxy <name>' to fix.")
         sys.exit(EXIT_FAILED)
 
 
-@audit.command("status")
-@click.option(
-    "--proxy",
-    "-p",
-    "proxy_name",
-    help="Proxy name (optional - shows all proxies if not specified)",
-)
-def status(proxy_name: str | None) -> None:
-    """Show audit log hash chain status.
+def _check_state_consistency(
+    log_path: Path,
+    log_dir_path: Path,
+    state_manager: IntegrityStateManager,
+    state_loaded: bool,
+    last_entry_hash: str | None = None,
+) -> str | None:
+    """Check if file's inode and last hash match stored state.
 
-    Without --proxy, shows status for ALL proxies.
-    With --proxy, shows detailed status for a specific proxy.
+    Performs the same checks as startup verification to detect:
+    - File replacement (inode changed)
+    - Last entry modification (hash mismatch)
 
-    Displays which log files have hash chain protection enabled
-    and their current state.
+    Args:
+        log_path: Path to the log file to check.
+        log_dir_path: Base log directory for computing relative key.
+        state_manager: IntegrityStateManager with loaded state.
+        state_loaded: Whether state was successfully loaded.
+        last_entry_hash: Hash from last entry (avoids re-reading file).
+
+    Returns:
+        Error description if mismatch found, None if state is consistent.
     """
-    proxy_name = validate_proxy_if_provided(proxy_name)
-    manager_config = load_manager_config_or_exit()
-    log_dir_str = manager_config.log_dir
+    if not state_loaded:
+        return None
 
-    click.echo()
-    click.echo(style_label("Audit Log Hash Chain Status"))
-    click.echo()
+    rel_key = str(log_path.relative_to(log_dir_path))
+    state = state_manager.get_file_state(rel_key)
+    if state is None:
+        return None  # No state - OK (first run or new file)
 
-    # Determine which proxies to show
-    if proxy_name:
-        proxies_to_show = [proxy_name]
-    else:
-        proxies_to_show = list_configured_proxies()
-        if not proxies_to_show:
-            click.echo(style_warning("No proxies configured."))
-            click.echo("Run 'mcp-acp proxy add' to create one.")
-            return
+    # Check inode match (detect file replacement)
+    try:
+        stat = log_path.stat()
+    except OSError:
+        return "cannot stat file"
 
-    for pname in proxies_to_show:
-        _show_proxy_audit_status(pname, log_dir_str)
+    if stat.st_ino != state.last_inode or stat.st_dev != state.last_dev:
+        return "inode changed (file was replaced) - run audit repair"
 
+    # Check last entry hash match
+    if last_entry_hash and last_entry_hash != state.last_hash:
+        return "last hash mismatch - run audit repair"
 
-def _show_proxy_audit_status(proxy_name: str, log_dir_str: str) -> None:
-    """Show audit status for a single proxy."""
-    log_dir_path = get_log_dir(proxy_name, log_dir_str)
-
-    click.echo(f"Proxy: {proxy_name}")
-
-    # Check for state file (log_dir_path already includes mcp-acp/proxies/<name>)
-    state_file = log_dir_path / IntegrityStateManager.STATE_FILE_NAME
-    if state_file.exists():
-        click.echo(f"  State file: {style_success('present')}")
-    else:
-        click.echo(f"  State file: {style_warning('not found')}")
-
-    click.echo("  Log files:")
-
-    for file_key, (description, internal_type) in AUDIT_LOG_FILES.items():
-        log_path = get_log_path(proxy_name, internal_type, log_dir_str)
-
-        if not log_path.exists():
-            status_str = style_warning("not created")
-            info = ""
-        else:
-            # Check if file has hash chain entries and verify integrity
-            try:
-                with log_path.open(encoding="utf-8") as f:
-                    lines = [line.strip() for line in f if line.strip()]
-
-                if not lines:
-                    status_str = style_warning("empty")
-                    info = "0 entries"
-                else:
-                    # Check last entry for hash chain fields
-                    last_entry = json.loads(lines[-1])
-                    if "sequence" in last_entry and "entry_hash" in last_entry:
-                        # Has hash chain - verify integrity
-                        result = verify_chain_from_lines(lines)
-                        if result.success:
-                            status_str = style_success("protected")
-                            info = f"{len(lines)} entries, seq #{last_entry.get('sequence', '?')}"
-                        else:
-                            status_str = style_error("BROKEN")
-                            info = f"{len(lines)} entries - chain integrity failed"
-                    else:
-                        status_str = style_warning("unprotected")
-                        info = f"{len(lines)} entries (no hash chain)"
-            except (json.JSONDecodeError, OSError):
-                status_str = style_error("error reading")
-                info = ""
-
-        click.echo(f"    {file_key:15} - {status_str}")
-        if info:
-            click.echo(f"                       {info}")
-
-    click.echo()
+    return None
 
 
 def _check_chain_integrity(log_path: Path) -> tuple[bool, list[str]]:
@@ -344,7 +336,7 @@ def _backup_and_reset_file(
         backup filename. On failure, message describes the error.
     """
     # Generate backup filename with timestamp
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = datetime.now().strftime(_BACKUP_TIMESTAMP_FORMAT)
     backup_path = log_path.with_suffix(f".broken.{timestamp}.jsonl")
 
     try:
@@ -456,8 +448,11 @@ def repair(proxy_name: str, log_file: str, yes: bool) -> None:
             click.echo(f"  The hash chain in {log_path.name} is internally corrupted.")
             click.echo("  This usually means entries were deleted or modified.")
             click.echo()
+            click.echo(f"  Repair will: 1) Backup current file with .broken.TIMESTAMP.jsonl suffix")
+            click.echo(f"               2) Create a fresh empty log file")
+            click.echo()
 
-            if yes or click.confirm(f"  Backup {log_path.name} and create fresh file?"):
+            if yes or click.confirm(f"  Proceed with backup and reset of {log_path.name}?"):
                 success, message = _backup_and_reset_file(log_path, state_manager)
                 if success:
                     click.echo(f"  {style_success('✓')} {message}")
