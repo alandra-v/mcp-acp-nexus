@@ -199,13 +199,10 @@ def policy_reload(proxy_name: str) -> None:
 
 
 @policy.command("show")
-@click.option("--proxy", "-p", "proxy_name", help="Proxy name (required)")
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def policy_show(proxy_name: str | None, as_json: bool) -> None:
-    """Display proxy policy.
-
-    Requires --proxy to specify which proxy's policy to show.
-    """
+def policy_show(proxy_name: str, as_json: bool) -> None:
+    """Display proxy policy."""
     proxy_name = require_proxy_name(proxy_name)
     policy_path = get_proxy_policy_path(proxy_name)
 
@@ -265,11 +262,10 @@ def policy_show(proxy_name: str | None, as_json: bool) -> None:
 
 
 @policy.command("edit")
-@click.option("--proxy", "-p", "proxy_name", help="Proxy name (required)")
-def policy_edit(proxy_name: str | None) -> None:
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
+def policy_edit(proxy_name: str) -> None:
     """Edit proxy policy in $EDITOR.
 
-    Requires --proxy to specify which proxy's policy to edit.
     Opens the policy file in your default editor.
     After editing, validates the policy with Pydantic.
     If validation fails, offers to re-edit until valid or aborted.
@@ -428,11 +424,10 @@ RULE_TEMPLATE = """\
 
 
 @policy.command("add")
-@click.option("--proxy", "-p", "proxy_name", help="Proxy name (required)")
-def policy_add(proxy_name: str | None) -> None:
+@click.option("--proxy", "-p", "proxy_name", required=True, help="Proxy name")
+def policy_add(proxy_name: str) -> None:
     """Add a new rule via editor.
 
-    Requires --proxy to specify which proxy's policy to edit.
     Shows the rule schema, then opens your editor with a template.
     Edit the JSON, save and close to add the rule.
 

@@ -9,7 +9,7 @@ Commands:
     config    - Configuration management (show, path, edit, validate)
     init      - Initialize proxy configuration
     install   - Installation helpers (mcp-json)
-    logs      - Log viewing (show, tail)
+    logs      - Log viewing (list, show, tail)
     manager   - Manager daemon commands (start, stop, status)
     policy    - Policy management (show, path, edit, add, validate, reload)
     proxy     - Proxy management (add)
