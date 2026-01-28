@@ -15,9 +15,7 @@ import {
   type ReactNode,
 } from 'react'
 import { getIncidentsSummary, type IncidentsSummary } from '@/api/incidents'
-
-const LAST_SEEN_TOTAL_KEY = 'mcp-acp-incidents-last-seen-total'
-const LAST_SEEN_TIMESTAMP_KEY = 'mcp-acp-incidents-last-seen-timestamp'
+import { INCIDENTS_STORAGE_KEYS, SSE_EVENTS } from '@/constants'
 
 interface IncidentsContextValue {
   /** Count of unread incidents */
@@ -47,11 +45,11 @@ function getTotalCount(summary: IncidentsSummary | null): number {
 export function IncidentsProvider({ children }: IncidentsProviderProps) {
   const [summary, setSummary] = useState<IncidentsSummary | null>(null)
   const [lastSeenTotal, setLastSeenTotal] = useState<number>(() => {
-    const stored = localStorage.getItem(LAST_SEEN_TOTAL_KEY)
+    const stored = localStorage.getItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TOTAL)
     return stored ? parseInt(stored, 10) || 0 : 0
   })
   const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string | null>(() => {
-    return localStorage.getItem(LAST_SEEN_TIMESTAMP_KEY)
+    return localStorage.getItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TIMESTAMP)
   })
 
   // Track active fetch for cleanup
@@ -82,11 +80,11 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
     const handleIncidentsUpdated = () => {
       fetchSummary()
     }
-    window.addEventListener('incidents-updated', handleIncidentsUpdated)
+    window.addEventListener(SSE_EVENTS.INCIDENTS_UPDATED, handleIncidentsUpdated)
 
     return () => {
       abortControllerRef.current?.abort()
-      window.removeEventListener('incidents-updated', handleIncidentsUpdated)
+      window.removeEventListener(SSE_EVENTS.INCIDENTS_UPDATED, handleIncidentsUpdated)
     }
   }, [fetchSummary])
 
@@ -97,10 +95,12 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
     const total = getTotalCount(summary)
     if (total > 0) {
       const now = new Date().toISOString()
-      localStorage.setItem(LAST_SEEN_TOTAL_KEY, String(total))
-      localStorage.setItem(LAST_SEEN_TIMESTAMP_KEY, now)
+      localStorage.setItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TOTAL, String(total))
+      localStorage.setItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TIMESTAMP, now)
       setLastSeenTotal(total)
       setLastSeenTimestamp(now)
+      // Notify other components (e.g., ProxyGrid) that incidents were marked as read
+      window.dispatchEvent(new CustomEvent(SSE_EVENTS.INCIDENTS_MARKED_READ))
     }
   }, [summary])
 
