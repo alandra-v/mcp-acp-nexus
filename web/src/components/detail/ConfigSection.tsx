@@ -1,10 +1,19 @@
 import { useState, useEffect, useMemo, useCallback, useId, cloneElement, isValidElement, Children } from 'react'
+import { Key, Trash2 } from 'lucide-react'
 import { Section } from './Section'
 import { useConfig } from '@/hooks/useConfig'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -15,6 +24,7 @@ import {
 import { toast } from '@/components/ui/sonner'
 import { notifyError } from '@/hooks/useErrorSound'
 import { cn } from '@/lib/utils'
+import { setProxyApiKey, deleteProxyApiKey } from '@/api/config'
 import type { ConfigResponse, ConfigUpdateRequest, TransportType, ConfigChange } from '@/api/config'
 
 interface ConfigSectionProps {
@@ -41,6 +51,10 @@ interface FormState {
   // STDIO
   stdio_command: string
   stdio_args: string // comma-separated
+  // STDIO Attestation
+  attestation_slsa_owner: string
+  attestation_sha256: string
+  attestation_require_signature: boolean
   // HTTP
   http_url: string
   http_timeout: string
@@ -73,6 +87,9 @@ function configToFormState(config: ConfigResponse): FormState {
     backend_transport: config.backend.transport ?? 'auto',
     stdio_command: config.backend.stdio?.command || '',
     stdio_args: config.backend.stdio?.args.join(', ') || '',
+    attestation_slsa_owner: config.backend.stdio?.attestation?.slsa_owner || '',
+    attestation_sha256: config.backend.stdio?.attestation?.expected_sha256 || '',
+    attestation_require_signature: config.backend.stdio?.attestation?.require_code_signature || false,
     http_url: config.backend.http?.url || '',
     http_timeout: config.backend.http?.timeout.toString() || '30',
     log_dir: config.logging.log_dir,
@@ -114,17 +131,37 @@ function formStateToUpdateRequest(
     backendUpdates.transport = form.backend_transport
   }
 
-  // STDIO
+  // STDIO (command, args, attestation)
   const originalStdioCommand = original.backend.stdio?.command || ''
   const originalStdioArgs = original.backend.stdio?.args.join(', ') || ''
-  if (form.stdio_command !== originalStdioCommand || form.stdio_args !== originalStdioArgs) {
+  const originalSlsaOwner = original.backend.stdio?.attestation?.slsa_owner || ''
+  const originalSha256 = original.backend.stdio?.attestation?.expected_sha256 || ''
+  const originalRequireSig = original.backend.stdio?.attestation?.require_code_signature || false
+
+  const stdioChanged = form.stdio_command !== originalStdioCommand ||
+    form.stdio_args !== originalStdioArgs ||
+    form.attestation_slsa_owner !== originalSlsaOwner ||
+    form.attestation_sha256 !== originalSha256 ||
+    form.attestation_require_signature !== originalRequireSig
+
+  if (stdioChanged) {
     const args = form.stdio_args
       .split(',')
       .map((a) => a.trim())
       .filter(Boolean)
+
+    // Build attestation update if any attestation field has a value
+    const hasAttestation = form.attestation_slsa_owner || form.attestation_sha256 || form.attestation_require_signature
+    const attestationUpdate = hasAttestation ? {
+      slsa_owner: form.attestation_slsa_owner || undefined,
+      expected_sha256: form.attestation_sha256 || undefined,
+      require_code_signature: form.attestation_require_signature || undefined,
+    } : undefined
+
     backendUpdates.stdio = {
       command: form.stdio_command || undefined,
       args: args.length > 0 ? args : undefined,
+      attestation: attestationUpdate,
     }
   }
 
@@ -142,11 +179,8 @@ function formStateToUpdateRequest(
     updates.backend = backendUpdates
   }
 
-  // Logging
+  // Logging (log_dir is derived from proxy name, not editable)
   const loggingUpdates: ConfigUpdateRequest['logging'] = {}
-  if (form.log_dir !== original.logging.log_dir) {
-    loggingUpdates.log_dir = form.log_dir
-  }
   if (form.log_level !== original.logging.log_level) {
     loggingUpdates.log_level = form.log_level
   }
@@ -182,16 +216,21 @@ function formStateToUpdateRequest(
     }
   }
 
-  // Auth - mTLS
-  if (original.auth?.mtls) {
+  // Auth - mTLS (handle both updates and new configuration)
+  const formHasMtls = form.mtls_client_cert_path || form.mtls_client_key_path || form.mtls_ca_bundle_path
+  if (original.auth?.mtls || formHasMtls) {
+    const originalCert = original.auth?.mtls?.client_cert_path || ''
+    const originalKey = original.auth?.mtls?.client_key_path || ''
+    const originalCa = original.auth?.mtls?.ca_bundle_path || ''
+
     const mtlsUpdates: ConfigUpdateRequest['auth'] = { mtls: {} }
-    if (form.mtls_client_cert_path !== original.auth.mtls.client_cert_path) {
+    if (form.mtls_client_cert_path !== originalCert) {
       mtlsUpdates.mtls!.client_cert_path = form.mtls_client_cert_path
     }
-    if (form.mtls_client_key_path !== original.auth.mtls.client_key_path) {
+    if (form.mtls_client_key_path !== originalKey) {
       mtlsUpdates.mtls!.client_key_path = form.mtls_client_key_path
     }
-    if (form.mtls_ca_bundle_path !== original.auth.mtls.ca_bundle_path) {
+    if (form.mtls_ca_bundle_path !== originalCa) {
       mtlsUpdates.mtls!.ca_bundle_path = form.mtls_ca_bundle_path
     }
     if (Object.keys(mtlsUpdates.mtls!).length > 0) {
@@ -220,6 +259,12 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
   const { config, loading, saving, save, refresh, pendingChanges, hasPendingChanges } = useConfig({ proxyId })
   const { status: authStatus } = useAuth()
   const [form, setForm] = useState<FormState | null>(null)
+
+  // API Key management state
+  const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
+  const [apiKeyInput, setApiKeyInput] = useState('')
+  const [savingApiKey, setSavingApiKey] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Initialize form from config
   useEffect(() => {
@@ -283,6 +328,67 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
     }
   }, [config, form, authStatus, save])
 
+  // Set/Update API Key
+  const handleSetApiKey = useCallback(async () => {
+    if (!proxyId || !apiKeyInput.trim()) return
+
+    if (!authStatus?.authenticated) {
+      notifyError('You must be logged in to manage API keys')
+      return
+    }
+
+    try {
+      setSavingApiKey(true)
+      const result = await setProxyApiKey(proxyId, apiKeyInput.trim())
+      if (result.success) {
+        toast.success(result.message)
+        setShowApiKeyDialog(false)
+        setApiKeyInput('')
+        refresh() // Refresh config to show updated credential_key
+      } else {
+        notifyError(result.message)
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        notifyError(err.message)
+      } else {
+        notifyError('Failed to set API key')
+      }
+    } finally {
+      setSavingApiKey(false)
+    }
+  }, [proxyId, apiKeyInput, authStatus, refresh])
+
+  // Delete API Key
+  const handleDeleteApiKey = useCallback(async () => {
+    if (!proxyId) return
+
+    if (!authStatus?.authenticated) {
+      notifyError('You must be logged in to manage API keys')
+      return
+    }
+
+    try {
+      setSavingApiKey(true)
+      const result = await deleteProxyApiKey(proxyId)
+      if (result.success) {
+        toast.success(result.message)
+        setShowDeleteConfirm(false)
+        refresh() // Refresh config to show updated state
+      } else {
+        notifyError(result.message)
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        notifyError(err.message)
+      } else {
+        notifyError('Failed to delete API key')
+      }
+    } finally {
+      setSavingApiKey(false)
+    }
+  }, [proxyId, authStatus, refresh])
+
   if (loading) {
     return (
       <Section index={0} title="Configuration" loaded={loaded}>
@@ -326,6 +432,36 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
               className="max-w-md"
             />
           </FormRow>
+        </FormSection>
+
+        {/* Logging Settings */}
+        <FormSection title="Logging">
+          <FormRow label="Log Directory" hint="Derived from proxy name (read-only)">
+            <Input
+              value={form.log_dir}
+              className="max-w-md bg-base-900/50 text-muted-foreground"
+              disabled
+            />
+          </FormRow>
+          <FormRow label="Log Level" hint="DEBUG enables wire logs">
+            <Select value={form.log_level} onValueChange={(v) => updateField('log_level', v)}>
+              <SelectTrigger className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="INFO">INFO</SelectItem>
+                <SelectItem value="DEBUG">DEBUG</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormRow>
+          {form.log_level === 'DEBUG' && (
+            <FormRow label="Include Payloads" hint="Include full message content in debug logs">
+              <Switch
+                checked={form.include_payloads}
+                onCheckedChange={(checked) => updateField('include_payloads', checked)}
+              />
+            </FormRow>
+          )}
         </FormSection>
 
         {/* Backend Settings */}
@@ -398,56 +534,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
                 disabled={!isHttpActive}
               />
             </FormRow>
-            <FormRow label="API Key" hint="Backend authentication credential (stored in OS keychain)">
-              <div className="flex items-center gap-3">
-                {config.backend.http?.credential_key ? (
-                  <>
-                    <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-success-bg text-success-muted text-xs font-medium rounded border border-success-border">
-                      <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                      Configured
-                    </span>
-                    <code className="text-xs text-muted-foreground font-mono">
-                      {config.backend.http.credential_key}
-                    </code>
-                  </>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-base-800 text-muted-foreground text-xs font-medium rounded border border-base-700">
-                    Not configured
-                  </span>
-                )}
-              </div>
-            </FormRow>
           </div>
-        </FormSection>
-
-        {/* Logging Settings */}
-        <FormSection title="Logging">
-          <FormRow label="Log Directory" hint="Where log files are stored">
-            <Input
-              value={form.log_dir}
-              onChange={(e) => updateField('log_dir', e.target.value)}
-              className="max-w-md"
-            />
-          </FormRow>
-          <FormRow label="Log Level" hint="DEBUG enables wire logs">
-            <Select value={form.log_level} onValueChange={(v) => updateField('log_level', v)}>
-              <SelectTrigger className="w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="INFO">INFO</SelectItem>
-                <SelectItem value="DEBUG">DEBUG</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormRow>
-          {form.log_level === 'DEBUG' && (
-            <FormRow label="Include Payloads" hint="Include full message content in debug logs">
-              <Switch
-                checked={form.include_payloads}
-                onCheckedChange={(checked) => updateField('include_payloads', checked)}
-              />
-            </FormRow>
-          )}
         </FormSection>
 
         {/* Auth - OIDC (only if configured) */}
@@ -505,30 +592,115 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
           </FormSection>
         )}
 
-        {/* Auth - mTLS (only if configured) */}
-        {config.auth?.mtls && (
-          <FormSection title="Authentication - mTLS">
-            <FormRow label="Client Cert Path" hint="Path to client certificate (PEM)">
-              <Input
-                value={form.mtls_client_cert_path}
-                onChange={(e) => updateField('mtls_client_cert_path', e.target.value)}
-                className="max-w-md"
-              />
-            </FormRow>
-            <FormRow label="Client Key Path" hint="Path to client private key (PEM)">
-              <Input
-                value={form.mtls_client_key_path}
-                onChange={(e) => updateField('mtls_client_key_path', e.target.value)}
-                className="max-w-md"
-              />
-            </FormRow>
-            <FormRow label="CA Bundle Path" hint="Path to CA bundle for server verification">
-              <Input
-                value={form.mtls_ca_bundle_path}
-                onChange={(e) => updateField('mtls_ca_bundle_path', e.target.value)}
-                className="max-w-md"
-              />
-            </FormRow>
+        {/* Backend Authentication - Binary Attestation, mTLS, API Key */}
+        {(isStdioActive || isHttpActive) && (
+          <FormSection title="Backend Authentication">
+            {/* Binary Attestation - for STDIO */}
+            {isStdioActive && (
+              <>
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">Binary Attestation</div>
+                <FormRow label="SLSA Owner" hint="GitHub owner/repo for SLSA verification">
+                  <Input
+                    value={form.attestation_slsa_owner}
+                    onChange={(e) => updateField('attestation_slsa_owner', e.target.value)}
+                    className="max-w-md"
+                    placeholder="e.g., github-owner/repo"
+                  />
+                </FormRow>
+                <FormRow label="SHA-256" hint="Expected binary hash (64 hex characters)">
+                  <Input
+                    value={form.attestation_sha256}
+                    onChange={(e) => updateField('attestation_sha256', e.target.value)}
+                    className="max-w-md"
+                    placeholder="64-character hex hash"
+                  />
+                </FormRow>
+                <FormRow label="Require Signature" hint="Require code signature (macOS only)">
+                  <Switch
+                    checked={form.attestation_require_signature}
+                    onCheckedChange={(checked) => updateField('attestation_require_signature', checked)}
+                  />
+                </FormRow>
+              </>
+            )}
+
+            {/* mTLS - for HTTP */}
+            {isHttpActive && (
+              <>
+                {isStdioActive && <div className="border-t border-base-800 my-4" />}
+                <div className="text-xs uppercase tracking-wide text-muted-foreground">mTLS Authentication</div>
+                <FormRow label="Client Cert Path" hint="Path to client certificate (PEM)">
+                  <Input
+                    value={form.mtls_client_cert_path}
+                    onChange={(e) => updateField('mtls_client_cert_path', e.target.value)}
+                    className="max-w-md"
+                  />
+                </FormRow>
+                <FormRow label="Client Key Path" hint="Path to client private key (PEM)">
+                  <Input
+                    value={form.mtls_client_key_path}
+                    onChange={(e) => updateField('mtls_client_key_path', e.target.value)}
+                    className="max-w-md"
+                  />
+                </FormRow>
+                <FormRow label="CA Bundle Path" hint="Path to CA bundle for server verification">
+                  <Input
+                    value={form.mtls_ca_bundle_path}
+                    onChange={(e) => updateField('mtls_ca_bundle_path', e.target.value)}
+                    className="max-w-md"
+                  />
+                </FormRow>
+
+                {/* API Key */}
+                <div className="pt-4 text-xs uppercase tracking-wide text-muted-foreground">Backend API Key</div>
+                <FormRow label="API Key" hint="Stored securely in OS keychain">
+                  <div className="flex items-center gap-3">
+                    {config.backend.http?.credential_key ? (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-success-bg text-success-muted text-xs font-medium rounded border border-success-border">
+                          <span className="w-1.5 h-1.5 rounded-full bg-success" />
+                          Configured
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowApiKeyDialog(true)}
+                          disabled={savingApiKey}
+                        >
+                          <Key className="w-3.5 h-3.5 mr-1.5" />
+                          Update
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowDeleteConfirm(true)}
+                          disabled={savingApiKey}
+                          className="text-error border-error/30 hover:bg-error/10"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                          Remove
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-base-800 text-muted-foreground text-xs font-medium rounded border border-base-700">
+                          Not configured
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowApiKeyDialog(true)}
+                          disabled={savingApiKey}
+                        >
+                          <Key className="w-3.5 h-3.5 mr-1.5" />
+                          Set API Key
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </FormRow>
+              </>
+            )}
           </FormSection>
         )}
 
@@ -599,6 +771,72 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
           )}
         </div>
       </div>
+
+      {/* Set/Update API Key Dialog */}
+      <Dialog open={showApiKeyDialog} onOpenChange={(open) => {
+        setShowApiKeyDialog(open)
+        if (!open) setApiKeyInput('')
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {config.backend.http?.credential_key ? 'Update API Key' : 'Set API Key'}
+            </DialogTitle>
+            <DialogDescription>
+              The API key will be stored securely in your OS keychain, not in config files.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <Input
+              type="password"
+              placeholder="Enter API key or bearer token"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              This key is used for backend authentication when using HTTP transport.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowApiKeyDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSetApiKey}
+              disabled={!apiKeyInput.trim() || savingApiKey}
+            >
+              {savingApiKey ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete API Key Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove API Key</DialogTitle>
+            <DialogDescription>
+              This will delete the API key from your OS keychain. The proxy will no longer authenticate with the backend server. You can set a new API key at any time.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteApiKey}
+              disabled={savingApiKey}
+            >
+              {savingApiKey ? 'Removing...' : 'Remove'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Section>
   )
 }
