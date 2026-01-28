@@ -1,4 +1,4 @@
-"""Unit tests for sessions command.
+"""Unit tests for auth sessions command.
 
 Tests CLI behavior using Click's CliRunner for isolated, fast testing.
 Tests use the AAA pattern (Arrange-Act-Assert) for clarity.
@@ -40,35 +40,48 @@ def mock_sessions_response() -> list:
 
 
 class TestSessionsListCommand:
-    """Tests for sessions list command."""
+    """Tests for auth sessions list command."""
 
     def test_sessions_list_shows_active_sessions(
         self, runner: CliRunner, mock_sessions_response: list
     ) -> None:
         """Given active sessions, shows session list."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=mock_sessions_response,
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=mock_sessions_response,
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
-        assert "Active sessions: 2" in result.output
+        assert "Active sessions" in result.output
+        assert "2" in result.output
         assert "alice@example.com" in result.output
         assert "bob@example.com" in result.output
 
     def test_sessions_list_shows_timestamps(self, runner: CliRunner, mock_sessions_response: list) -> None:
         """Given sessions with timestamps, formats them nicely."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=mock_sessions_response,
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=mock_sessions_response,
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -79,12 +92,18 @@ class TestSessionsListCommand:
     def test_sessions_list_truncates_long_ids(self, runner: CliRunner, mock_sessions_response: list) -> None:
         """Given long session IDs, truncates for display."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=mock_sessions_response,
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=mock_sessions_response,
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -94,12 +113,18 @@ class TestSessionsListCommand:
     def test_sessions_list_empty(self, runner: CliRunner) -> None:
         """Given no active sessions, shows appropriate message."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=[],
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=[],
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 0
@@ -108,12 +133,18 @@ class TestSessionsListCommand:
     def test_sessions_list_proxy_not_running(self, runner: CliRunner) -> None:
         """Given proxy not running, shows error."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            side_effect=ProxyNotRunningError("test"),
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                side_effect=ProxyNotRunningError("test"),
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
@@ -122,12 +153,18 @@ class TestSessionsListCommand:
     def test_sessions_list_api_error(self, runner: CliRunner) -> None:
         """Given API error, shows error message."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            side_effect=APIError("Unauthorized", status_code=401),
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                side_effect=APIError("Unauthorized", status_code=401),
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test"])
 
         # Assert
         assert result.exit_code == 1
@@ -136,24 +173,30 @@ class TestSessionsListCommand:
     def test_sessions_list_requires_proxy_flag(self, runner: CliRunner) -> None:
         """Given no --proxy flag, shows error."""
         # Act
-        result = runner.invoke(cli, ["sessions", "list"])
+        result = runner.invoke(cli, ["auth", "sessions", "list"])
 
         # Assert
         assert result.exit_code == 2  # Click exits with 2 for missing required option
 
 
 class TestSessionsListJsonOutput:
-    """Tests for sessions list --json flag."""
+    """Tests for auth sessions list --json flag."""
 
     def test_sessions_list_json_output(self, runner: CliRunner, mock_sessions_response: list) -> None:
         """Given --json flag, outputs valid JSON array."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=mock_sessions_response,
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=mock_sessions_response,
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test", "--json"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test", "--json"])
 
         # Assert
         assert result.exit_code == 0
@@ -166,12 +209,18 @@ class TestSessionsListJsonOutput:
     ) -> None:
         """Given --json flag, preserves all session fields."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=mock_sessions_response,
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=mock_sessions_response,
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test", "--json"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test", "--json"])
 
         # Assert
         data = json.loads(result.output)
@@ -185,12 +234,18 @@ class TestSessionsListJsonOutput:
     def test_sessions_list_json_empty_array(self, runner: CliRunner) -> None:
         """Given no sessions and --json flag, outputs empty array."""
         # Arrange
-        with patch(
-            "mcp_acp.cli.commands.sessions.api_request",
-            return_value=[],
+        with (
+            patch(
+                "mcp_acp.cli.commands.auth.require_proxy_name",
+                return_value="test",
+            ),
+            patch(
+                "mcp_acp.cli.commands.auth.api_request",
+                return_value=[],
+            ),
         ):
             # Act
-            result = runner.invoke(cli, ["sessions", "list", "--proxy", "test", "--json"])
+            result = runner.invoke(cli, ["auth", "sessions", "list", "--proxy", "test", "--json"])
 
         # Assert
         assert result.exit_code == 0
@@ -199,21 +254,21 @@ class TestSessionsListJsonOutput:
 
 
 class TestSessionsHelp:
-    """Tests for sessions command help."""
+    """Tests for auth sessions command help."""
 
     def test_sessions_help_shows_subcommands(self, runner: CliRunner) -> None:
-        """Given sessions --help, shows available subcommands."""
+        """Given auth sessions --help, shows available subcommands."""
         # Act
-        result = runner.invoke(cli, ["sessions", "--help"])
+        result = runner.invoke(cli, ["auth", "sessions", "--help"])
 
         # Assert
         assert result.exit_code == 0
         assert "list" in result.output
 
     def test_sessions_list_help_shows_options(self, runner: CliRunner) -> None:
-        """Given sessions list --help, shows options."""
+        """Given auth sessions list --help, shows options."""
         # Act
-        result = runner.invoke(cli, ["sessions", "list", "--help"])
+        result = runner.invoke(cli, ["auth", "sessions", "list", "--help"])
 
         # Assert
         assert result.exit_code == 0
