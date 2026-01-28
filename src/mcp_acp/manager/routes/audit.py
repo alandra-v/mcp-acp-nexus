@@ -17,10 +17,11 @@ from mcp_acp.api.schemas.audit import (
     AuditRepairResponse,
     AuditRepairResult,
     AuditVerifyResponse,
+    BackupFileInfo,
 )
 from mcp_acp.manager.config import load_manager_config
 
-from .deps import find_proxy_by_id
+from .deps import find_proxy_by_id, get_backup_file_infos
 
 if TYPE_CHECKING:
     from mcp_acp.security.integrity import IntegrityStateManager
@@ -116,12 +117,16 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
     for file_key, (description, internal_type) in AUDIT_LOG_FILES.items():
         log_path = get_log_path(proxy_name, internal_type, log_dir_str)
 
+        # Scan for backup files (.broken.TIMESTAMP.jsonl)
+        backups = get_backup_file_infos(log_path, log_dir_path)
+
         if not log_path.exists():
             files.append(
                 AuditFileResult(
                     name=file_key,
                     description=description,
                     status="not_created",
+                    backups=backups,
                 )
             )
             continue
@@ -137,6 +142,7 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
                         description=description,
                         status="empty",
                         entry_count=0,
+                        backups=backups,
                     )
                 )
                 continue
@@ -158,6 +164,7 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
                             status="protected",
                             entry_count=len(lines),
                             last_sequence=last_entry.get("sequence"),
+                            backups=backups,
                         )
                     )
                     total_protected += 1
@@ -170,6 +177,7 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
                             entry_count=len(lines),
                             last_sequence=last_entry.get("sequence"),
                             errors=result.errors,
+                            backups=backups,
                         )
                     )
                     total_broken += 1
@@ -180,6 +188,7 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
                         description=description,
                         status="unprotected",
                         entry_count=len(lines),
+                        backups=backups,
                     )
                 )
                 total_unprotected += 1
@@ -191,6 +200,7 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
                     description=description,
                     status="error",
                     errors=[str(e)],
+                    backups=backups,
                 )
             )
             total_broken += 1

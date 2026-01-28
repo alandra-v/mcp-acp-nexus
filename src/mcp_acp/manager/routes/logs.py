@@ -26,7 +26,7 @@ from mcp_acp.utils.api import (
     read_jsonl_filtered,
 )
 
-from .deps import find_proxy_by_id
+from .deps import find_proxy_by_id, get_backup_file_infos
 
 router = APIRouter(prefix="/api/manager/proxies", tags=["logs"])
 
@@ -647,12 +647,16 @@ async def get_proxy_logs_metadata(proxy_id: str) -> LogsMetadataResponse:
             exists = full_path.exists()
             size = full_path.stat().st_size if exists else None
 
+            # Scan for backup files (.broken.TIMESTAMP.jsonl)
+            backups = get_backup_file_infos(full_path, log_dir)
+
             files.append(
                 LogFileInfo(
                     name=key,
                     path=rel_path,
                     exists=exists,
                     size_bytes=size,
+                    backups=backups,
                 )
             )
 

@@ -4,6 +4,7 @@ Provides common utilities used by config, policy, and history logging:
 - get_app_dir: OS-appropriate application directory
 - compute_file_checksum: SHA256 checksum for file integrity
 - set_secure_permissions: Secure file/directory permissions
+- scan_backup_files: Scan for .broken.TIMESTAMP.jsonl backup files
 - VersionInfo, get_next_version, get_last_version_info: History versioning
 - get_history_logger: Cached JSONL logger for history files
 """
@@ -13,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, TypeVar
@@ -37,6 +39,9 @@ __all__ = [
     "set_secure_permissions",
     "require_file_exists",
     "load_validated_json",
+    # Backup file scanning
+    "BackupFile",
+    "scan_backup_files",
     # History versioning
     "VersionInfo",
     "get_next_version",
@@ -50,6 +55,75 @@ __all__ = [
 
 # Bytes to read when finding last line in history file
 _HISTORY_CHUNK_SIZE = 4096
+
+# Pattern for backup files: decisions.broken.2025-01-28_123456.jsonl
+_BACKUP_FILE_PATTERN = re.compile(r"^(.+)\.broken\.(\d{4}-\d{2}-\d{2}_\d{6})\.jsonl$")
+
+
+# -----------------------------------------------------------------------------
+# Backup file scanning
+# -----------------------------------------------------------------------------
+
+
+class BackupFile(NamedTuple):
+    """Information about a backup log file (.broken.TIMESTAMP.jsonl)."""
+
+    filename: str
+    path: str  # Relative path from log directory
+    size_bytes: int
+    timestamp: str  # Extracted from filename (e.g., "2025-01-28_123456")
+
+
+def scan_backup_files(log_path: Path, log_dir: Path | None = None) -> list[BackupFile]:
+    """Scan for backup files (.broken.TIMESTAMP.jsonl) for a log file.
+
+    Backup files are created by the audit repair process when a hash chain
+    is broken. They have the format: <original>.broken.<timestamp>.jsonl
+
+    Args:
+        log_path: Path to the original log file (e.g., audit/decisions.jsonl).
+        log_dir: Base log directory for computing relative paths. If None,
+                 uses log_path.parent.parent.
+
+    Returns:
+        List of BackupFile sorted by timestamp (newest first).
+    """
+    if not log_path.parent.exists():
+        return []
+
+    base_name = log_path.stem  # e.g., "decisions"
+    base_dir = log_dir if log_dir else log_path.parent.parent
+    backups: list[BackupFile] = []
+
+    for file_path in log_path.parent.iterdir():
+        if not file_path.is_file():
+            continue
+
+        match = _BACKUP_FILE_PATTERN.match(file_path.name)
+        if match and match.group(1) == base_name:
+            timestamp = match.group(2)
+            try:
+                size = file_path.stat().st_size
+                # Compute relative path from base directory
+                try:
+                    rel_path = str(file_path.relative_to(base_dir))
+                except ValueError:
+                    rel_path = file_path.name
+
+                backups.append(
+                    BackupFile(
+                        filename=file_path.name,
+                        path=rel_path,
+                        size_bytes=size,
+                        timestamp=timestamp,
+                    )
+                )
+            except OSError:
+                continue  # Skip files we can't stat
+
+    # Sort by timestamp (newest first)
+    backups.sort(key=lambda b: b.timestamp, reverse=True)
+    return backups
 
 
 def get_app_dir() -> Path:

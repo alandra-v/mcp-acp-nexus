@@ -6,6 +6,9 @@ Combines schemas from routes/logs.py and routes/logs/models.py.
 from __future__ import annotations
 
 __all__ = [
+    # Re-exported from audit schema
+    "BackupFileInfo",
+    # Log schemas
     "LogFileInfo",
     "LogFolderInfo",
     "LogsMetadataResponse",
@@ -15,6 +18,9 @@ __all__ = [
 from typing import Any
 
 from pydantic import BaseModel
+
+# Re-export BackupFileInfo from audit schema (single source of truth)
+from mcp_acp.api.schemas.audit import BackupFileInfo as BackupFileInfo  # noqa: F401
 
 
 class LogsResponse(BaseModel):
@@ -35,6 +41,7 @@ class LogFileInfo(BaseModel):
     path: str
     exists: bool
     size_bytes: int | None
+    backups: list[BackupFileInfo] = []
 
 
 class LogFolderInfo(BaseModel):

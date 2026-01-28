@@ -2,7 +2,24 @@
 
 from __future__ import annotations
 
+__all__ = [
+    "BackupFileInfo",
+    "AuditFileResult",
+    "AuditVerifyResponse",
+    "AuditRepairResult",
+    "AuditRepairResponse",
+]
+
 from pydantic import BaseModel, Field
+
+
+class BackupFileInfo(BaseModel):
+    """Information about a backup log file (.broken.TIMESTAMP.jsonl)."""
+
+    filename: str = Field(description="Backup file name")
+    path: str = Field(description="Relative path from log directory")
+    size_bytes: int = Field(description="File size in bytes")
+    timestamp: str = Field(description="Backup timestamp (e.g., '2025-01-28_123456')")
 
 
 class AuditFileResult(BaseModel):
@@ -18,6 +35,7 @@ class AuditFileResult(BaseModel):
         default=None, description="Last sequence number if hash chain is present"
     )
     errors: list[str] = Field(default_factory=list, description="Error messages if status is broken/error")
+    backups: list[BackupFileInfo] = Field(default_factory=list, description="Backup files for this log")
 
 
 class AuditVerifyResponse(BaseModel):

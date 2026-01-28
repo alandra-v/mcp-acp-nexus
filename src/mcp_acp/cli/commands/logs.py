@@ -15,10 +15,10 @@ from pathlib import Path
 
 import click
 
+from mcp_acp.manager.config import list_configured_proxies
 from mcp_acp.utils.cli import load_manager_config_or_exit, require_proxy_name
 from mcp_acp.utils.config import get_log_path
-
-from mcp_acp.manager.config import list_configured_proxies
+from mcp_acp.utils.file_helpers import scan_backup_files
 
 from ..styling import style_label
 
@@ -65,6 +65,8 @@ def logs_list(proxy_name: str | None) -> None:
 
     Without --proxy, shows log paths for ALL proxies.
     With --proxy, shows detailed log info for a specific proxy.
+
+    Also shows backup files (.broken.TIMESTAMP.jsonl) created by 'audit repair'.
     """
     manager_config = load_manager_config_or_exit()
     log_dir_str = manager_config.log_dir
@@ -88,8 +90,20 @@ def logs_list(proxy_name: str | None) -> None:
             for cli_type, (description, internal_type) in LOG_TYPES.items():
                 log_path = get_log_path(name, internal_type, log_dir_str)
                 exists = "✓" if log_path.exists() else "✗"
-                click.echo(f"    {cli_type}: {log_path} {exists}")
+                # Check for backups
+                backups = scan_backup_files(log_path)
+                backup_info = f" [{len(backups)} backup(s)]" if backups else ""
+                click.echo(f"    {cli_type}: {log_path} {exists}{click.style(backup_info, fg='yellow')}")
             click.echo()
+
+
+def _format_size(size: int) -> str:
+    """Format file size in human-readable form."""
+    if size > 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    elif size > 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size} bytes"
 
 
 def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
@@ -102,12 +116,7 @@ def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
 
         if exists:
             size = log_path.stat().st_size
-            if size > 1024 * 1024:
-                size_str = f"{size / (1024 * 1024):.1f} MB"
-            elif size > 1024:
-                size_str = f"{size / 1024:.1f} KB"
-            else:
-                size_str = f"{size} bytes"
+            size_str = _format_size(size)
 
             # Count lines (entries)
             try:
@@ -126,6 +135,15 @@ def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
         click.echo(f"  {cli_type:12} - {description}")
         click.echo(f"               {status} {info}")
         click.echo(f"               {log_path}")
+
+        # Show backup files if any
+        backups = scan_backup_files(log_path)
+        if backups:
+            click.echo(f"               {click.style(f'{len(backups)} backup(s):', fg='yellow')}")
+            for backup in backups:
+                size_str = _format_size(backup.size_bytes)
+                click.echo(f"                 - {backup.filename} ({size_str})")
+
         click.echo()
 
 

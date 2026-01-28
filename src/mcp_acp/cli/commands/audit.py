@@ -80,7 +80,8 @@ def verify(proxy_name: str | None, log_file: str) -> None:
     - Hash chain integrity (entries not tampered/deleted/reordered)
     - State file consistency (inode match, last hash match)
 
-    Shows detailed status including entry counts and sequence numbers.
+    Shows detailed status including entry counts, sequence numbers,
+    and any backup files from previous repairs.
 
     Exit codes:
       0 - All checks passed
@@ -400,7 +401,8 @@ def repair(proxy_name: str, log_file: str, yes: bool) -> None:
     - You've investigated and confirmed logs are not tampered
 
     If a log file's hash chain is internally broken (e.g., entries deleted),
-    offers to backup the broken file and create a fresh one.
+    backs up the broken file with a .broken.TIMESTAMP.jsonl suffix and creates
+    a fresh empty file. Use 'logs list' to see backup files.
     """
     proxy_name = require_proxy_name(proxy_name)
     manager_config = load_manager_config_or_exit()
