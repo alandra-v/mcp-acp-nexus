@@ -1,4 +1,8 @@
 import { apiGet, apiPost, type RequestOptions } from './client'
+import type { BackupFileInfo } from '@/types/api'
+
+// Re-export for convenience
+export type { BackupFileInfo }
 
 // =============================================================================
 // Response Types
@@ -12,6 +16,7 @@ export interface AuditFileResult {
   entry_count: number | null
   last_sequence: number | null
   errors: string[]
+  backups: BackupFileInfo[]
 }
 
 export interface AuditVerifyResponse {

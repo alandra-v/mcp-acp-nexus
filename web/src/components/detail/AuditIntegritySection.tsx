@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { Shield, ShieldCheck, ShieldAlert, RefreshCw, Wrench } from 'lucide-react'
+import { Shield, ShieldCheck, ShieldAlert, RefreshCw, Wrench, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -73,11 +73,22 @@ const STATUS_CONFIG: Record<string, { icon: typeof Shield; color: string; label:
 // Files that are only protected during proxy runtime (CLI writes without hash chains)
 const RUNTIME_ONLY_FILES = ['config-history', 'policy-history']
 
+function formatFileSize(bytes: number): string {
+  if (bytes > 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+  if (bytes > 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+  return `${bytes} bytes`
+}
+
 function FileStatusRow({ file }: { file: AuditFileResult }) {
   const config = STATUS_CONFIG[file.status] || STATUS_CONFIG.error
   const Icon = config.icon
   const isRuntimeOnly = RUNTIME_ONLY_FILES.includes(file.name) && file.status === 'unprotected'
   const isBroken = file.status === 'broken'
+  const hasBackups = file.backups && file.backups.length > 0
 
   return (
     <div className={cn(
@@ -113,6 +124,22 @@ function FileStatusRow({ file }: { file: AuditFileResult }) {
               {error}
             </p>
           ))}
+        </div>
+      )}
+      {/* Backup files */}
+      {hasBackups && (
+        <div className="mt-2 ml-7">
+          <div className="flex items-center gap-1 text-xs text-warning mb-1">
+            <Archive className="w-3 h-3" />
+            <span>{file.backups.length} backup{file.backups.length > 1 ? 's' : ''}</span>
+          </div>
+          <div className="space-y-0.5">
+            {file.backups.map((backup) => (
+              <p key={backup.filename} className="text-xs text-muted-foreground font-mono">
+                {backup.filename} ({formatFileSize(backup.size_bytes)})
+              </p>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -144,11 +144,19 @@ export interface LogsResponse {
   filters_applied: Record<string, unknown>
 }
 
+export interface BackupFileInfo {
+  filename: string
+  path: string
+  size_bytes: number
+  timestamp: string
+}
+
 export interface LogFileInfo {
   name: string
   path: string
   exists: boolean
   size_bytes: number | null
+  backups: BackupFileInfo[]
 }
 
 export interface LogFolderInfo {
