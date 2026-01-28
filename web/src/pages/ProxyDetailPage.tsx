@@ -217,42 +217,30 @@ export function ProxyDetailPage() {
         <div className="min-w-0">
           {activeSection === 'overview' && (
             <>
-              {isRunning && proxyDetail ? (
-                <>
-                  <TransportFlow
-                    backendTransport={proxyDetail.backend_transport}
-                    mtlsEnabled={proxyDetail.mtls_enabled}
-                    backendName={managerProxy.server_name}
-                    clientId={proxyDetail.client_id}
-                    loaded={loaded}
-                  />
-                  <StatsSection loaded={loaded} />
-                  <ApprovalsSection
-                    approvals={proxyPending}
-                    onApprove={approve}
-                    onApproveOnce={approveOnce}
-                    onDeny={deny}
-                    loaded={loaded}
-                  />
-                  <CachedSection
-                    cached={proxyCached}
-                    loading={detailLoading}
-                    onClear={clearCached}
-                    onDelete={deleteCached}
-                    loaded={loaded}
-                  />
-                  <ActivitySection loaded={loaded} proxyId={proxyId} />
-                </>
-              ) : (
-                <Section index={0} title="Overview" loaded={loaded}>
-                  <div className="text-center py-12 text-muted-foreground">
-                    <p className="mb-2">This proxy is not running.</p>
-                    <p className="text-sm">
-                      Transport: <span className="text-foreground">{managerProxy.transport}</span>
-                    </p>
-                  </div>
-                </Section>
-              )}
+              <TransportFlow
+                backendTransport={proxyDetail?.backend_transport}
+                mtlsEnabled={proxyDetail?.mtls_enabled}
+                backendName={managerProxy.server_name}
+                clientId={proxyDetail?.client_id}
+                loaded={loaded}
+                inactive={!isRunning}
+              />
+              <StatsSection loaded={loaded} />
+              <ApprovalsSection
+                approvals={proxyPending}
+                onApprove={approve}
+                onApproveOnce={approveOnce}
+                onDeny={deny}
+                loaded={loaded}
+              />
+              <CachedSection
+                cached={proxyCached}
+                loading={detailLoading}
+                onClear={clearCached}
+                onDelete={deleteCached}
+                loaded={loaded}
+              />
+              <ActivitySection loaded={loaded} proxyId={proxyId} />
             </>
           )}
 

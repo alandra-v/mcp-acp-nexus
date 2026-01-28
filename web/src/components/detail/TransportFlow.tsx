@@ -4,11 +4,13 @@ import { ClaudeLogo } from '@/assets/ClaudeLogo'
 import { CLIENT_DISPLAY_NAMES } from '@/constants'
 
 interface TransportFlowProps {
-  backendTransport: string
-  mtlsEnabled: boolean
+  backendTransport?: string
+  mtlsEnabled?: boolean
   backendName: string
-  clientId: string | null
+  clientId?: string | null
   loaded?: boolean
+  /** When true, shows minimal view with "-" for client and no transport badges */
+  inactive?: boolean
 }
 
 /**
@@ -34,14 +36,18 @@ export function TransportFlow({
   backendName,
   clientId,
   loaded = true,
+  inactive = false,
 }: TransportFlowProps) {
   // Client transport is always stdio (Claude Desktop → Proxy)
-  const clientLabel = 'stdio'
-  const backendLabel = formatTransport(backendTransport)
+  const backendLabel = backendTransport ? formatTransport(backendTransport) : null
 
   // Check if client is Claude Desktop
   const isClaudeDesktop = clientId === 'claude-ai'
-  const clientDisplayName = clientId ? (CLIENT_DISPLAY_NAMES[clientId] ?? clientId) : 'Client'
+  const clientDisplayName = inactive
+    ? '-'
+    : clientId
+      ? (CLIENT_DISPLAY_NAMES[clientId] ?? clientId)
+      : 'Client'
 
   return (
     <div
@@ -61,51 +67,88 @@ export function TransportFlow({
       <div className="flex items-center justify-center gap-4 text-sm py-4">
         {/* Client */}
         <div className="flex items-center gap-2">
-          {isClaudeDesktop ? (
+          {inactive ? (
+            <Monitor className="w-4 h-4 text-base-600" />
+          ) : isClaudeDesktop ? (
             <ClaudeLogo className="w-4 h-4" />
           ) : (
             <Monitor className="w-4 h-4 text-base-400" />
           )}
-          <span className="font-display font-medium text-foreground">{clientDisplayName}</span>
+          <span className={cn(
+            'font-display font-medium',
+            inactive ? 'text-base-500' : 'text-foreground'
+          )}>
+            {clientDisplayName}
+          </span>
         </div>
 
-        {/* Client -> Proxy connection */}
-        <div className="flex items-center gap-2 text-base-500">
-          <span className="text-xs">&larr;</span>
-          <span className="px-2 py-0.5 bg-base-900 rounded text-xs font-mono text-base-400">
-            {clientLabel}
-          </span>
-          <span className="text-xs">&rarr;</span>
-        </div>
+        {/* Client -> Proxy connection (hidden when inactive) */}
+        {!inactive && (
+          <div className="flex items-center gap-2 text-base-500">
+            <span className="text-xs">&larr;</span>
+            <span className="px-2 py-0.5 bg-base-900 rounded text-xs font-mono text-base-400">
+              stdio
+            </span>
+            <span className="text-xs">&rarr;</span>
+          </div>
+        )}
+
+        {/* Arrows only when inactive */}
+        {inactive && (
+          <div className="flex items-center gap-2 text-base-600">
+            <span className="text-xs">&larr;</span>
+            <span className="text-xs">&rarr;</span>
+          </div>
+        )}
 
         {/* Proxy */}
         <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-base-400" />
-          <span className="font-display font-medium text-foreground">Proxy</span>
+          <Shield className={cn('w-4 h-4', inactive ? 'text-base-600' : 'text-base-400')} />
+          <span className={cn(
+            'font-display font-medium',
+            inactive ? 'text-base-500' : 'text-foreground'
+          )}>
+            Proxy
+          </span>
         </div>
 
-        {/* Proxy -> Backend connection */}
-        <div className="flex items-center gap-2 text-base-500">
-          <span className="text-xs">&larr;</span>
-          <span className="px-2 py-0.5 bg-base-900 rounded text-xs font-mono text-base-400 flex items-center gap-1.5">
-            {backendLabel}
-            {mtlsEnabled && (
-              <>
-                <Lock
-                  className="w-3 h-3 text-base-300"
-                  style={{ filter: 'drop-shadow(0 0 3px oklch(0.55 0.02 228))' }}
-                />
-                <span className="text-base-500 text-[10px] uppercase tracking-wide">mTLS</span>
-              </>
-            )}
-          </span>
-          <span className="text-xs">&rarr;</span>
-        </div>
+        {/* Proxy -> Backend connection (hidden when inactive) */}
+        {!inactive && backendLabel && (
+          <div className="flex items-center gap-2 text-base-500">
+            <span className="text-xs">&larr;</span>
+            <span className="px-2 py-0.5 bg-base-900 rounded text-xs font-mono text-base-400 flex items-center gap-1.5">
+              {backendLabel}
+              {mtlsEnabled && (
+                <>
+                  <Lock
+                    className="w-3 h-3 text-base-300"
+                    style={{ filter: 'drop-shadow(0 0 3px oklch(0.55 0.02 228))' }}
+                  />
+                  <span className="text-base-500 text-[10px] uppercase tracking-wide">mTLS</span>
+                </>
+              )}
+            </span>
+            <span className="text-xs">&rarr;</span>
+          </div>
+        )}
+
+        {/* Arrows only when inactive */}
+        {inactive && (
+          <div className="flex items-center gap-2 text-base-600">
+            <span className="text-xs">&larr;</span>
+            <span className="text-xs">&rarr;</span>
+          </div>
+        )}
 
         {/* Backend */}
         <div className="flex items-center gap-2">
-          <Server className="w-4 h-4 text-base-400" />
-          <span className="font-display font-medium text-foreground">{backendName}</span>
+          <Server className={cn('w-4 h-4', inactive ? 'text-base-600' : 'text-base-400')} />
+          <span className={cn(
+            'font-display font-medium',
+            inactive ? 'text-base-500' : 'text-foreground'
+          )}>
+            {backendName}
+          </span>
         </div>
       </div>
     </div>
