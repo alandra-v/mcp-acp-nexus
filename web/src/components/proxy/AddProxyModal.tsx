@@ -282,8 +282,9 @@ export function AddProxyModal({
     updateField('args', args)
   }, [updateField])
 
-  // Check if advanced section has values (includes attestation now)
+  // Check if advanced section has values
   const hasAdvancedValues = !!(
+    formState.api_key ||
     formState.mtls_cert || formState.mtls_key || formState.mtls_ca ||
     (formState.timeout && formState.timeout !== DEFAULT_HTTP_TIMEOUT_SECONDS) ||
     formState.attestation_slsa_owner ||
@@ -437,18 +438,6 @@ export function AddProxyModal({
                       <p className="text-xs text-destructive ml-[108px]">{fieldErrors.url}</p>
                     )}
                   </div>
-
-                  {/* API Key */}
-                  <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                    <label htmlFor="proxy-api-key" className="text-sm">API Key</label>
-                    <Input
-                      id="proxy-api-key"
-                      type="password"
-                      placeholder="Optional - stored in keychain"
-                      value={formState.api_key || ''}
-                      onChange={(e) => updateField('api_key', e.target.value)}
-                    />
-                  </div>
                 </div>
               )}
 
@@ -512,12 +501,24 @@ export function AddProxyModal({
                     </div>
                   )}
 
-                  {/* mTLS and Timeout - for HTTP and Auto */}
+                  {/* mTLS, API Key, and Timeout - for HTTP and Auto */}
                   {isHttp && (
                     <div className="space-y-3">
                       <p className="text-xs text-muted-foreground font-medium">
                         HTTP Options
                       </p>
+
+                      {/* API Key */}
+                      <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
+                        <label htmlFor="proxy-api-key" className="text-sm">API Key</label>
+                        <Input
+                          id="proxy-api-key"
+                          type="password"
+                          placeholder="Optional - stored in keychain"
+                          value={formState.api_key || ''}
+                          onChange={(e) => updateField('api_key', e.target.value)}
+                        />
+                      </div>
 
                       {/* Timeout */}
                       <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
