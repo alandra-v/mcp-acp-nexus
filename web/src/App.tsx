@@ -18,7 +18,7 @@ export function App() {
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<ProxyListPage />} />
-              <Route path="/proxy/:name" element={<ProxyDetailPage />} />
+              <Route path="/proxy/:id" element={<ProxyDetailPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/auth" element={<AuthPage />} />
             </Routes>

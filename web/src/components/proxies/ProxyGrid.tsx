@@ -17,7 +17,7 @@ export function ProxyGrid({ proxies }: ProxyGridProps) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-5">
       {proxies.map((proxy) => (
-        <ProxyCard key={proxy.proxy_name} proxy={proxy} />
+        <ProxyCard key={proxy.proxy_id} proxy={proxy} />
       ))}
     </div>
   )
