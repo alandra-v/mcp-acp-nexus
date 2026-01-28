@@ -32,7 +32,6 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 # Genesis constant for first entry in a chain
 GENESIS_HASH = "GENESIS"
@@ -192,13 +191,11 @@ class IntegrityStateManager:
     ) -> VerificationResult:
         """Verify all log files match stored state and have valid hash chains.
 
-        Checks for each file with stored state:
-        1. File exists
-        2. File's inode/dev matches stored values (not swapped)
-        3. Last entry in file matches stored last_hash
-        4. Full hash chain integrity (all entries link correctly)
-
-        Files without stored state are skipped (first run or new file).
+        Uses verify_file_integrity() for unified verification logic. Additionally
+        handles startup-specific concerns:
+        - File existence check with stored state
+        - Inode/dev match (file swap detection)
+        - Auto-repair on crash scenarios
 
         Args:
             log_paths: List of log file paths to verify.
@@ -211,13 +208,11 @@ class IntegrityStateManager:
             VerificationResult with pass/fail status and details.
         """
         from mcp_acp.constants import CRASH_BREADCRUMB_FILENAME
-        from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
+        from mcp_acp.security.integrity.hash_chain import verify_file_integrity
 
         errors: list[str] = []
         warnings: list[str] = []
         # Track files that need repair due to crash recovery scenarios
-        # These are files where state exists but file was recreated (inode mismatch)
-        # or file is missing. These are repairable if we detect a recent crash.
         crash_repairable_files: list[Path] = []
 
         # Check for evidence of recent crash (breadcrumb file from shutdown coordinator)
@@ -235,7 +230,6 @@ class IntegrityStateManager:
             # Check file exists
             if not log_path.exists():
                 if auto_repair_on_crash and had_recent_crash:
-                    # File missing after crash - repairable by clearing state
                     crash_repairable_files.append(log_path)
                     warnings.append(f"{file_key}: Log file missing after crash, will auto-repair")
                 else:
@@ -251,7 +245,6 @@ class IntegrityStateManager:
                 stat = log_path.stat()
                 if stat.st_ino != state.last_inode or stat.st_dev != state.last_dev:
                     if auto_repair_on_crash and had_recent_crash:
-                        # File recreated after crash - repairable
                         crash_repairable_files.append(log_path)
                         warnings.append(f"{file_key}: Log file recreated after crash, will auto-repair")
                     else:
@@ -265,29 +258,17 @@ class IntegrityStateManager:
                 errors.append(f"{file_key}: Cannot stat file: {e}")
                 continue
 
-            # Check last entry hash
-            hash_error = self._verify_last_entry_hash(log_path, state, file_key)
-            if hash_error:
-                errors.append(hash_error)
-                continue  # Skip full chain check if last entry already failed
-
-            # Full chain verification - detect tampering in middle of file
-            try:
-                with log_path.open(encoding="utf-8") as f:
-                    lines = [line.strip() for line in f if line.strip()]
-
-                if lines:
-                    # Check if file has hash chain entries
-                    first_entry = json.loads(lines[0])
-                    if "sequence" in first_entry and "entry_hash" in first_entry:
-                        # Has hash chain - verify full integrity
-                        chain_result = verify_chain_from_lines(lines)
-                        if not chain_result.success:
-                            # Prepend file_key to each error for clarity
-                            for err in chain_result.errors:
-                                errors.append(f"{file_key}: {err}")
-            except (OSError, json.JSONDecodeError) as e:
-                errors.append(f"{file_key}: Cannot verify chain integrity: {e}")
+            # Use unified verification (state check + full chain verification)
+            result = verify_file_integrity(
+                log_path,
+                state_manager=self,
+                log_dir=self._log_dir,
+            )
+            if not result.success:
+                # Prepend file_key to each error for clarity
+                for err in result.errors:
+                    errors.append(f"{file_key}: {err}")
+            warnings.extend(result.warnings)
 
         # Auto-repair crash recovery files if enabled and no other errors
         if crash_repairable_files and auto_repair_on_crash and had_recent_crash:
@@ -412,6 +393,21 @@ class IntegrityStateManager:
         with self._lock:
             return file_key in self._states
 
+    def get_file_state(self, file_key: str) -> FileIntegrityState | None:
+        """Get the integrity state for a file.
+
+        Use this for verifying inode/device consistency without accessing
+        private attributes.
+
+        Args:
+            file_key: Relative path key for the log file.
+
+        Returns:
+            FileIntegrityState if exists, None otherwise.
+        """
+        with self._lock:
+            return self._states.get(file_key)
+
     def _get_file_key(self, log_path: Path) -> str:
         """Get relative file key from absolute path.
 
@@ -426,86 +422,6 @@ class IntegrityStateManager:
         except ValueError:
             # Path is not under log_dir - use filename as key
             return log_path.name
-
-    def _verify_last_entry_hash(
-        self,
-        log_path: Path,
-        state: FileIntegrityState,
-        file_key: str,
-    ) -> str | None:
-        """Verify the last entry in a log file matches stored hash.
-
-        Args:
-            log_path: Path to the log file.
-            state: Stored state for this file.
-            file_key: File key for error messages.
-
-        Returns:
-            Error message if verification fails, None if passes.
-        """
-        try:
-            # Read last non-empty line from file
-            last_line = self._read_last_line(log_path)
-            if last_line is None:
-                # Empty file but we have state - something was deleted
-                return (
-                    f"{file_key}: Log file is empty but integrity state exists. "
-                    f"All log entries were deleted. "
-                    f"Run 'mcp-acp audit repair' to resync integrity state."
-                )
-
-            # Parse the entry
-            try:
-                entry = json.loads(last_line)
-            except json.JSONDecodeError:
-                return f"{file_key}: Last entry is not valid JSON"
-
-            # Check if entry has hash chain fields
-            entry_hash = entry.get("entry_hash")
-            if entry_hash is None:
-                # State exists but entry lacks hash chain fields.
-                # This means hash-chained entries were deleted, leaving only
-                # pre-upgrade entries. This is tampering - fail verification.
-                return (
-                    f"{file_key}: Log entries with hash chain protection were deleted. "
-                    f"State expects sequence {state.last_sequence}, but last entry has no hash chain fields. "
-                    f"This indicates tampering or corruption. "
-                    f"If this happened after a crash, run 'mcp-acp audit repair' to recover."
-                )
-
-            # Verify hash matches state
-            if entry_hash != state.last_hash:
-                return (
-                    f"{file_key}: Last entry hash mismatch. "
-                    f"Expected {state.last_hash[:16]}..., "
-                    f"found {entry_hash[:16]}.... "
-                    f"Run 'mcp-acp audit repair' to recover from crash, "
-                    f"or investigate if tampering is suspected."
-                )
-
-            # Verify entry content matches its hash (detect content tampering)
-            from mcp_acp.security.integrity.hash_chain import compute_entry_hash
-
-            computed_hash = compute_entry_hash(entry)
-            if computed_hash != entry_hash:
-                return (
-                    f"{file_key}: Entry content tampered. "
-                    f"Stored hash={entry_hash[:16]}..., "
-                    f"computed={computed_hash[:16]}..."
-                )
-
-            # Verify sequence matches
-            entry_sequence = entry.get("sequence")
-            if entry_sequence is not None and entry_sequence != state.last_sequence:
-                return (
-                    f"{file_key}: Last entry sequence mismatch. "
-                    f"Expected {state.last_sequence}, found {entry_sequence}"
-                )
-
-            return None
-
-        except OSError as e:
-            return f"{file_key}: Cannot read file: {e}"
 
     def repair_state_for_file(self, log_path: Path) -> tuple[bool, str]:
         """Manually repair state to match actual log file.

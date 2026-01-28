@@ -37,6 +37,7 @@ __all__ = [
     "compute_entry_hash",
     "verify_chain_integrity",
     "verify_chain_from_lines",
+    "verify_file_integrity",
 ]
 
 import hashlib
@@ -49,11 +50,17 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_acp.security.integrity.integrity_state import VerificationResult
 
-# Display constants
-_HASH_DISPLAY_LENGTH = 16  # Characters to show when truncating hashes in error messages
+# Display constants - show full SHA256 hashes (64 chars) for forensic purposes
+_HASH_DISPLAY_LENGTH = 64
+
+# File reading constants
+_TAIL_READ_CHUNK_SIZE = 4096  # Initial chunk size when reading tail of file
 
 if TYPE_CHECKING:
-    from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
+    from mcp_acp.security.integrity.integrity_state import (
+        FileIntegrityState,
+        IntegrityStateManager,
+    )
 
 
 def compute_entry_hash(entry: dict[str, Any]) -> str:
@@ -302,6 +309,263 @@ def verify_chain_integrity(
         warnings.append("No hash chain entries found (file may be pre-upgrade)")
 
     return len(errors) == 0, errors, warnings
+
+
+def verify_file_integrity(
+    log_path: Path,
+    state_manager: "IntegrityStateManager | None" = None,
+    log_dir: Path | None = None,
+    tail_count: int | None = None,
+) -> VerificationResult:
+    """Unified verification: state file check + chain verification.
+
+    This is the single source of truth for audit integrity verification.
+    All verification code paths should use this function to ensure consistent
+    checks across startup, background monitoring, and API endpoints.
+
+    Performs:
+    1. Read file (full or tail based on tail_count)
+    2. If state_manager provided: verify last entry against stored state
+    3. Run chain verification on lines (partial_chain=True if tail_count)
+
+    Args:
+        log_path: Path to the log file.
+        state_manager: If provided, verify last entry against stored state.
+        log_dir: Required if state_manager provided (for computing file key).
+        tail_count: If set, only verify last N entries (partial chain).
+                    If None, verify full file.
+
+    Returns:
+        VerificationResult with all errors/warnings.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    # Handle file not existing
+    if not log_path.exists():
+        return VerificationResult(
+            success=True,
+            errors=[],
+            warnings=["File does not exist (not_created)"],
+        )
+
+    # Read file content
+    try:
+        if tail_count is not None:
+            # Read only the last N lines for performance
+            lines = _read_tail_lines(log_path, tail_count)
+        else:
+            # Read full file
+            with log_path.open(encoding="utf-8") as f:
+                lines = [line.strip() for line in f if line.strip()]
+    except OSError as e:
+        return VerificationResult(
+            success=False,
+            errors=[f"Cannot read file: {e}"],
+            warnings=[],
+        )
+
+    # Compute file key once if state verification is enabled
+    file_key: str | None = None
+    state: "FileIntegrityState | None" = None
+    if state_manager is not None and log_dir is not None:
+        file_key = _compute_file_key(log_path, log_dir)
+        state = state_manager.get_file_state(file_key)
+
+    # Handle empty file
+    if not lines:
+        # If state exists, empty file means all entries were deleted - error
+        if state is not None:
+            return VerificationResult(
+                success=False,
+                errors=[
+                    f"Log file is empty but integrity state exists. "
+                    f"All log entries were deleted. "
+                    f"Run 'mcp-acp audit repair' to resync integrity state."
+                ],
+                warnings=[],
+            )
+        # No state - just empty file, that's OK
+        return VerificationResult(
+            success=True,
+            errors=[],
+            warnings=["File is empty"],
+        )
+
+    # Check if file has hash chain entries
+    try:
+        last_entry = json.loads(lines[-1])
+    except json.JSONDecodeError as e:
+        return VerificationResult(
+            success=False,
+            errors=[f"Last entry is not valid JSON: {e}"],
+            warnings=[],
+        )
+
+    has_hash_chain = "sequence" in last_entry and "entry_hash" in last_entry
+
+    # State file verification (if state exists)
+    if state is not None:
+        # State exists - verify against it
+        if not has_hash_chain:
+            # State exists but file has no hash chain entries.
+            # This means hash-chained entries were deleted, leaving only
+            # pre-upgrade entries. This is tampering - fail verification.
+            return VerificationResult(
+                success=False,
+                errors=[
+                    f"Log entries with hash chain protection were deleted. "
+                    f"State expects sequence {state.last_sequence}, but last entry has no hash chain fields. "
+                    f"This indicates tampering or corruption. "
+                    f"If this happened after a crash, run 'mcp-acp audit repair' to recover."
+                ],
+                warnings=[],
+            )
+        else:
+            # Verify last entry matches state
+            state_error = _verify_against_state(last_entry, state)
+            if state_error:
+                errors.append(state_error)
+
+    # No hash chain entries and no state - just a warning (unprotected file)
+    if not has_hash_chain:
+        return VerificationResult(
+            success=True,
+            errors=[],
+            warnings=["No hash chain entries (file may be pre-upgrade/unprotected)"],
+        )
+
+    # Chain verification
+    chain_result = verify_chain_from_lines(lines, partial_chain=(tail_count is not None))
+    errors.extend(chain_result.errors)
+    warnings.extend(chain_result.warnings)
+
+    return VerificationResult(
+        success=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+    )
+
+
+def _compute_file_key(log_path: Path, log_dir: Path) -> str:
+    """Compute the file key from log path relative to log directory.
+
+    Args:
+        log_path: Absolute path to the log file.
+        log_dir: Base log directory.
+
+    Returns:
+        Relative path key (e.g., "audit/operations.jsonl") or filename if not relative.
+    """
+    try:
+        return str(log_path.relative_to(log_dir))
+    except ValueError:
+        return log_path.name
+
+
+def _verify_against_state(
+    last_entry: dict[str, Any],
+    state: "FileIntegrityState",
+) -> str | None:
+    """Verify last entry against stored state.
+
+    Args:
+        last_entry: Parsed last entry from the log file.
+        state: The stored integrity state to verify against.
+
+    Returns:
+        Error message if verification fails, None if verification passes.
+    """
+    entry_hash = last_entry.get("entry_hash")
+    entry_sequence = last_entry.get("sequence")
+
+    # Verify hash matches state
+    if entry_hash != state.last_hash:
+        return (
+            f"Last entry hash mismatch with state file. "
+            f"State expects {state.last_hash[:_HASH_DISPLAY_LENGTH]}..., "
+            f"file has {entry_hash[:_HASH_DISPLAY_LENGTH] if entry_hash else 'None'}... "
+            f"Run 'mcp-acp audit repair' to recover from crash, "
+            f"or investigate if tampering is suspected."
+        )
+
+    # Verify sequence matches state
+    if entry_sequence is not None and entry_sequence != state.last_sequence:
+        return (
+            f"Last entry sequence mismatch with state file. "
+            f"State expects {state.last_sequence}, file has {entry_sequence}. "
+            f"Run 'mcp-acp audit repair' to recover from crash, "
+            f"or investigate if tampering is suspected."
+        )
+
+    # Verify entry content matches its hash (detect content tampering)
+    computed_hash = compute_entry_hash(last_entry)
+    if computed_hash != entry_hash:
+        return (
+            f"Entry content tampered. "
+            f"Stored hash={entry_hash[:_HASH_DISPLAY_LENGTH]}..., "
+            f"computed={computed_hash[:_HASH_DISPLAY_LENGTH]}..."
+        )
+
+    return None
+
+
+def _read_tail_lines(log_path: Path, count: int) -> list[str]:
+    """Read the last N non-empty lines from a file.
+
+    Efficiently reads from end of file without loading entire file.
+
+    Args:
+        log_path: Path to the file.
+        count: Number of lines to read.
+
+    Returns:
+        List of last N non-empty lines.
+
+    Raises:
+        OSError: If file cannot be read.
+    """
+    with log_path.open("rb") as f:
+        # Seek to end
+        f.seek(0, 2)
+        file_size = f.tell()
+
+        if file_size == 0:
+            return []
+
+        # Read chunks from end to find last N lines
+        chunk_size = min(_TAIL_READ_CHUNK_SIZE, file_size)
+        lines: list[str] = []
+
+        while len(lines) < count:
+            # Calculate position to read from
+            pos = max(0, file_size - chunk_size)
+            f.seek(pos)
+            data = f.read()
+
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                # Skip partial UTF-8 at start of chunk
+                text = data.decode("utf-8", errors="ignore")
+
+            # Split into lines, handle partial first line
+            if pos > 0:
+                # Discard partial first line
+                parts = text.split("\n", 1)
+                if len(parts) > 1:
+                    text = parts[1]
+
+            lines = [line for line in text.strip().split("\n") if line]
+
+            # If we've read the whole file, stop
+            if pos == 0:
+                break
+            # Otherwise, double chunk size for next iteration
+            chunk_size = min(chunk_size * 2, file_size)
+
+        # Take only the last count lines
+        return lines[-count:]
 
 
 def verify_chain_from_lines(

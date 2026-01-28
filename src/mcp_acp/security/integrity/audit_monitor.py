@@ -25,7 +25,6 @@ from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 # Health check constants
 _CHAIN_VERIFY_TAIL_COUNT = 10  # Number of recent entries to verify in health check
-_READ_CHUNK_SIZE = 4096  # Bytes to read when tailing log files
 
 if TYPE_CHECKING:
     from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
@@ -194,8 +193,9 @@ class AuditHealthMonitor:
     def _verify_recent_chain(self, path: Path, tail_count: int = _CHAIN_VERIFY_TAIL_COUNT) -> str | None:
         """Verify hash chain integrity of the most recent entries.
 
-        Only checks the last N entries for performance (full verification
-        is done at startup and via CLI command).
+        Uses the unified verify_file_integrity() function which includes:
+        - State file verification (detects deleted entries)
+        - Chain verification of recent entries
 
         Args:
             path: Path to the audit log file
@@ -209,62 +209,20 @@ class AuditHealthMonitor:
             return None
 
         # Import here to avoid circular import
-        from mcp_acp.security.integrity.hash_chain import verify_chain_from_lines
+        from mcp_acp.security.integrity.hash_chain import verify_file_integrity
 
-        # Read last N lines efficiently
         try:
-            with path.open("rb") as f:
-                # Seek to end
-                f.seek(0, 2)
-                file_size = f.tell()
+            result = verify_file_integrity(
+                path,
+                state_manager=self._integrity_manager,
+                log_dir=self._log_dir,
+                tail_count=tail_count,
+            )
 
-                if file_size == 0:
-                    return None  # Empty file, nothing to verify
-
-                # Read chunks from end to find last N lines
-                # Start with configured chunk size, expand if needed
-                chunk_size = min(_READ_CHUNK_SIZE, file_size)
-                lines: list[str] = []
-
-                while len(lines) < tail_count:
-                    # Calculate position to read from
-                    pos = max(0, file_size - chunk_size)
-                    f.seek(pos)
-                    data = f.read()
-
-                    try:
-                        text = data.decode("utf-8")
-                    except UnicodeDecodeError:
-                        # Skip partial UTF-8 at start of chunk
-                        text = data.decode("utf-8", errors="ignore")
-
-                    # Split into lines, handle partial first line
-                    if pos > 0:
-                        # Discard partial first line
-                        parts = text.split("\n", 1)
-                        if len(parts) > 1:
-                            text = parts[1]
-
-                    lines = [line for line in text.strip().split("\n") if line]
-
-                    # If we've read the whole file, stop
-                    if pos == 0:
-                        break
-                    # Otherwise, double chunk size for next iteration
-                    chunk_size = min(chunk_size * 2, file_size)
-
-                # Take only the last tail_count lines
-                lines = lines[-tail_count:]
-
-                if not lines:
-                    return None  # No entries to verify
-
-                # Verify chain integrity (partial_chain=True since we're only checking tail)
-                result = verify_chain_from_lines(lines, partial_chain=True)
-                if not result.success:
-                    # Return first error
-                    error_details = result.errors[0] if result.errors else "unknown error"
-                    return f"Hash chain verification failed for {path.name}: {error_details}"
+            if not result.success:
+                # Return first error
+                error_details = result.errors[0] if result.errors else "unknown error"
+                return f"Hash chain verification failed for {path.name}: {error_details}"
 
         except (OSError, ValueError) as e:
             # Log but don't fail on verification errors

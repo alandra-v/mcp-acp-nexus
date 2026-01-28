@@ -25,6 +25,7 @@ from mcp_acp.security.integrity.hash_chain import (
     compute_entry_hash,
     verify_chain_from_lines,
     verify_chain_integrity,
+    verify_file_integrity,
 )
 from mcp_acp.security.integrity.integrity_state import (
     FileIntegrityState,
@@ -43,6 +44,7 @@ __all__ = [
     "compute_entry_hash",
     "verify_chain_from_lines",
     "verify_chain_integrity",
+    "verify_file_integrity",
     # Integrity state
     "FileIntegrityState",
     "IntegrityStateManager",
