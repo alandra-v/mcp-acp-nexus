@@ -171,6 +171,16 @@ class OIDCConfig(BaseModel):
         client_id: Auth0 application client ID.
         audience: API audience for token validation.
         scopes: OAuth scopes to request (default includes offline_access for refresh).
+
+    Note:
+        This config intentionally omits ``client_secret``. Device Flow (RFC 8628)
+        uses public clients that don't require secrets - the secret cannot be
+        securely embedded in CLI/desktop applications.
+
+        If confidential client support is needed in the future (e.g., for
+        server-to-server authentication), the secret should be stored in OS
+        keychain using a pattern similar to ``BackendCredentialStorage``, with
+        only a reference key stored in config. See docs/roadmap.md for details.
     """
 
     issuer: str = Field(min_length=1)
@@ -192,6 +202,12 @@ class MTLSConfig(BaseModel):
         client_cert_path: Path to client certificate (PEM format).
         client_key_path: Path to client private key (PEM format).
         ca_bundle_path: Path to CA bundle for server verification (PEM format).
+
+    Note:
+        Private key files are expected to be unencrypted. If password-protected
+        keys are needed, the passphrase should be stored in OS keychain (similar
+        to ``BackendCredentialStorage``) rather than in config files or prompted
+        at runtime. See docs/roadmap.md for planned passphrase support.
     """
 
     client_cert_path: str = Field(min_length=1)
