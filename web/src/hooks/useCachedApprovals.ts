@@ -7,7 +7,6 @@ interface UseCachedApprovalsReturn {
   loading: boolean
   clear: () => Promise<void>
   deleteEntry: (subjectId: string, toolName: string, path: string | null) => Promise<void>
-  refresh: () => void
 }
 
 /**
@@ -26,7 +25,5 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
     loading: !connected,
     clear: clearCached,
     deleteEntry: deleteCached,
-    // Refresh is now a no-op since SSE delivers updates automatically
-    refresh: () => {},
   }
 }

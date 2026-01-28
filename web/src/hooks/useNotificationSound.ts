@@ -1,6 +1,9 @@
 /**
  * Notification sound using Web Audio API.
  * Plays a two-tone chime on pending approval.
+ *
+ * Note: Despite the "use" prefix in the filename, these are plain utility
+ * functions, not React hooks. The filename is kept for import compatibility.
  */
 
 import { playToneSequence, closeAudioContext } from '@/utils/audioUtils'

@@ -1,6 +1,9 @@
 /**
  * Error notification sound and combined toast+sound utilities.
  * Uses Web Audio API for triple-beep error sound (880Hz sine x 3).
+ *
+ * Note: Despite the "use" prefix in the filename, these are plain utility
+ * functions, not React hooks. The filename is kept for import compatibility.
  */
 
 import { toast } from '@/components/ui/sonner'
