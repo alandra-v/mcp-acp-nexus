@@ -35,7 +35,17 @@ from ..styling import style_dim, style_error, style_label, style_success, style_
 
 @click.group()
 def policy() -> None:
-    """Policy management commands."""
+    """Policy management commands.
+
+    \b
+    Subcommands:
+      show      Display current policy rules
+      path      Show policy file path
+      edit      Edit policy in $EDITOR
+      add       Add a new policy rule
+      validate  Validate policy files
+      reload    Hot reload policy (requires running proxy)
+    """
     pass
 
 

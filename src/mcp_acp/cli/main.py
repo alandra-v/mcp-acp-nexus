@@ -4,14 +4,14 @@ Defines the CLI group and registers all subcommands.
 
 Commands:
     approvals - Approval cache management (cache, clear)
-    audit     - Audit log integrity verification (verify, status)
+    audit     - Audit log integrity verification (verify, status, repair)
     auth      - Authentication commands (login, logout, status, sessions)
     config    - Configuration management (show, path, edit, validate)
     init      - Initialize proxy configuration
     install   - Installation helpers (mcp-json)
     logs      - Log viewing (show, tail)
     manager   - Manager daemon commands (start, stop, status)
-    policy    - Policy management (show, edit, add, validate, reload)
+    policy    - Policy management (show, path, edit, add, validate, reload)
     proxy     - Proxy management (add)
     start     - Start the proxy server manually
     status    - Show proxy runtime status

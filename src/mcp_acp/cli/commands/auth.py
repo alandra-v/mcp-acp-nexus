@@ -31,7 +31,7 @@ from mcp_acp.security.auth.token_storage import (
     create_token_storage,
     get_token_storage_info,
 )
-from mcp_acp.utils.cli import load_manager_config_or_exit
+from mcp_acp.utils.cli import load_manager_config_or_exit, require_proxy_name
 
 from ..styling import style_dim, style_success
 
@@ -73,7 +73,18 @@ def _notify_manager(action: str) -> bool:
 
 @click.group()
 def auth() -> None:
-    """Authentication commands."""
+    """Authentication commands.
+
+    \b
+    Subcommands:
+      login     Authenticate via browser (Device Flow)
+      logout    Clear stored credentials
+      status    Show authentication status
+
+    \b
+    Session management:
+      sessions list   List active OIDC sessions
+    """
     pass
 
 
@@ -495,9 +506,16 @@ def sessions_list(as_json: bool, proxy_name: str) -> None:
     Example:
         mcp-acp auth sessions list --proxy filesystem
     """
-    from ..styling import style_dim, style_label
+    from ..styling import style_dim, style_error, style_label
 
-    data = api_request("GET", "/api/auth-sessions", proxy_name=proxy_name)
+    # Validate proxy exists
+    proxy_name = require_proxy_name(proxy_name)
+
+    try:
+        data = api_request("GET", "/api/auth-sessions", proxy_name=proxy_name)
+    except Exception as e:
+        click.echo(style_error(f"Failed to fetch sessions: {e}"), err=True)
+        raise SystemExit(1) from None
 
     if not isinstance(data, list):
         data = []

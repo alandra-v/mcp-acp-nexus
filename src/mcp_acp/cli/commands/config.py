@@ -39,6 +39,13 @@ def config() -> None:
     """Configuration management commands.
 
     \b
+    Subcommands:
+      show      Display configuration
+      path      Show config file paths
+      edit      Edit configuration in $EDITOR
+      validate  Validate configuration files
+
+    \b
     Config types:
       --manager: Manager configuration (manager.json) - OIDC settings
       --proxy NAME: Per-proxy configuration - backend, HITL, mTLS settings
@@ -117,6 +124,7 @@ def _show_manager_config(as_json: bool) -> None:
         click.echo(f"    issuer: {manager_config.auth.oidc.issuer}")
         click.echo(f"    client_id: {manager_config.auth.oidc.client_id}")
         click.echo(f"    audience: {manager_config.auth.oidc.audience}")
+        click.echo(f"    scopes: {', '.join(manager_config.auth.oidc.scopes)}")
     click.echo()
 
     click.echo(f"Config file: {config_path}")
@@ -161,15 +169,32 @@ def _show_proxy_config(proxy_name: str | None, as_json: bool) -> None:
         click.echo(f"  Command: {backend.stdio.command}")
         if backend.stdio.args:
             click.echo(f"  Args: {' '.join(backend.stdio.args)}")
+        if backend.stdio.attestation:
+            att = backend.stdio.attestation
+            click.echo("  Attestation:")
+            if att.slsa_owner:
+                click.echo(f"    SLSA owner: {att.slsa_owner}")
+            if att.expected_sha256:
+                click.echo(f"    Expected SHA256: {att.expected_sha256}")
+            if att.require_signature:
+                click.echo("    Require signature: yes")
 
     if backend.http:
         click.echo(f"  URL: {backend.http.url}")
         click.echo(f"  Timeout: {backend.http.timeout}s")
+        if backend.http.credential_key:
+            click.echo(f"  Credential key: {backend.http.credential_key}")
     click.echo()
 
     click.echo(style_header("HITL"))
     click.echo(f"  Timeout: {proxy_config.hitl.timeout_seconds}s")
     click.echo(f"  Approval TTL: {proxy_config.hitl.approval_ttl_seconds}s")
+    click.echo(f"  Default on timeout: {proxy_config.hitl.default_on_timeout}")
+    click.echo()
+
+    click.echo(style_header("Logging"))
+    click.echo(f"  Log level: {proxy_config.log_level}")
+    click.echo(f"  Include payloads: {'yes' if proxy_config.include_payloads else 'no'}")
     click.echo()
 
     click.echo(style_header("mTLS"))

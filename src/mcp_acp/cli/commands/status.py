@@ -156,6 +156,8 @@ def _print_status_formatted(result: dict[str, Any]) -> None:
     reload_count = policy.get("reload_count", 0)
     if reload_count > 0:
         click.echo(f"  Reloads: {reload_count}")
+    if policy.get("last_reload_at"):
+        click.echo(f"  Last reload: {policy.get('last_reload_at')}")
     click.echo()
 
     # Auth Sessions (OIDC authenticated users)
