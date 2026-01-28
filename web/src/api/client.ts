@@ -52,14 +52,9 @@ async function ensureToken(): Promise<void> {
         API_TOKEN = data.token
       }
       // 404 means production mode - that's fine, cookies will be used
-    } catch (e) {
-      // Network error (TypeError) or other issue - continue without token
+    } catch {
+      // Network error or other issue - continue without token
       // In production, cookies will handle auth
-      // Log only if it's an unexpected error type
-      // if (!(e instanceof TypeError)) {
-      //   console.warn('Unexpected error fetching dev token:', e)
-      // }
-      void e // silence unused variable
     }
   })()
 
@@ -169,7 +164,6 @@ async function fetchWithRetry(
 
       if (attempt < retries - 1 && isRetryable(error)) {
         const delay = INITIAL_DELAY_MS * Math.pow(2, attempt)
-        // console.warn(`Request failed (${res.status}), retrying in ${delay}ms...`)
         await sleep(delay)
         continue
       }
@@ -186,7 +180,6 @@ async function fetchWithRetry(
       // Network error - retry with backoff
       if (attempt < retries - 1 && isRetryable(error)) {
         const delay = INITIAL_DELAY_MS * Math.pow(2, attempt)
-        // console.warn(`Network error, retrying in ${delay}ms...`)
         await sleep(delay)
         continue
       }
@@ -285,12 +278,11 @@ export async function createSSEConnection<T = unknown>(
       const data = JSON.parse(event.data)
       onMessage(data)
     } catch {
-      // console.error('Failed to parse SSE message:', e)
+      // Parse errors are silently ignored - malformed SSE messages are non-critical
     }
   }
 
   es.onerror = (error) => {
-    // console.error('SSE error:', error)
     onError?.(error)
   }
 
