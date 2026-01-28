@@ -34,9 +34,8 @@ Hash chain implementation and between-run protection for audit log integrity.
   - Triggers shutdown on chain break detection
 
 - [x] **CLI commands**
-  - `mcp-acp audit verify [--file <name>]` - verify full chain integrity (always verbose)
-  - `mcp-acp audit status` - show chain protection status (verifies integrity, shows BROKEN if corrupted)
-  - `mcp-acp audit repair [--file <name>] [--yes]` - repair state or reset broken files
+  - `mcp-acp audit verify [--proxy <name>] [--file <name>]` - verify integrity and show status (combines verify + status)
+  - `mcp-acp audit repair --proxy <name> [--file <name>] [--yes]` - repair state or reset broken files
     - If chain is valid but state mismatch: syncs state to match log
     - If chain is internally broken: offers to backup file and create fresh one
   - Exit codes: 0=passed, 1=tampering, 2=unable to verify
@@ -173,7 +172,7 @@ Multi-proxy CLI support is complete. Users can configure multiple proxies and te
 **Status: Complete**
 
 - [x] `PerProxyConfig` model (backend + hitl + proxy_id + mtls)
-- [x] `ManagerConfig` model (auth + ui_port + log_dir + log_level)
+- [x] `ManagerConfig` model (auth + ui_port + log_dir)
 - [x] `build_app_config_from_per_proxy()` helper
 - [x] Per-proxy config paths (`get_proxy_config_dir()`, `get_proxy_config_path()`)
 - [x] Config loading/saving functions
@@ -307,11 +306,11 @@ OIDC config moved to manager.json. CLI auth commands work. Manager owns token li
 
 ## Phase 5: Multi-Proxy UI
 
-**Status: Not Started**
+**Status: Complete**
 
 UI enhancements for multi-proxy observation (no lifecycle control).
 
-**Prerequisite cleanup from Phase 4:** ✅ Complete
+**Prerequisite cleanup from Phase 4:**
 - [x] Update `api/routes/config.py` to use per-proxy config paths
 - [x] Update `api/deps.py` to load OIDC from manager.json
 - [x] Remove `get_config_path()` returning legacy `mcp_acp_config.json`
@@ -321,74 +320,145 @@ UI enhancements for multi-proxy observation (no lifecycle control).
 - [x] SSE multi-proxy events (`proxy_name` field, `proxy_registered`/`proxy_disconnected` handlers)
 - [x] Manager settings page - **Not needed** (auth configured via CLI `mcp-acp init`)
 
-**Backend work required:**
-- [ ] Fix `get_log_base_path()` hardcoded "default" path in `utils/api/log_reader.py`
-- [ ] Add `GET /api/manager/incidents` - aggregated incidents endpoint with `?proxy=` filter
-- [ ] Enhance `GET /api/manager/proxies` - include config data (backend type, server_name, stats)
-- [ ] Add `POST /api/manager/proxies` - proxy creation endpoint (mirrors CLI `proxy add`)
+**Backend work:**
+- [x] Fix `get_log_base_path()` hardcoded "default" path in `utils/api/log_reader.py`
+- [x] Add `GET /api/manager/incidents` - aggregated incidents endpoint with `?proxy=` filter
+- [x] Enhance `GET /api/manager/proxies` - include config data (backend type, server_name, stats)
+- [x] Add `POST /api/manager/proxies` - proxy creation endpoint (mirrors CLI `proxy add`)
+- [x] Add `GET /api/manager/config-snippet` - Claude Desktop JSON (`?proxy=` for single, omit for all)
 
-**UI work required:**
-- [ ] **Proxy list view (new landing page at `/`)**
-  - Grid of proxy cards with name, backend type, status, stats
-  - "Add Proxy" button
-  - Empty state for no proxies configured
-  - Click card → `/proxy/:name`
+**UI work:**
 
-- [ ] **Proxy detail view (route `/proxy/:name`)**
-  - Back navigation to list
-  - URL param selects proxy (not hardcoded `proxies[0]`)
-  - Filter pending/cached/stats by proxy_id
+- [x] **Proxy list view (new landing page at `/`)**
+  - [x] Grid of proxy cards with name, backend type, status indicator
+  - [x] Running proxies show stats; stopped proxies show "Not running"
+  - [x] "Add Proxy" button opens modal
+  - [x] "Export All" button - copies Claude Desktop JSON for all proxies
+  - [x] Empty state for no proxies configured
+  - [x] Click card → `/proxy/:name`
+  - [x] Filter chips (All/Running/Stopped) with localStorage persistence
 
-- [ ] **Add proxy flow**
-  - Form: name, server_name, connection type, command/URL, API key
-  - POST to `/api/manager/proxies`
-  - Show Claude Desktop snippet on success
+- [x] **Proxy detail view (route `/proxy/:name`)**
+  - [x] Back navigation to list
+  - [x] URL param selects proxy (not hardcoded `proxies[0]`)
+  - [x] Filter pending/cached/stats by proxy_id
+  - [x] Invalid proxy name → redirect to list
+  - [x] Tabs: Overview, Logs, Policy, Config
+  - [x] "Copy Config Snippet" button in header (per-proxy Claude Desktop JSON)
+  - [x] Audit integrity section with verify/repair controls
 
-- [ ] **Incidents proxy filtering**
-  - Add proxy dropdown filter to existing IncidentsPage
-  - Pass filter to aggregated incidents API
+- [x] **Add proxy modal**
+  - [x] Form: name, server_name, connection type, command, args, URL, API key
+  - [x] Advanced section (collapsible): mTLS cert paths, HTTP timeout
+  - [x] Attestation options (SLSA owner, SHA256, require signature)
+  - [x] HTTP backend health check validation
+  - [x] On success: modal shows Claude Desktop snippet with copy button
+  - [x] User clicks "Done" → modal closes → toast → stay on list
 
-- [ ] **Tests**
-  - Backend: incidents aggregation, proxy creation endpoint
-  - Frontend: proxy list, detail routing, add flow
+- [x] **Incidents proxy filtering**
+  - [x] Single merged timeline (sorted by timestamp)
+  - [x] Type and proxy filter dropdowns with localStorage persistence
+  - [x] `useIncidents()` hook with server-side filtering
+  - [x] Backend `/api/manager/incidents` aggregates from all proxies
+  - [x] Proxy attribution: `proxy_id` and `proxy_name` on all incident entries
+  - [x] Emergency audit fallback includes proxy attribution via `log_with_fallback`
+  - [x] Per-proxy incident files: `bootstrap.jsonl` in proxy config dir, `shutdowns.jsonl` in proxy log dir
+  - [x] Global `emergency_audit.jsonl` with embedded proxy info (survives log dir deletion)
+
+**Tests:**
+- [x] Backend: proxy list endpoint, proxy creation endpoint, incidents aggregation
+- [ ] Frontend: proxy list, detail routing, add modal flow, incidents filtering
 
 ---
 
-## Phase 6: Security Hardening (Credential Isolation)
+## Phase 5.5: Additional Features (Post Phase 5)
 
-**Status: Not Started**
+**Status: Complete**
 
-Encrypt backend credentials per-proxy with spawn-time key injection. Each proxy can only decrypt its own backend credentials.
+Additional features implemented after Phase 5 completion.
 
-- [ ] **Per-proxy encryption keys**
-  - Generate unique encryption key per proxy on `proxy add`
-  - Store encryption keys in OS keychain (manager's keychain service)
-  - Key ID stored in proxy config, references keychain entry
+### Backend HTTP Authentication
 
-- [ ] **Backend credential encryption**
-  - Backend credentials (API keys, tokens) encrypted in proxy config
-  - `credentials.encrypted` blob in config.json
-  - Only decryptable with proxy's specific key
+- [x] **Keychain-based API key storage**
+  - `BackendCredentialStorage` class in `security/credential_storage.py`
+  - Stores API keys in OS keychain (macOS Keychain, Linux Secret Service, Windows Credential Locker)
+  - Key format: `mcp-acp:proxy:{proxy_name}:backend`
+  - Fallback to encrypted file storage (Fernet AES-128-CBC)
 
-- [ ] **Spawn-time key injection**
-  - When proxy starts, manager injects decryption key via secure IPC
-  - Proxy decrypts credentials on startup
-  - Key held in memory only (not written to disk)
-  - Manager forgets key after injection (zero-knowledge after spawn)
+- [x] **HTTP client factory with auth headers**
+  - `create_httpx_client_factory()` in `utils/transport.py`
+  - `_load_backend_credential()` retrieves API keys from keychain
+  - Bearer token authentication for HTTP backend connections
+  - Auth headers merged with User-Agent for all requests
 
-- [ ] **Security properties**
-  - Compromised proxy A cannot decrypt proxy B's credentials
-  - Stolen config files are useless without keychain access
-  - Manager doesn't retain decryption keys after spawn
+### Auth Sessions Management
 
-- [ ] **CLI updates**
-  - `proxy add` prompts for backend credentials, encrypts them
-  - `proxy credentials <name> update` - update encrypted credentials
+- [x] **CLI auth sessions command**
+  - `mcp-acp auth sessions list --proxy <name>` - list active sessions
+  - Shows session_id, user_id, timestamps
+  - Refactored from standalone `sessions` command to `auth` subcommand
 
-- [ ] **Tests**
-  - Credential encryption/decryption tests
-  - Key injection tests
-  - Isolation verification tests
+- [x] **Auth API endpoints** (proxy-level `/api/auth/*`)
+  - `GET /api/auth/status` - check auth status with user info
+  - `POST /api/auth/login` - start device flow authentication
+  - `GET /api/auth/login/poll` - poll for device flow completion
+  - `POST /api/auth/logout` - clear local keychain credentials
+  - `POST /api/auth/logout-federated` - get Auth0 logout URL
+  - `POST /api/auth/notify-login` - CLI notifies proxy of login
+  - `GET /api/auth-sessions` - list active authentication sessions
+
+- [x] **Manager auth endpoints** (`/api/manager/auth/*`)
+  - `POST /api/manager/auth/reload` - reload tokens and broadcast to proxies
+  - `POST /api/manager/auth/clear` - clear tokens and notify proxies
+  - `GET /api/manager/auth/status` - get auth status from manager
+
+### Audit Integrity UI
+
+- [x] **Manager audit API endpoints** (`/api/manager/proxies/{proxy_id}/audit/*`)
+  - `GET /{proxy_id}/audit/status` - get audit log file status
+  - `GET /{proxy_id}/audit/verify` - verify hash chain integrity
+  - `POST /{proxy_id}/audit/repair` - repair broken integrity state
+
+- [x] **Web UI audit section** (`web/src/components/detail/AuditIntegritySection.tsx`)
+  - Hash chain integrity section on proxy detail page
+  - Visual status indicators: protected (green), unprotected (gray), broken (red)
+  - File-by-file status display with entry counts
+  - Verify button with spinner feedback
+  - Repair button with confirmation dialog
+  - Real-time updates on proxy connect/disconnect (SSE-driven)
+
+- [x] **API schemas** (`api/schemas/audit.py`)
+  - `AuditVerifyResponse`, `AuditFileResult` (unified status + verify)
+  - `AuditRepairResponse`, `AuditRepairResult`
+
+### Live Stats on Proxy Cards
+
+- [x] **Real-time stats updates**
+  - Proxy cards display live stats: requests total, HITL, denied
+  - SSE events include `proxy_id` for stable identification
+  - Stats updated via `stats_updated` event
+
+---
+
+## Phase 6: Backend Credential Security
+
+**Status: Complete**
+
+Backend credentials (API keys for HTTP backends) are securely stored in OS keychain.
+
+**Implemented:**
+- [x] `BackendCredentialStorage` class stores credentials in OS keychain
+- [x] Key format: `proxy:{proxy_name}:backend` (per-proxy isolation)
+- [x] Config files store only a reference key (`credential_key`), never the actual secret
+- [x] Runtime loads credential from keychain and adds `Authorization: Bearer` header
+- [x] CLI commands: `proxy add --api-key`, `proxy auth set-key`, `proxy auth remove-key`
+
+**Current limitations (documented in roadmap.md):**
+- mTLS private keys must be unencrypted (passphrase support deferred)
+- OIDC uses public clients only (confidential client support deferred)
+- Audit log HMAC protection deferred (hash chain is self-attesting)
+
+**Note:** Original Phase 6 design proposed per-proxy encryption keys and spawn-time key injection. This was superseded by direct keychain storage, which provides equivalent security with simpler architecture. Manager cannot inject keys at spawn time anyway (Claude Desktop owns proxy lifecycle in STDIO mode). Spawn-time key injection was designed for future HTTP client mode where manager owns proxy lifecycle. mTLS keys intentionally kept as file paths (not imported to keychain) because cert rotation would break and original files still exist on disk anyway .
 
 ---
 
@@ -437,39 +507,46 @@ Proxy deletion with audit trail preservation and recovery support.
 
 ## Phase 8: Stability & Polish
 
-**Status: Not Started**
+**Status: Partially Complete**
 
 Toast notifications and crash handling.
 
-- [ ] **Toast notification system**
-  - Info (blue): Backend connected, proxy registered
-  - Success (green): Reconnected, config saved, policy reloaded
-  - Warning (orange): Reconnection timeout, certificate expiring
-  - Error (red): Connection errors, TLS errors
-  - Critical (red, persistent): Security shutdowns (audit tampering, session hijacking)
+- [x] **Toast notification system**
+  - Info (grey, 4s): Backend connected, proxy registered
+  - Success (green, 3s): Reconnected, config saved, policy reloaded
+  - Warning (orange, 6s): Reconnection timeout, certificate expiring
+  - Error (red, 8s): Connection errors, TLS errors
+  - Critical (red, persistent): Security shutdowns use `duration: Infinity`
+  - Implementation: `web/src/components/ui/sonner.tsx` with automatic durations per type
 
-- [ ] **Critical toast behavior**
-  - Does not auto-dismiss
-  - Modal-like center display
-  - Requires user acknowledgment
-  - Links to logs for investigation
+- [x] **Error boundary**
+  - React error boundary catches component rendering errors
+  - Shows fallback UI with error details
+  - Provides "Try Again" and "Reload Page" buttons
+  - Implementation: `web/src/components/ErrorBoundary.tsx`
+
+- [ ] **Critical toast behavior** (partial - persistent toasts exist but no modal display)
+  - [x] Does not auto-dismiss (uses `duration: Infinity`)
+  - [ ] Modal-like center display
+  - [ ] Requires user acknowledgment
+  - [ ] Links to logs for investigation
 
 - [ ] **Proxy disconnect handling (UI survives)**
-  - UI detects proxy deregistration/disconnect
-  - Read `.last_crash` breadcrumb for failure details
-  - Show crash reason in critical toast
-  - Update proxy status to "disconnected"
-  - Message: "Restart Claude Desktop to reconnect"
+  - [x] UI detects proxy deregistration/disconnect
+  - [ ] Read `.last_crash` breadcrumb for failure details
+  - [ ] Show crash reason in critical toast
+  - [x] Update proxy status to "disconnected"
+  - [ ] Message: "Restart Claude Desktop to reconnect"
 
 - [ ] **Manager crash detection**
-  - Monitor for proxy disconnect events
-  - Detect unexpected exits via breadcrumb files
-  - Write to crashes.jsonl with proxy info
-  - Read faulthandler crash dump if available
+  - [ ] Monitor for proxy disconnect events
+  - [ ] Detect unexpected exits via breadcrumb files
+  - [ ] Write to crashes.jsonl with proxy info
+  - [ ] Read faulthandler crash dump if available
 
 - [ ] **Tests**
-  - Toast display tests
-  - Crash detection tests
+  - [ ] Toast display tests
+  - [ ] Crash detection tests
 
 ---
 
@@ -631,8 +708,8 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
 - [x] CLI fully functional for multi-proxy testing (Phase 4 Complete)
 - [x] Auth commands read OIDC from manager.json (Phase 4 Step 4 partial)
 - [x] Full manager-owned auth lifecycle with token distribution (Phase 4 Step 4)
-- [ ] UI updated for multi-proxy observation (Phase 5)
-- [ ] Credential isolation per proxy (Phase 6 - Security Hardening)
+- [x] UI updated for multi-proxy observation (Phase 5)
+- [x] Backend credential security via OS keychain (Phase 6)
 - [ ] Proxy deletion with audit trail preservation (Phase 7)
 - [ ] Toast notifications for proxy events (Phase 8)
 - [ ] Crash detection with UI notification (Phase 8)
