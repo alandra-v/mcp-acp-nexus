@@ -71,6 +71,21 @@ class ProxyRegistry:
     Also manages SSE event broadcasting to browser subscribers.
     """
 
+    # Event types that represent incidents (trigger incidents_updated SSE event)
+    _INCIDENT_EVENT_TYPES: frozenset[str] = frozenset(
+        {
+            "critical_shutdown",
+            "audit_init_failed",
+            "device_health_failed",
+            "session_hijacking",
+            "audit_tampering",
+            "audit_missing",
+            "audit_permission_denied",
+            "health_degraded",
+            "health_monitor_failed",
+        }
+    )
+
     def __init__(self) -> None:
         """Initialize the registry."""
         self._proxies: dict[str, ProxyConnection] = {}
@@ -242,6 +257,7 @@ class ProxyRegistry:
         """Broadcast an event from a proxy to all SSE subscribers.
 
         Adds proxy_name to the event data for client-side filtering.
+        Also emits incidents_updated for critical/incident events.
 
         Args:
             proxy_name: Source proxy name.
@@ -252,6 +268,13 @@ class ProxyRegistry:
             event_type,
             {**data, "proxy_name": proxy_name},
         )
+
+        # Also emit incidents_updated for incident-related events
+        if event_type in self._INCIDENT_EVENT_TYPES:
+            await self._broadcast_sse_event(
+                "incidents_updated",
+                {"proxy_name": proxy_name, "trigger_event": event_type},
+            )
 
     async def broadcast_snapshot(
         self,

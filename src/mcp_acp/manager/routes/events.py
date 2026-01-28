@@ -91,7 +91,7 @@ async def sse_events(request: Request) -> EventSourceResponse:
                                 {
                                     "type": "stats_updated",
                                     "stats": snapshots["stats"],
-                                    "proxy_name": proxy_conn.proxy_name,
+                                    "proxy_id": proxy_conn.proxy_id,
                                 }
                             )
                         }

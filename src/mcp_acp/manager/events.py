@@ -93,6 +93,7 @@ class SSEEventType(str, Enum):
     # Live updates
     STATS_UPDATED = "stats_updated"
     NEW_LOG_ENTRIES = "new_log_entries"
+    INCIDENTS_UPDATED = "incidents_updated"
 
     # Critical events (proxy shutdown)
     CRITICAL_SHUTDOWN = "critical_shutdown"

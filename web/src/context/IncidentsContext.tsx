@@ -77,8 +77,16 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
 
   useEffect(() => {
     fetchSummary()
+
+    // Listen for incidents_updated SSE events (dispatched by AppStateContext)
+    const handleIncidentsUpdated = () => {
+      fetchSummary()
+    }
+    window.addEventListener('incidents-updated', handleIncidentsUpdated)
+
     return () => {
       abortControllerRef.current?.abort()
+      window.removeEventListener('incidents-updated', handleIncidentsUpdated)
     }
   }, [fetchSummary])
 

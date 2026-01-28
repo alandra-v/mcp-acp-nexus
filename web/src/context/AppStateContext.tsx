@@ -202,6 +202,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           window.dispatchEvent(new CustomEvent('proxy-registered')) // Same event triggers refetch
           break
 
+        // Incidents updated - trigger refetch of incidents summary
+        case 'incidents_updated':
+          window.dispatchEvent(new CustomEvent('incidents-updated'))
+          break
+
         // Critical shutdown - show persistent toast but DON'T change connection status
         // The manager connection is still fine, only the proxy shut down
         case 'critical_shutdown':

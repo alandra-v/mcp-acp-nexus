@@ -281,6 +281,11 @@ export interface SSENewLogEntriesEvent extends SSESystemEventBase {
   count?: number
 }
 
+export interface SSEIncidentsUpdatedEvent extends SSESystemEventBase {
+  type: 'incidents_updated'
+  trigger_event?: string
+}
+
 // Proxy Registration Events (from manager)
 export interface SSEProxyRegisteredEvent extends SSESystemEventBase {
   type: 'proxy_registered'
@@ -309,6 +314,7 @@ export type SSESystemEvent =
   | SSECriticalEvent
   | SSEStatsUpdatedEvent
   | SSENewLogEntriesEvent
+  | SSEIncidentsUpdatedEvent
   | SSEProxyRegisteredEvent
   | SSEProxyDisconnectedEvent
 
