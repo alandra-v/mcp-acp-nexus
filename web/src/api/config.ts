@@ -1,12 +1,19 @@
-import { apiGet, apiPut, type RequestOptions } from './client'
+import { apiGet, apiPut, apiDelete, type RequestOptions } from './client'
 
 // =============================================================================
 // Response Types
 // =============================================================================
 
+export interface StdioAttestationConfig {
+  slsa_owner: string | null
+  expected_sha256: string | null
+  require_code_signature: boolean
+}
+
 export interface StdioTransportConfig {
   command: string
   args: string[]
+  attestation: StdioAttestationConfig | null
 }
 
 export interface HttpTransportConfig {
@@ -97,9 +104,16 @@ export interface ConfigComparisonResponse {
 // Update Request Types
 // =============================================================================
 
+export interface StdioAttestationUpdate {
+  slsa_owner?: string
+  expected_sha256?: string
+  require_code_signature?: boolean
+}
+
 export interface StdioTransportUpdate {
   command?: string
   args?: string[]
+  attestation?: StdioAttestationUpdate
 }
 
 export interface HttpTransportUpdate {
@@ -225,6 +239,56 @@ export async function updateProxyConfig(
   return apiPut<ConfigUpdateResponse>(
     `/manager/proxies/${encodeURIComponent(proxyId)}/config`,
     updates,
+    options
+  )
+}
+
+// =============================================================================
+// API Key Management
+// =============================================================================
+
+export interface ApiKeyResponse {
+  success: boolean
+  message: string
+  /** Keychain reference (only set on successful save) */
+  credential_key: string | null
+}
+
+/**
+ * Set or update backend API key for a proxy.
+ * Stores the key securely in the OS keychain.
+ *
+ * @param proxyId - Stable proxy identifier
+ * @param apiKey - The API key to store
+ * @param options - Request options with optional abort signal
+ * @returns ApiKeyResponse with success status
+ */
+export async function setProxyApiKey(
+  proxyId: string,
+  apiKey: string,
+  options?: RequestOptions
+): Promise<ApiKeyResponse> {
+  return apiPut<ApiKeyResponse>(
+    `/manager/proxies/${encodeURIComponent(proxyId)}/config/api-key`,
+    { api_key: apiKey },
+    options
+  )
+}
+
+/**
+ * Remove backend API key for a proxy.
+ * Deletes the key from the OS keychain.
+ *
+ * @param proxyId - Stable proxy identifier
+ * @param options - Request options with optional abort signal
+ * @returns ApiKeyResponse with success status
+ */
+export async function deleteProxyApiKey(
+  proxyId: string,
+  options?: RequestOptions
+): Promise<ApiKeyResponse> {
+  return apiDelete<ApiKeyResponse>(
+    `/manager/proxies/${encodeURIComponent(proxyId)}/config/api-key`,
     options
   )
 }
