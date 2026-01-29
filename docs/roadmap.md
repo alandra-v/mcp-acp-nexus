@@ -13,6 +13,7 @@ This document outlines planned improvements and future work for mcp-acp-nexus.
 3. [Content Inspection](#3-content-inspection)
 4. [Operations & Architecture](#4-operations--architecture)
 5. [HTTP Client Support](#5-http-client-support)
+6. [Authentication Enhancements](#6-authentication-enhancements)
 
 ---
 
@@ -90,14 +91,23 @@ Enable policies to condition on tool metadata confidence levels. This allows dif
 - Auto-allow tools with `verified` side effects from signed manifests
 - Ship default policies for common security patterns (e.g., always HITL for `code_exec`)
 
-```yaml
-rules:
-  - conditions:
-      side_effects_confidence: unknown
-    effect: hitl
-  - conditions:
-      side_effects: [code_exec]
-    effect: hitl
+```json
+{
+  "rules": [
+    {
+      "conditions": {
+        "side_effects_confidence": "unknown"
+      },
+      "effect": "hitl"
+    },
+    {
+      "conditions": {
+        "side_effects": ["code_exec"]
+      },
+      "effect": "hitl"
+    }
+  ]
+}
 ```
 
 ### 2.2 Provenance-Aware Policies
@@ -149,29 +159,38 @@ Add `path_regex` condition alongside glob patterns:
 
 Define reusable groups of values to reduce policy duplication:
 
-```yaml
-groups:
-  sensitive_paths:
-    - "/etc/passwd"
-    - "/etc/shadow"
-    - "~/.ssh/*"
-    - "**/*.key"
-    - "**/*.pem"
-
-  admin_tools:
-    - "bash"
-    - "sh"
-    - "zsh"
-    - "exec_*"
-
-rules:
-  - conditions:
-      path_pattern: { in_group: sensitive_paths }
-    effect: deny
-
-  - conditions:
-      tool_name: { in_group: admin_tools }
-    effect: hitl
+```json
+{
+  "groups": {
+    "sensitive_paths": [
+      "/etc/passwd",
+      "/etc/shadow",
+      "~/.ssh/*",
+      "**/*.key",
+      "**/*.pem"
+    ],
+    "admin_tools": [
+      "bash",
+      "sh",
+      "zsh",
+      "exec_*"
+    ]
+  },
+  "rules": [
+    {
+      "conditions": {
+        "path_pattern": {"in_group": "sensitive_paths"}
+      },
+      "effect": "deny"
+    },
+    {
+      "conditions": {
+        "tool_name": {"in_group": "admin_tools"}
+      },
+      "effect": "hitl"
+    }
+  ]
+}
 ```
 
 **Benefits**:
@@ -183,26 +202,26 @@ rules:
 
 ### 2.6 Approval-Aware Policy Conditions
 
-**Implementation notes**:
-- Create `context/approval.py` with `Approval` and `ApprovalType` models
-- Add `approval: Approval` field to `DecisionContext`
-- Wire approval store lookups into context building
-- Add `approval_present` condition to policy matcher
-
 Expose approval state as policy conditions for more flexible rules:
 
-```yaml
-rules:
-  # Allow if previously approved
-  - conditions:
-      tool_name: "bash"
-      approval_present: true
-    effect: allow
-
-  # Require HITL for first use
-  - conditions:
-      tool_name: "bash"
-    effect: hitl
+```json
+{
+  "rules": [
+    {
+      "conditions": {
+        "tool_name": "bash",
+        "approval_present": true
+      },
+      "effect": "allow"
+    },
+    {
+      "conditions": {
+        "tool_name": "bash"
+      },
+      "effect": "hitl"
+    }
+  ]
+}
 ```
 
 Available conditions:
@@ -266,20 +285,18 @@ Automatically trigger HITL based on risk scoring rather than explicit policy rul
 
 **Why deferred**: Requires risk scoring model.
 
-### 4.2 Policy Architecture Enhancements
-
-#### Global + Per-Proxy Policy Inheritance
+### 4.2 Global + Per-Proxy Policy Inheritance
 
 Reduce policy duplication with inheritance model:
 
 ```
 ~/.mcp-acp/
-├── policy.yaml              # Global defaults (shared rules)
+├── policy.json              # Global defaults (shared rules)
 └── proxies/
     ├── filesystem/
-    │   └── policy.yaml      # Inherits global + backend-specific overrides
+    │   └── policy.json      # Inherits global + backend-specific overrides
     └── database/
-        └── policy.yaml      # Inherits global + backend-specific overrides
+        └── policy.json      # Inherits global + backend-specific overrides
 ```
 
 **Benefits**:
@@ -289,7 +306,7 @@ Reduce policy duplication with inheritance model:
 
 **Why deferred**: Per-proxy policy is sufficient. Different backends need different rules anyway.
 
-#### Multi-Instance Policy Sync
+### 4.3 Multi-Instance Policy Sync
 
 For distributed deployments, sync policies across proxy instances:
 
@@ -305,7 +322,7 @@ Inspired by [permit.io/permit-fastmcp](https://github.com/permitio/permit-fastmc
 
 **Why deferred**: Single-host deployment is current scope. Multi-host requires policy server infrastructure.
 
-#### Third-Party Policy Engines
+### 4.4 Third-Party Policy Engines
 
 Integrate with external policy engines for complex authorization:
 
@@ -322,9 +339,9 @@ Integrate with external policy engines for complex authorization:
 - Policy-as-code workflows
 - Audit and compliance features
 
-**Why deferred**: Custom YAML policy engine is sufficient. External engines add deployment complexity.
+**Why deferred**: Custom policy engine is sufficient. External engines add deployment complexity.
 
-### 4.3 Backend Health Monitoring
+### 4.5 Backend Health Monitoring
 
 Continuous health checks for backend MCP servers (beyond startup validation).
 
@@ -344,20 +361,6 @@ Continuous health checks for backend MCP servers (beyond startup validation).
 | Auto-recovery | Foundation for "restart backend on failure" automation |
 
 **Why deferred**: For single-user local deployment, error handling on tool calls already tells you something's wrong. Health monitoring adds complexity without significant benefit in this context.
-
----
-
-## Summary
-
-| Category | Features |
-|----------|----------|
-| Tool Registry | External registry, confidence tracking, sandbox verification |
-| Policy Engine | Confidence policies, provenance, arguments, regex, resource groups, approval-aware |
-| Content Inspection | Request/response inspection, discovery filtering |
-| Operations & Architecture | Heuristic HITL triggers, policy inheritance/sync, third-party engines, health monitoring |
-| HTTP Client Support | Manager reverse proxy, OIDC/mTLS auth, lazy spawn, idle shutdown |
-
-All features are deferred because explicit policy rules and manual tool mapping are sufficient for the current scope.
 
 ---
 
@@ -387,6 +390,51 @@ HTTP client mode enables cloud-based AI assistants and web clients to connect th
 
 ---
 
+## 6. Authentication Enhancements
+
+Features related to credential and key management.
+
+### 6.1 OIDC Confidential Client Support
+
+Current implementation uses **public clients** with Device Flow (RFC 8628), which don't require a client secret. This is appropriate for CLI/desktop applications where secrets cannot be securely embedded in application binaries.
+
+For server-to-server or confidential client scenarios:
+
+- Add optional `client_secret_key` field to `OIDCConfig` (keychain reference, not the secret)
+- Store actual secret in OS keychain: service=`mcp-acp`, key=`oauth:client_secret`
+- Support appropriate grant types (client_credentials, authorization_code)
+
+**Why deferred**: Device Flow covers current CLI/desktop use cases. Confidential clients require different grant types and deployment patterns (server-side applications).
+
+### 6.2 mTLS Private Key Passphrase Storage
+
+Support password-protected mTLS private keys by storing passphrases in OS keychain.
+
+**Current behavior**: mTLS key files must be unencrypted.
+
+**Enhancement**:
+- `proxy add` detects encrypted key files and prompts for passphrase
+- Passphrase stored in keychain: `proxy:{name}:mtls_passphrase`
+- Loaded automatically when creating SSL context
+
+**Why deferred**: Most users use unencrypted key files. Enterprise users with encrypted keys often have dedicated key management systems (HSMs, vault). Adds complexity for minority use case.
+
+### 6.3 Audit Log HMAC Protection
+
+Add HMAC-SHA256 signing to audit log entries using a secret key stored in OS keychain.
+
+**Current limitation** (documented in `hash_chain.py`): The hash chain is self-attesting. An attacker with write access to both log files AND `.integrity_state` can truncate logs, recompute hashes, and update state to match - tampering goes undetected.
+
+**Enhancement**: Store HMAC key in keychain. Entry hashes become `HMAC-SHA256(key, entry)` instead of `SHA256(entry)`. Attacker would need keychain access to forge valid hashes.
+
+**Backward compatibility**: Existing logs have plain SHA-256 hashes (cannot be retroactively HMAC'd). State file would track `hmac_start_sequence` - verification uses SHA-256 for entries before that sequence, HMAC after.
+
+**Existing mitigations** (without HMAC): Forward logs to remote syslog, use append-only filesystem attributes (`chattr +a`), or backup to immutable storage.
+
+**Why deferred**: Current hash chain demonstrates tamper-evident logging. HMAC is production hardening for edge cases where attacker has write access to both logs and state file.
+
+---
+
 ## Future Exploration
 
 Ideas that require significant research or infrastructure before becoming actionable roadmap items.
@@ -408,3 +456,18 @@ Detect unusual patterns that may indicate compromise:
 - Session behavior changes
 
 Requires behavioral baselines and statistical analysis.
+
+---
+
+## Summary
+
+| Category | Features |
+|----------|----------|
+| Tool Registry | External registry, confidence tracking, sandbox verification |
+| Policy Engine | Confidence policies, provenance, arguments, regex, resource groups, approval-aware |
+| Content Inspection | Request/response inspection, discovery filtering |
+| Operations & Architecture | Heuristic HITL triggers, policy inheritance/sync, third-party engines, health monitoring |
+| HTTP Client Support | Manager reverse proxy, OIDC/mTLS auth, lazy spawn, idle shutdown |
+| Authentication Enhancements | OIDC confidential clients, mTLS key passphrases, audit HMAC protection |
+
+All features are deferred because explicit policy rules and manual tool mapping are sufficient for the current scope.
