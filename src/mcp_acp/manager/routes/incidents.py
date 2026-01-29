@@ -1,4 +1,18 @@
-"""Incidents aggregation endpoints."""
+"""Incidents aggregation endpoints.
+
+Design record — system.jsonl events evaluated for incident-page inclusion:
+
+- audit_fallback: Primary audit log failed, event written to system.jsonl as
+  fallback. NOT surfaced here because the audit failure always triggers a proxy
+  shutdown afterwards, which is recorded in shutdowns.jsonl (failure_type
+  "audit_failure") and already appears as a "shutdown" incident.
+
+- invalid_request_id / invalid_session_id: Log-injection attempt detected
+  (newline in ID). NOT surfaced here because the malformed ID is rejected (set
+  to None) and request processing continues — the attack is neutralized without
+  a shutdown, so no incident is warranted. These events remain in system.jsonl
+  for forensic review.
+"""
 
 from __future__ import annotations
 

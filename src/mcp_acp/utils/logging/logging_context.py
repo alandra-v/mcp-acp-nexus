@@ -132,7 +132,11 @@ def set_request_id(request_id: str) -> None:
         return
 
     # Only check for newlines (would break JSONL format)
-    # CRITICAL: Log injection attempt is a security event
+    # CRITICAL: Log injection attempt is a security event.
+    # Incident visibility: invalid_request_id is logged to system.jsonl but NOT
+    # surfaced on the incidents page. The malformed ID is rejected (set to None) and
+    # request processing continues normally — the attack is neutralized without
+    # requiring a shutdown, so no incident is warranted.
     if "\n" in request_id or "\r" in request_id:
         _system_logger.critical(
             {
@@ -163,7 +167,9 @@ def set_session_id(session_id: str) -> None:
         return
 
     # Only check for newlines (would break JSONL format)
-    # CRITICAL: Log injection attempt is a security event
+    # CRITICAL: Log injection attempt is a security event.
+    # Incident visibility: same rationale as invalid_request_id above — the
+    # malformed session_id is rejected and processing continues. No incident needed.
     if "\n" in session_id or "\r" in session_id:
         _system_logger.critical(
             {

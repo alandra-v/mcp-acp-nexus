@@ -153,6 +153,11 @@ def log_with_fallback(
         failure_reason = str(e)
 
     # Primary failed - try system.jsonl
+    # Incident visibility: audit_fallback events logged here to system.jsonl do NOT
+    # need separate incident-page surfacing. The caller (audit middleware) triggers a
+    # proxy shutdown immediately after this function returns False, so the shutdown is
+    # recorded in shutdowns.jsonl with failure_type="audit_failure" and appears on the
+    # incidents page as a "shutdown" incident.
     # Note: Standard FileHandler doesn't raise on missing file, so verify it exists
     try:
         # Find system log file path from handler
