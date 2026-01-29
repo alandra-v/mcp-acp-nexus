@@ -18,6 +18,7 @@ from mcp_acp.config import (
     StdioTransportConfig,
     save_proxy_config,
 )
+from mcp_acp.config import AuthConfig, OIDCConfig
 from mcp_acp.manager.config import (
     ManagerConfig,
     save_manager_config,
@@ -45,15 +46,27 @@ def temp_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "mcp_acp.utils.file_helpers.get_app_dir",
         lambda: config_dir,
     )
+    monkeypatch.setattr(
+        "mcp_acp.manager.deletion.get_app_dir",
+        lambda: config_dir,
+    )
 
     return config_dir
 
 
 @pytest.fixture
 def manager_config(temp_config_dir: Path) -> Path:
-    """Create a manager.json file."""
+    """Create a manager.json file with auth configured."""
     manager_path = temp_config_dir / "manager.json"
-    config = ManagerConfig()
+    config = ManagerConfig(
+        auth=AuthConfig(
+            oidc=OIDCConfig(
+                issuer="https://test.auth0.com",
+                client_id="test-client-id",
+                audience="test-audience",
+            ),
+        ),
+    )
     save_manager_config(config)
     return manager_path
 
@@ -319,6 +332,211 @@ class TestProxyAdd:
         assert result.exit_code == 1
         assert "Invalid URL" in result.output
         assert "http://" in result.output or "https://" in result.output
+
+
+class TestProxyDelete:
+    """Tests for 'proxy delete' command."""
+
+    def test_delete_existing_proxy(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should archive proxy and show summary."""
+        name, _ = sample_proxy
+
+        # Mock credential storage
+        monkeypatch.setattr(
+            "mcp_acp.security.credential_storage.BackendCredentialStorage",
+            type("MockCred", (), {"__init__": lambda s, n: None, "delete": lambda s: None}),
+        )
+        # Mock log dir to not exist (no logs to archive)
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_log_dir",
+            lambda n: temp_config_dir / "nonexistent_logs" / n,
+        )
+        # Mock socket path to not exist
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_socket_path",
+            lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
+        )
+        # Mock _is_proxy_running to return False
+        monkeypatch.setattr(
+            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            lambda n: False,
+        )
+
+        result = cli_runner.invoke(proxy, ["delete", "--proxy", name, "--yes"])
+        assert result.exit_code == 0
+        assert "deleted" in result.output.lower()
+        assert "Config + policy" in result.output
+
+        # Verify config directory was removed
+        config_path = temp_config_dir / "proxies" / name
+        assert not config_path.exists()
+
+        # Verify archive was created
+        archive_dir = temp_config_dir / "archive"
+        assert archive_dir.exists()
+        archives = list(archive_dir.iterdir())
+        assert len(archives) == 1
+        assert archives[0].name.startswith(name + "_")
+
+    def test_delete_nonexistent_proxy(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+    ) -> None:
+        """Should error for nonexistent proxy."""
+        result = cli_runner.invoke(proxy, ["delete", "--proxy", "nonexistent", "--yes"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+    def test_delete_with_purge(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should permanently delete with --purge flag."""
+        name, _ = sample_proxy
+
+        monkeypatch.setattr(
+            "mcp_acp.security.credential_storage.BackendCredentialStorage",
+            type("MockCred", (), {"__init__": lambda s, n: None, "delete": lambda s: None}),
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_log_dir",
+            lambda n: temp_config_dir / "nonexistent_logs" / n,
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_socket_path",
+            lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
+        )
+        monkeypatch.setattr(
+            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            lambda n: False,
+        )
+
+        result = cli_runner.invoke(proxy, ["delete", "--proxy", name, "--purge", "--yes"])
+        assert result.exit_code == 0
+        assert "deleted" in result.output.lower()
+
+        # Verify no archive was created
+        archive_dir = temp_config_dir / "archive"
+        assert not archive_dir.exists()
+
+    def test_delete_with_yes_skips_confirm(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should skip confirmation with --yes flag."""
+        name, _ = sample_proxy
+
+        monkeypatch.setattr(
+            "mcp_acp.security.credential_storage.BackendCredentialStorage",
+            type("MockCred", (), {"__init__": lambda s, n: None, "delete": lambda s: None}),
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_log_dir",
+            lambda n: temp_config_dir / "nonexistent_logs" / n,
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_socket_path",
+            lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
+        )
+        monkeypatch.setattr(
+            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            lambda n: False,
+        )
+
+        result = cli_runner.invoke(proxy, ["delete", "--proxy", name, "-y"])
+        assert result.exit_code == 0
+
+    def test_delete_running_proxy_refused(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should refuse deletion of running proxy."""
+        name, _ = sample_proxy
+
+        monkeypatch.setattr(
+            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            lambda n: True,
+        )
+
+        result = cli_runner.invoke(proxy, ["delete", "--proxy", name, "--yes"])
+        assert result.exit_code == 1
+        assert "currently running" in result.output
+
+
+class TestProxyList:
+    """Tests for 'proxy list' command."""
+
+    def test_list_active_proxies(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+    ) -> None:
+        """Should list configured proxies."""
+        result = cli_runner.invoke(proxy, ["list"])
+        assert result.exit_code == 0
+        assert "filesystem" in result.output
+
+    def test_list_deleted_proxies_empty(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+    ) -> None:
+        """Should show message when no archived proxies."""
+        result = cli_runner.invoke(proxy, ["list", "--deleted"])
+        assert result.exit_code == 0
+        assert "No archived proxies" in result.output
+
+    def test_list_deleted_proxies(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should list archived proxies after deletion."""
+        name, _ = sample_proxy
+
+        monkeypatch.setattr(
+            "mcp_acp.security.credential_storage.BackendCredentialStorage",
+            type("MockCred", (), {"__init__": lambda s, n: None, "delete": lambda s: None}),
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_log_dir",
+            lambda n: temp_config_dir / "nonexistent_logs" / n,
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.get_proxy_socket_path",
+            lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
+        )
+        monkeypatch.setattr(
+            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            lambda n: False,
+        )
+
+        # Delete the proxy first
+        cli_runner.invoke(proxy, ["delete", "--proxy", name, "--yes"])
+
+        # List deleted
+        result = cli_runner.invoke(proxy, ["list", "--deleted"])
+        assert result.exit_code == 0
+        assert "filesystem_" in result.output
 
 
 class TestStartWithProxy:
