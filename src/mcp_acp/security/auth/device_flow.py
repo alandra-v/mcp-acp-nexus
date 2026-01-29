@@ -96,7 +96,7 @@ class PollOnceResult:
     """Result of a single poll attempt.
 
     Attributes:
-        status: "pending", "complete", "expired", "denied", or "error".
+        status: "pending", "slow_down", "complete", "expired", "denied", or "error".
         token: Token if status is "complete", None otherwise.
         error_message: Error message if status is "expired", "denied", or "error".
     """
@@ -345,7 +345,7 @@ class DeviceFlow:
                 return PollOnceResult(status="pending")
 
             if error == "slow_down":
-                return PollOnceResult(status="pending")
+                return PollOnceResult(status="slow_down")
 
             if error == "expired_token":
                 return PollOnceResult(

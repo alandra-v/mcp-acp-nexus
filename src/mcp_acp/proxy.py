@@ -719,6 +719,9 @@ def create_proxy(
                     }
                     if await manager_client.register(config_summary=config_summary):
                         proxy_state.set_manager_client(manager_client)
+                        # Wire identity provider to receive manager token updates
+                        if hasattr(identity_provider, "set_manager_client"):
+                            identity_provider.set_manager_client(manager_client)
                         # Wire HITL handler for disconnect notifications
                         # This allows pending web UI approvals to fall back to osascript
                         manager_client.set_hitl_handler(enforcement_middleware.hitl_handler)
