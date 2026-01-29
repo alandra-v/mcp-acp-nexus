@@ -66,7 +66,16 @@ export async function getAggregatedIncidents(
  * Used for badge state calculation.
  *
  * Uses manager-level endpoint to aggregate from all proxies.
+ *
+ * @param params.since - Only count entries after this ISO timestamp (for unread badge).
  */
-export async function getIncidentsSummary(options?: RequestOptions): Promise<IncidentsSummary> {
-  return apiGet<IncidentsSummary>('/manager/incidents/summary', options)
+export async function getIncidentsSummary(
+  params?: { since?: string },
+  options?: RequestOptions,
+): Promise<IncidentsSummary> {
+  const searchParams = new URLSearchParams()
+  if (params?.since) searchParams.set('since', params.since)
+  const query = searchParams.toString()
+  const url = query ? `/manager/incidents/summary?${query}` : '/manager/incidents/summary'
+  return apiGet<IncidentsSummary>(url, options)
 }

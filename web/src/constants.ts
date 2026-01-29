@@ -26,7 +26,6 @@ export const SSE_EVENTS = {
 
 /** localStorage keys for incidents tracking */
 export const INCIDENTS_STORAGE_KEYS = {
-  LAST_SEEN_TOTAL: 'mcp-acp-incidents-last-seen-total',
   LAST_SEEN_TIMESTAMP: 'mcp-acp-incidents-last-seen-timestamp',
 } as const
 

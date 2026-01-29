@@ -189,11 +189,15 @@ async def get_aggregated_incidents(
 
 
 @router.get("/incidents/summary", response_model=IncidentsSummary)
-async def get_incidents_summary() -> IncidentsSummary:
+async def get_incidents_summary(since: str | None = None) -> IncidentsSummary:
     """Get aggregated incidents summary from all proxies.
 
     Combines shutdown counts from all proxy log directories with
     global bootstrap and emergency counts.
+
+    Args:
+        since: Only count entries with ``time`` strictly after this ISO
+            timestamp.  Used by the web UI badge to count unread incidents.
 
     Returns:
         IncidentsSummary with counts and latest critical timestamp.
@@ -207,7 +211,7 @@ async def get_incidents_summary() -> IncidentsSummary:
     for proxy_name in proxy_names:
         log_dir = get_proxy_log_dir(proxy_name, manager_config)
         shutdowns_path = log_dir / "shutdowns.jsonl"
-        count, latest = count_entries_and_latest(shutdowns_path)
+        count, latest = count_entries_and_latest(shutdowns_path, since=since)
         shutdowns_count += count
         if latest and (shutdowns_latest is None or latest > shutdowns_latest):
             shutdowns_latest = latest
@@ -217,12 +221,12 @@ async def get_incidents_summary() -> IncidentsSummary:
     for proxy_name in proxy_names:
         proxy_dir = get_proxy_config_path(proxy_name).parent
         bootstrap_path = proxy_dir / "bootstrap.jsonl"
-        count, _ = count_entries_and_latest(bootstrap_path)
+        count, _ = count_entries_and_latest(bootstrap_path, since=since)
         bootstrap_count += count
 
     # Count emergency (global)
     emergency_path = get_emergency_audit_path()
-    emergency_count, emergency_latest = count_entries_and_latest(emergency_path)
+    emergency_count, emergency_latest = count_entries_and_latest(emergency_path, since=since)
 
     # Latest critical timestamp (shutdowns + emergency, not bootstrap)
     critical_timestamps = [t for t in [shutdowns_latest, emergency_latest] if t]

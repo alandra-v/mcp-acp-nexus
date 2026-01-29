@@ -3,6 +3,9 @@
  *
  * Shows unread count badge when there are new incidents since last viewed.
  * Resets when user views the incidents page.
+ *
+ * Uses timestamp-based tracking: the summary endpoint is called with
+ * `since=lastSeenTimestamp` so the returned counts ARE the unread counts.
  */
 
 import {
@@ -22,7 +25,7 @@ interface IncidentsContextValue {
   unreadCount: number
   /** Timestamp when incidents were last marked as read (for glow on new items) */
   lastSeenTimestamp: string | null
-  /** Summary data from API */
+  /** Summary data from API (filtered by since — counts reflect unread only) */
   summary: IncidentsSummary | null
   /** Mark all incidents as read */
   markAsRead: () => void
@@ -44,16 +47,17 @@ function getTotalCount(summary: IncidentsSummary | null): number {
 
 export function IncidentsProvider({ children }: IncidentsProviderProps) {
   const [summary, setSummary] = useState<IncidentsSummary | null>(null)
-  const [lastSeenTotal, setLastSeenTotal] = useState<number>(() => {
-    const stored = localStorage.getItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TOTAL)
-    return stored ? parseInt(stored, 10) || 0 : 0
-  })
   const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string | null>(() => {
     return localStorage.getItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TIMESTAMP)
   })
 
   // Track active fetch for cleanup
   const abortControllerRef = useRef<AbortController | null>(null)
+  // Ref to avoid stale closure in fetchSummary (event handlers capture the
+  // initial callback; using a ref lets them always read the latest value
+  // without re-subscribing to SSE events on every timestamp change).
+  const lastSeenRef = useRef(lastSeenTimestamp)
+  lastSeenRef.current = lastSeenTimestamp
 
   const fetchSummary = useCallback(async () => {
     // Cancel any in-flight request
@@ -62,7 +66,11 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
     abortControllerRef.current = controller
 
     try {
-      const data = await getIncidentsSummary({ signal: controller.signal })
+      const since = lastSeenRef.current ?? undefined
+      const data = await getIncidentsSummary(
+        since ? { since } : undefined,
+        { signal: controller.signal },
+      )
       setSummary(data)
     } catch (error) {
       // Ignore abort errors (expected on cleanup)
@@ -76,33 +84,51 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
   useEffect(() => {
     fetchSummary()
 
-    // Listen for incidents_updated SSE events (dispatched by AppStateContext)
-    const handleIncidentsUpdated = () => {
+    const handleRefetch = () => {
       fetchSummary()
     }
-    window.addEventListener(SSE_EVENTS.INCIDENTS_UPDATED, handleIncidentsUpdated)
+
+    // Listen for incidents_updated SSE events (dispatched by AppStateContext)
+    window.addEventListener(SSE_EVENTS.INCIDENTS_UPDATED, handleRefetch)
+
+    // Also refetch when a proxy registers/disconnects
+    window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleRefetch)
+    window.addEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleRefetch)
+
+    // Refetch when the tab regains visibility
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSummary()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       abortControllerRef.current?.abort()
-      window.removeEventListener(SSE_EVENTS.INCIDENTS_UPDATED, handleIncidentsUpdated)
+      window.removeEventListener(SSE_EVENTS.INCIDENTS_UPDATED, handleRefetch)
+      window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleRefetch)
+      window.removeEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleRefetch)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [fetchSummary])
 
-  const totalCount = getTotalCount(summary)
-  const unreadCount = Math.max(0, totalCount - lastSeenTotal)
+  // The summary is already filtered by `since` — counts ARE the unread counts
+  const unreadCount = getTotalCount(summary)
 
   const markAsRead = useCallback(() => {
-    const total = getTotalCount(summary)
-    if (total > 0) {
-      const now = new Date().toISOString()
-      localStorage.setItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TOTAL, String(total))
-      localStorage.setItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TIMESTAMP, now)
-      setLastSeenTotal(total)
-      setLastSeenTimestamp(now)
-      // Notify other components (e.g., ProxyGrid) that incidents were marked as read
-      window.dispatchEvent(new CustomEvent(SSE_EVENTS.INCIDENTS_MARKED_READ))
-    }
-  }, [summary])
+    const now = new Date().toISOString()
+    localStorage.setItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TIMESTAMP, now)
+    setLastSeenTimestamp(now)
+    // Update ref eagerly so fetchSummary reads the new value immediately
+    // (state update hasn't triggered a re-render yet at this point)
+    lastSeenRef.current = now
+    // Optimistically clear badge — the next fetch will confirm 0 counts
+    setSummary(null)
+    // Re-fetch with the new timestamp to confirm
+    fetchSummary()
+    // Notify other components (e.g., ProxyGrid) that incidents were marked as read
+    window.dispatchEvent(new CustomEvent(SSE_EVENTS.INCIDENTS_MARKED_READ))
+  }, [fetchSummary])
 
   const value: IncidentsContextValue = {
     unreadCount,

@@ -334,7 +334,11 @@ def read_jsonl_filtered(
     return entries, has_more, scanned
 
 
-def count_entries_and_latest(log_path: Path) -> tuple[int, str | None]:
+def count_entries_and_latest(
+    log_path: Path,
+    *,
+    since: str | None = None,
+) -> tuple[int, str | None]:
     """Count entries in a JSONL file and find the latest timestamp.
 
     Scans the entire file to count entries and track the maximum timestamp.
@@ -342,6 +346,9 @@ def count_entries_and_latest(log_path: Path) -> tuple[int, str | None]:
 
     Args:
         log_path: Path to the JSONL log file.
+        since: Only count entries with ``time`` strictly after this ISO
+            timestamp.  Entries without a ``time`` field are skipped when
+            *since* is set.
 
     Returns:
         Tuple of (entry_count, latest_timestamp).
@@ -359,10 +366,13 @@ def count_entries_and_latest(log_path: Path) -> tuple[int, str | None]:
                 line = line.strip()
                 if not line:
                     continue
-                count += 1
                 try:
                     entry = json.loads(line)
                     time_val = entry.get("time")
+                    if since is not None:
+                        if not time_val or time_val <= since:
+                            continue
+                    count += 1
                     if time_val:
                         if latest is None or time_val > latest:
                             latest = time_val
