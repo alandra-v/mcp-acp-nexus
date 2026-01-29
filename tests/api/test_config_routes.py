@@ -41,6 +41,7 @@ def mock_config() -> MagicMock:
     config.backend.stdio = MagicMock()
     config.backend.stdio.command = "npx"
     config.backend.stdio.args = ["-y", "@modelcontextprotocol/server"]
+    config.backend.stdio.attestation = None
 
     # HTTP transport config (None for STDIO-only)
     config.backend.http = None
@@ -80,6 +81,7 @@ def mock_config_no_auth() -> MagicMock:
     config.backend.stdio = MagicMock()
     config.backend.stdio.command = "npx"
     config.backend.stdio.args = []
+    config.backend.stdio.attestation = None
     config.backend.http = None
     config.logging.log_dir = "/tmp/logs"
     config.logging.log_level = "INFO"
@@ -212,6 +214,7 @@ class TestUpdateConfig:
         new_config.backend.stdio = MagicMock()
         new_config.backend.stdio.command = "npx"
         new_config.backend.stdio.args = []
+        new_config.backend.stdio.attestation = None
         new_config.backend.http = None
         new_config.logging.log_dir = "/tmp/logs"
         new_config.logging.log_level = "DEBUG"
@@ -282,6 +285,7 @@ class TestUpdateConfig:
         mock_config.backend.stdio = MagicMock()
         mock_config.backend.stdio.command = "npx"
         mock_config.backend.stdio.args = []
+        mock_config.backend.stdio.attestation = None
         mock_config.backend.http = None
         mock_config.logging.log_dir = "/tmp"
         mock_config.logging.log_level = "INFO"
