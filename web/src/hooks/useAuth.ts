@@ -37,10 +37,13 @@ export function useAuth(): UseAuthReturn {
         subject_id: null,
         email: null,
         name: null,
+        provider: null,
+        client_id: null,
+        audience: null,
+        scopes: null,
         token_expires_in_hours: null,
         has_refresh_token: null,
         storage_backend: null,
-        provider: null,
       })
     } finally {
       setLoading(false)

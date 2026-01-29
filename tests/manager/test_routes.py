@@ -476,7 +476,7 @@ class TestProxyCreationEndpoint:
 
         assert response.status_code == 400
         data = response.json()
-        assert data["detail"]["code"] == "PROXY_INVALID"
+        assert data["detail"]["code"] == "BACKEND_UNREACHABLE"
         assert "health check failed" in data["detail"]["message"].lower()
 
 

@@ -37,10 +37,13 @@ describe('useAuth', () => {
     subject_id: 'user-123',
     email: 'user@example.com',
     name: 'Test User',
+    provider: 'auth0',
+    client_id: 'test-client-id',
+    audience: 'https://api.example.com',
+    scopes: ['openid', 'profile', 'email'],
     token_expires_in_hours: 24,
     has_refresh_token: true,
     storage_backend: 'file',
-    provider: 'auth0',
   }
 
   beforeEach(() => {
