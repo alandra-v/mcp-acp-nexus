@@ -6,10 +6,13 @@ export interface AuthStatus {
   subject_id: string | null
   email: string | null
   name: string | null
+  provider: string | null
+  client_id: string | null
+  audience: string | null
+  scopes: string[] | null
   token_expires_in_hours: number | null
   has_refresh_token: boolean | null
   storage_backend: string | null
-  provider: string | null
 }
 
 export interface DeviceFlowStart {
@@ -18,12 +21,6 @@ export interface DeviceFlowStart {
   verification_uri_complete: string | null
   expires_in: number
   interval: number
-  poll_endpoint: string
-}
-
-export interface DeviceFlowPoll {
-  status: 'pending' | 'complete' | 'expired' | 'denied' | 'error'
-  message: string | null
 }
 
 export interface LogoutResponse {
@@ -42,17 +39,13 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 }
 
 export async function startLogin(): Promise<DeviceFlowStart> {
-  return apiPost<DeviceFlowStart>('/auth/login')
-}
-
-export async function pollLogin(code: string): Promise<DeviceFlowPoll> {
-  return apiGet<DeviceFlowPoll>(`/auth/login/poll?code=${encodeURIComponent(code)}`)
+  return apiPost<DeviceFlowStart>('/manager/auth/login')
 }
 
 export async function logout(): Promise<LogoutResponse> {
-  return apiPost<LogoutResponse>('/auth/logout')
+  return apiPost<LogoutResponse>('/manager/auth/logout')
 }
 
 export async function logoutFederated(): Promise<FederatedLogoutResponse> {
-  return apiPost<FederatedLogoutResponse>('/auth/logout-federated')
+  return apiPost<FederatedLogoutResponse>('/manager/auth/logout-federated')
 }

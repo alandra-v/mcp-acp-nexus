@@ -23,6 +23,7 @@ const DEFAULT_MESSAGES: Partial<Record<SSEEventType, string>> = {
   // Authentication
   auth_login: 'Logged in',
   auth_logout: 'Logged out',
+  auth_login_failed: 'Login failed',
   auth_session_expiring: 'Session expiring soon',
   token_refresh_failed: 'Session expired - please log in again',
   token_validation_failed: 'Token validation failed',
@@ -61,6 +62,7 @@ const DEFAULT_MESSAGES: Partial<Record<SSEEventType, string>> = {
 const AUTH_CHANGE_EVENTS = new Set([
   'auth_login',
   'auth_logout',
+  'auth_login_failed',
   'token_refresh_failed',
 ])
 
@@ -219,6 +221,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         default:
           if ('severity' in event && event.severity) {
             showSystemToast(event as SSESystemEvent)
+          }
+          // Dispatch custom event for device flow SSE listener
+          if (event.type === 'auth_login' || event.type === 'auth_login_failed') {
+            window.dispatchEvent(new CustomEvent('auth-login-result', { detail: event }))
           }
           break
       }

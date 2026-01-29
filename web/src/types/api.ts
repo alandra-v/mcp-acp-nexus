@@ -265,7 +265,8 @@ export interface SSETLSEvent extends SSESystemEventBase {
 
 // Auth Events
 export interface SSEAuthEvent extends SSESystemEventBase {
-  type: 'auth_login' | 'auth_logout' | 'auth_session_expiring' | 'token_refresh_failed' | 'token_validation_failed' | 'auth_failure'
+  type: 'auth_login' | 'auth_logout' | 'auth_login_failed' | 'auth_session_expiring' | 'token_refresh_failed' | 'token_validation_failed' | 'auth_failure'
+  reason?: string  // for auth_login_failed: 'expired', 'denied', 'error'
 }
 
 // Request Processing Events

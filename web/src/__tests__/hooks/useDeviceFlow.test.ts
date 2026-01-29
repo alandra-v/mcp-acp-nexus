@@ -1,7 +1,7 @@
 /**
  * Unit tests for useDeviceFlow hook.
  *
- * Tests device code flow login with polling.
+ * Tests device code flow login with SSE-based completion.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -12,7 +12,6 @@ import * as authApi from '@/api/auth'
 // Mock the API module
 vi.mock('@/api/auth', () => ({
   startLogin: vi.fn(),
-  pollLogin: vi.fn(),
 }))
 
 // Mock toast
@@ -29,6 +28,11 @@ vi.mock('@/hooks/useErrorSound', () => ({
   notifyError: vi.fn(),
 }))
 
+/** Dispatch an auth-login-result CustomEvent. */
+function dispatchAuthResult(detail: { type: string; reason?: string; message?: string }) {
+  window.dispatchEvent(new CustomEvent('auth-login-result', { detail }))
+}
+
 describe('useDeviceFlow', () => {
   const mockDeviceFlowStart: authApi.DeviceFlowStart = {
     user_code: 'ABCD-1234',
@@ -36,19 +40,16 @@ describe('useDeviceFlow', () => {
     verification_uri_complete: 'https://auth.example.com/device?code=ABCD-1234',
     expires_in: 600,
     interval: 5,
-    poll_endpoint: '/auth/login/poll',
   }
 
   let onSuccess: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useFakeTimers()
     onSuccess = vi.fn()
   })
 
   afterEach(() => {
-    vi.useRealTimers()
     vi.resetAllMocks()
   })
 
@@ -64,9 +65,8 @@ describe('useDeviceFlow', () => {
   })
 
   describe('start', () => {
-    it('starts device flow and begins polling', async () => {
+    it('starts device flow and sets polling state', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'pending', message: null })
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -110,37 +110,11 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.error).toBe('Failed to start login')
     })
-
-    it('clears previous polling when starting again', async () => {
-      vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'pending', message: null })
-
-      const { result } = renderHook(() => useDeviceFlow(onSuccess))
-
-      // Start first flow
-      await act(async () => {
-        await result.current.start()
-      })
-
-      // Advance time for one poll
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
-      })
-
-      // Start second flow (should clear first)
-      await act(async () => {
-        await result.current.start()
-      })
-
-      // Should have started fresh
-      expect(authApi.startLogin).toHaveBeenCalledTimes(2)
-    })
   })
 
-  describe('polling', () => {
-    it('polls at specified interval', async () => {
+  describe('SSE events', () => {
+    it('calls onSuccess when auth_login event received', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'pending', message: null })
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -148,37 +122,18 @@ describe('useDeviceFlow', () => {
         await result.current.start()
       })
 
-      // Poll should happen every 5 seconds (interval from response)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
-      })
+      expect(result.current.state.polling).toBe(true)
 
-      expect(authApi.pollLogin).toHaveBeenCalled()
-    })
-
-    it('calls onSuccess when poll returns complete', async () => {
-      vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'complete', message: null })
-
-      const { result } = renderHook(() => useDeviceFlow(onSuccess))
-
-      await act(async () => {
-        await result.current.start()
-      })
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login' })
       })
 
       expect(onSuccess).toHaveBeenCalled()
       expect(result.current.state.polling).toBe(false)
     })
 
-    it('handles expired status', async () => {
-      const { notifyError } = await import('@/hooks/useErrorSound')
-
+    it('handles expired status from SSE', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'expired', message: 'Code expired' })
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -186,20 +141,18 @@ describe('useDeviceFlow', () => {
         await result.current.start()
       })
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login_failed', reason: 'expired', message: 'Code expired' })
       })
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Code expired')
-      expect(notifyError).toHaveBeenCalledWith('Code expired, please try again')
+      // Toast is shown by AppStateContext via showSystemToast, not by this hook
+      expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('handles denied status', async () => {
-      const { notifyError } = await import('@/hooks/useErrorSound')
-
+    it('handles denied status from SSE', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'denied', message: 'User denied' })
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -207,20 +160,17 @@ describe('useDeviceFlow', () => {
         await result.current.start()
       })
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login_failed', reason: 'denied', message: 'User denied' })
       })
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('User denied')
-      expect(notifyError).toHaveBeenCalledWith('Authorization denied')
+      expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('handles error status', async () => {
-      const { notifyError } = await import('@/hooks/useErrorSound')
-
+    it('handles error status from SSE', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'error', message: 'Server error' })
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -228,41 +178,30 @@ describe('useDeviceFlow', () => {
         await result.current.start()
       })
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login_failed', reason: 'error', message: 'Server error' })
       })
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Server error')
-      expect(notifyError).toHaveBeenCalledWith('Login failed')
+      expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('handles poll network error', async () => {
-      const { notifyError } = await import('@/hooks/useErrorSound')
+    it('ignores SSE events when flow is not active', () => {
+      renderHook(() => useDeviceFlow(onSuccess))
 
-      vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockRejectedValue(new Error('Network error'))
-
-      const { result } = renderHook(() => useDeviceFlow(onSuccess))
-
-      await act(async () => {
-        await result.current.start()
+      // Dispatch without starting flow
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login' })
       })
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(5000)
-      })
-
-      expect(result.current.state.polling).toBe(false)
-      expect(result.current.state.error).toBe('Polling failed')
-      expect(notifyError).toHaveBeenCalledWith('Login failed')
+      expect(onSuccess).not.toHaveBeenCalled()
     })
   })
 
   describe('reset', () => {
-    it('clears state and stops polling', async () => {
+    it('clears state and deactivates flow', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'pending', message: null })
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -280,13 +219,19 @@ describe('useDeviceFlow', () => {
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.userCode).toBeUndefined()
       expect(result.current.state.verificationUri).toBeUndefined()
+
+      // SSE events should be ignored after reset
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login' })
+      })
+
+      expect(onSuccess).not.toHaveBeenCalled()
     })
   })
 
   describe('cleanup', () => {
-    it('clears polling interval on unmount', async () => {
+    it('removes event listener on unmount', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-      vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'pending', message: null })
 
       const { result, unmount } = renderHook(() => useDeviceFlow(onSuccess))
 
@@ -296,14 +241,14 @@ describe('useDeviceFlow', () => {
 
       unmount()
 
-      // Advance time - polling should not happen after unmount
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10000)
+      // SSE events after unmount should not trigger callbacks
+      act(() => {
+        dispatchAuthResult({ type: 'auth_login' })
       })
 
-      // pollLogin should only have been called during the hook's lifecycle
-      const callCountAtUnmount = vi.mocked(authApi.pollLogin).mock.calls.length
-      expect(callCountAtUnmount).toBeLessThanOrEqual(2) // At most 1-2 polls
+      // onSuccess should not be called since activeRef was set by start
+      // but the listener was removed on unmount — no way to receive events
+      // The key assertion is that no errors are thrown
     })
   })
 

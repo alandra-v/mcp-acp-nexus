@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { User, Shield, Key, RefreshCw, X } from 'lucide-react'
+import { User, Shield, Key, RefreshCw, X, Settings } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { BackButton } from '@/components/ui/BackButton'
@@ -166,10 +166,54 @@ export function AuthPage() {
         </section>
 
         {/* Info */}
-        <div className="text-center text-sm text-base-600">
+        <div className="text-center text-sm text-base-600 mb-10">
           <p>Authentication tokens are stored securely in your system keychain.</p>
           <p className="mt-1">Federated logout will also sign you out from the identity provider.</p>
         </div>
+
+        {/* OIDC Configuration (read-only) */}
+        {status?.configured && (
+          <section className="mb-10">
+            <div className="flex items-center gap-3 mb-6">
+              <Settings className="w-5 h-5 text-base-500" />
+              <h2 className="font-display text-lg font-semibold">OIDC Configuration</h2>
+            </div>
+
+            <div className="p-6 card-gradient border border-[var(--border-subtle)] rounded-lg">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Issuer</div>
+                  <div className="font-mono text-sm text-base-300 break-all">
+                    {status.provider || '--'}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Client ID</div>
+                  <div className="font-mono text-sm text-base-300 truncate">
+                    {status.client_id || '--'}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Audience</div>
+                  <div className="font-mono text-sm text-base-300 truncate">
+                    {status.audience || '--'}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Scopes</div>
+                  <div className="font-mono text-sm text-base-300">
+                    {status.scopes?.join(', ') || '--'}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-[var(--border-subtle)]">
+                <p className="text-xs text-base-600">
+                  Configuration is read-only. Run <code className="text-base-400">mcp-acp init --force</code> to reconfigure.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
 
       <LoginDialog
