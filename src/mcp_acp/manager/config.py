@@ -26,6 +26,7 @@ __all__ = [
     "get_proxy_policy_path",
     "list_configured_proxies",
     "load_manager_config",
+    "load_manager_config_strict",
     "save_manager_config",
     "validate_proxy_name",
 ]
@@ -191,6 +192,48 @@ def load_manager_config() -> ManagerConfig:
             }
         )
         return ManagerConfig()
+
+
+def load_manager_config_strict() -> ManagerConfig:
+    """Load manager configuration, raising on any error.
+
+    Unlike load_manager_config(), this function raises ConfigurationError
+    for missing files, missing auth, invalid JSON, or validation errors.
+    Used by the manager daemon to enforce valid config at startup.
+
+    Returns:
+        ManagerConfig: Validated configuration.
+
+    Raises:
+        ConfigurationError: If config is missing, invalid, or lacks auth.
+    """
+    from mcp_acp.exceptions import ConfigurationError
+
+    config_path = get_manager_config_path()
+
+    if not config_path.exists():
+        raise ConfigurationError("Not initialized. Run 'mcp-acp init' to configure.")
+
+    try:
+        with config_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ConfigurationError(f"Invalid JSON in {config_path}: {e}") from e
+    except OSError as e:
+        raise ConfigurationError(f"Cannot read {config_path}: {e}") from e
+
+    try:
+        config = ManagerConfig.model_validate(data)
+    except ValidationError as e:
+        raise ConfigurationError(f"Invalid config in {config_path}: {e}") from e
+
+    if config.auth is None:
+        raise ConfigurationError(
+            f"Auth not configured in {config_path}.\n"
+            "Add 'auth' section or run 'mcp-acp init --force' to reconfigure."
+        )
+
+    return config
 
 
 def save_manager_config(config: ManagerConfig) -> None:

@@ -21,6 +21,7 @@ from __future__ import annotations
 __all__ = [
     "AuditFailure",
     "AuthenticationError",
+    "ConfigurationError",
     "CriticalSecurityFailure",
     "DeviceHealthError",
     "IdentityVerificationFailure",
@@ -270,3 +271,19 @@ class SessionBindingViolationError(CriticalSecurityFailure):
 
     exit_code = 15
     failure_type = "session_binding_violation"
+
+
+class ConfigurationError(CriticalSecurityFailure):
+    """Configuration is invalid or incomplete.
+
+    Raised when:
+    - Config file does not exist (not initialized)
+    - Config file exists but auth section is missing
+    - Config file contains invalid JSON
+    - Config file fails Pydantic validation
+
+    Exit code 16 indicates configuration failure.
+    """
+
+    exit_code = 16
+    failure_type = "configuration_failure"

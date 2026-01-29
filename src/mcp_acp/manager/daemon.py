@@ -54,7 +54,7 @@ from mcp_acp.constants import (
 from mcp_acp.manager.config import (
     ManagerConfig,
     get_manager_system_log_path,
-    load_manager_config,
+    load_manager_config_strict,
 )
 from mcp_acp.manager.models import ManagerSystemEvent
 from mcp_acp.manager.protocol import decode_ndjson, encode_ndjson
@@ -729,8 +729,8 @@ async def run_manager(port: int | None = None) -> None:
     Raises:
         RuntimeError: If manager is already running or port is in use.
     """
-    # Load configuration
-    config = load_manager_config()
+    # Load configuration (strict: fails on missing/invalid config)
+    config = load_manager_config_strict()
 
     # Configure file logging
     _configure_manager_logging(config)

@@ -125,11 +125,7 @@ def create_identity_provider(
 
     # Zero Trust: auth is MANDATORY - no unauthenticated fallback
     if config is None or config.auth is None:
-        raise AuthenticationError(
-            "Authentication not configured. "
-            "Add 'auth.oidc' section to config with issuer, client_id, and audience. "
-            "See docs/auth.md for setup instructions."
-        )
+        raise AuthenticationError("Authentication not configured. Run 'mcp-acp init' to configure.")
 
     # Auth configured - use OIDC provider based on transport
     if transport == "stdio":

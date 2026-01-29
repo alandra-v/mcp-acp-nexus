@@ -34,6 +34,7 @@ from mcp_acp.manager.config import (
     get_manager_config_path,
     get_proxy_config_path,
     get_proxy_policy_path,
+    load_manager_config,
     validate_proxy_name,
 )
 from mcp_acp.pdp import create_default_policy
@@ -131,6 +132,13 @@ def proxy_add(
     if not manager_config_path.exists():
         click.echo(style_error("Not initialized."))
         click.echo(style_dim("Run 'mcp-acp init' first to set up authentication."))
+        raise SystemExit(1)
+
+    # Validate auth is configured
+    manager_config = load_manager_config()
+    if manager_config.auth is None:
+        click.echo(style_error("Auth not configured."))
+        click.echo(style_dim("Run 'mcp-acp init --force' to reconfigure with authentication."))
         raise SystemExit(1)
 
     # Get proxy name

@@ -19,6 +19,7 @@ from typing import Any
 
 import click
 
+from mcp_acp.exceptions import ConfigurationError
 from mcp_acp.constants import (
     APP_NAME,
     DEFAULT_API_PORT,
@@ -101,6 +102,9 @@ def start(port: int | None, foreground: bool) -> None:
         except KeyboardInterrupt:
             click.echo()
             click.echo("Manager stopped.")
+        except ConfigurationError as e:
+            click.echo(style_error(str(e)), err=True)
+            sys.exit(e.exit_code)
         except RuntimeError as e:
             click.echo(style_error(f"Failed to start: {e}"), err=True)
             sys.exit(1)
@@ -167,6 +171,9 @@ def _run(ctx: click.Context, port: int | None) -> None:
     # This is the actual manager process
     try:
         asyncio.run(run_manager(port=port))
+    except ConfigurationError as e:
+        click.echo(f"Configuration error: {e}", err=True)
+        sys.exit(e.exit_code)
     except RuntimeError as e:
         # Log to stderr (will be lost in daemon mode, but helpful for debugging)
         click.echo(f"Manager error: {e}", err=True)
