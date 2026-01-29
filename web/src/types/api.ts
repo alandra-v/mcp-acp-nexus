@@ -94,6 +94,7 @@ export interface IncidentEntry {
   time: string
   incident_type: 'shutdown' | 'bootstrap' | 'emergency'
   proxy_name?: string
+  proxy_id?: string
   message?: string
   event?: string
   [key: string]: unknown
@@ -190,6 +191,8 @@ interface SSESystemEventBase {
 export interface SSESnapshotEvent {
   type: 'snapshot'
   approvals: PendingApproval[]
+  proxy_id?: string
+  proxy_name?: string
 }
 
 export interface SSEPendingCreatedEvent {
@@ -250,6 +253,8 @@ export interface SSECachedSnapshotEvent {
   approvals: CachedApproval[]
   ttl_seconds: number
   count?: number
+  proxy_id?: string
+  proxy_name?: string
 }
 
 // Backend Connection Events
@@ -301,12 +306,14 @@ export interface SSEIncidentsUpdatedEvent extends SSESystemEventBase {
 export interface SSEProxyRegisteredEvent extends SSESystemEventBase {
   type: 'proxy_registered'
   proxy_name?: string
+  proxy_id?: string
   instance_id?: string
 }
 
 export interface SSEProxyDisconnectedEvent extends SSESystemEventBase {
   type: 'proxy_disconnected'
   proxy_name?: string
+  proxy_id?: string
   instance_id?: string
 }
 

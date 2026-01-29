@@ -395,20 +395,20 @@ async def _handle_proxy_connection(
             return
 
         proxy_name = msg.get("proxy_name")
-        proxy_id = msg.get("proxy_id", "")  # Stable proxy identifier
+        proxy_id = msg.get("proxy_id")
         instance_id = msg.get("instance_id")
         config_summary = msg.get("config_summary", {})
         socket_path = msg.get("socket_path", "")
 
-        if not proxy_name or not instance_id:
+        if not proxy_id or not proxy_name or not instance_id:
             _log_event(
                 logging.WARNING,
                 ManagerSystemEvent(
                     event="registration_missing_fields",
-                    message="Missing proxy_name or instance_id in registration",
+                    message="Missing proxy_id, proxy_name, or instance_id in registration",
                 ),
             )
-            await _send_error(writer, "Missing proxy_name or instance_id")
+            await _send_error(writer, "Missing proxy_id, proxy_name, or instance_id")
             return
 
         if not socket_path:

@@ -64,6 +64,7 @@ async def sse_events(request: Request) -> EventSourceResponse:
                                     "type": "snapshot",
                                     "approvals": snapshots["pending"],
                                     "proxy_name": proxy_conn.proxy_name,
+                                    "proxy_id": proxy_conn.proxy_id,
                                 }
                             )
                         }
@@ -80,6 +81,7 @@ async def sse_events(request: Request) -> EventSourceResponse:
                                     "ttl_seconds": cached.get("ttl_seconds", DEFAULT_APPROVAL_TTL_SECONDS),
                                     "count": cached.get("count", 0),
                                     "proxy_name": proxy_conn.proxy_name,
+                                    "proxy_id": proxy_conn.proxy_id,
                                 }
                             )
                         }

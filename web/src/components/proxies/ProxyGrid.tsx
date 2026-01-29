@@ -34,18 +34,19 @@ export function ProxyGrid({ proxies }: ProxyGridProps) {
       const lastSeenTimestamp = localStorage.getItem(INCIDENTS_STORAGE_KEYS.LAST_SEEN_TIMESTAMP)
       const lastSeenDate = lastSeenTimestamp ? new Date(lastSeenTimestamp) : null
 
-      // Extract proxy names from unread incidents only
-      const names = new Set<string>()
+      // Extract proxy identifiers from unread incidents only
+      const ids = new Set<string>()
       for (const entry of response.entries) {
-        if (entry.proxy_name) {
+        const proxyKey = entry.proxy_id ?? entry.proxy_name
+        if (proxyKey) {
           // Only mark as issue if incident is newer than last seen
           const entryTime = new Date(entry.time)
           if (!lastSeenDate || entryTime > lastSeenDate) {
-            names.add(entry.proxy_name)
+            ids.add(proxyKey)
           }
         }
       }
-      setProxiesWithIncidents(names)
+      setProxiesWithIncidents(ids)
     } catch (error) {
       // Ignore abort errors
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -70,7 +71,7 @@ export function ProxyGrid({ proxies }: ProxyGridProps) {
             signal: controller.signal,
           })
           if (status.total_broken > 0) {
-            return proxy.proxy_name
+            return proxy.proxy_id
           }
         } catch (error) {
           // Ignore abort and other errors - audit status is non-critical
@@ -155,9 +156,9 @@ export function ProxyGrid({ proxies }: ProxyGridProps) {
     )
   }
 
-  // Combine incidents and audit issues
-  const hasIssues = (proxyName: string) =>
-    proxiesWithIncidents.has(proxyName) || proxiesWithAuditIssues.has(proxyName)
+  // Combine incidents and audit issues (keyed by proxy_id)
+  const hasIssues = (proxyId: string) =>
+    proxiesWithIncidents.has(proxyId) || proxiesWithAuditIssues.has(proxyId)
 
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-5">
@@ -165,7 +166,7 @@ export function ProxyGrid({ proxies }: ProxyGridProps) {
         <ProxyCard
           key={proxy.proxy_id}
           proxy={proxy}
-          hasIssues={hasIssues(proxy.proxy_name)}
+          hasIssues={hasIssues(proxy.proxy_id)}
         />
       ))}
     </div>

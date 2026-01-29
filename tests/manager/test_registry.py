@@ -315,6 +315,7 @@ class TestSSEBroadcasting:
         event = queue.get_nowait()
         assert event["type"] == "proxy_registered"
         assert event["data"]["proxy_name"] == "new-proxy"
+        assert event["data"]["proxy_id"] == "px_new:new-proxy"
         assert event["data"]["instance_id"] == "inst_new"
 
     async def test_deregistration_broadcasts_event(
@@ -342,6 +343,7 @@ class TestSSEBroadcasting:
         event = queue.get_nowait()
         assert event["type"] == "proxy_disconnected"
         assert event["data"]["proxy_name"] == "leaving-proxy"
+        assert event["data"]["proxy_id"] == "px_leave:leaving-proxy"
 
     async def test_broadcast_proxy_event_adds_proxy_name(
         self,

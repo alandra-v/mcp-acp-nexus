@@ -39,6 +39,7 @@ def client(temp_socket_path: Path) -> ManagerClient:
     return ManagerClient(
         proxy_name="test-proxy",
         instance_id="inst_test123",
+        proxy_id="px_test123:test-proxy",
         manager_socket_path=temp_socket_path,
         proxy_api_socket_path="/tmp/proxy.sock",
     )
@@ -52,6 +53,7 @@ class TestManagerClientInit:
         client = ManagerClient(
             proxy_name="my-proxy",
             instance_id="inst_abc",
+            proxy_id="px_abc:my-proxy",
             manager_socket_path=temp_socket_path,
             proxy_api_socket_path="/tmp/my.sock",
         )
@@ -66,6 +68,7 @@ class TestManagerClientInit:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
         )
 
         assert client._socket_path == MANAGER_SOCKET_PATH
@@ -118,6 +121,7 @@ class TestManagerClientConnect:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
             manager_socket_path=temp_socket_path,
         )
 
@@ -166,6 +170,7 @@ class TestManagerClientRegister:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
             manager_socket_path=temp_socket_path,
             proxy_api_socket_path="/tmp/test.sock",
         )
@@ -198,6 +203,7 @@ class TestManagerClientRegister:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
             manager_socket_path=temp_socket_path,
         )
 
@@ -232,6 +238,7 @@ class TestManagerClientRegister:
         client = ManagerClient(
             proxy_name="my-proxy",
             instance_id="inst_abc",
+            proxy_id="px_abc:my-proxy",
             manager_socket_path=temp_socket_path,
             proxy_api_socket_path="/tmp/my.sock",
         )
@@ -243,6 +250,7 @@ class TestManagerClientRegister:
             assert received_message is not None
             assert received_message["type"] == "register"
             assert received_message["proxy_name"] == "my-proxy"
+            assert received_message["proxy_id"] == "px_abc:my-proxy"
             assert received_message["instance_id"] == "inst_abc"
             assert received_message["socket_path"] == "/tmp/my.sock"
             assert received_message["config_summary"] == {"backend": "stdio"}
@@ -291,6 +299,7 @@ class TestManagerClientPushEvent:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
             manager_socket_path=temp_socket_path,
         )
 
@@ -331,6 +340,7 @@ class TestManagerClientDisconnect:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
             manager_socket_path=temp_socket_path,
         )
 
@@ -385,6 +395,7 @@ class TestGracefulDegradation:
         client = ManagerClient(
             proxy_name="test",
             instance_id="inst_1",
+            proxy_id="px_1:test",
             manager_socket_path=temp_socket_path,
         )
 

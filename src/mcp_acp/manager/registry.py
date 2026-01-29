@@ -180,6 +180,7 @@ class ProxyRegistry:
             "proxy_registered",
             {
                 "proxy_name": proxy_name,
+                "proxy_id": proxy_id,
                 "instance_id": instance_id,
             },
         )
@@ -200,6 +201,7 @@ class ProxyRegistry:
                 return False
 
             conn = self._proxies.pop(proxy_name)
+            proxy_id = conn.proxy_id
             instance_id = conn.instance_id
             await self._close_connection(conn)
             self.record_activity()
@@ -218,6 +220,7 @@ class ProxyRegistry:
             "proxy_disconnected",
             {
                 "proxy_name": proxy_name,
+                "proxy_id": proxy_id,
                 "instance_id": instance_id,
             },
         )
@@ -256,7 +259,7 @@ class ProxyRegistry:
     ) -> None:
         """Broadcast an event from a proxy to all SSE subscribers.
 
-        Adds proxy_name to the event data for client-side filtering.
+        Adds proxy_name and proxy_id to the event data for client-side filtering.
         Also emits incidents_updated for critical/incident events.
 
         Args:
@@ -264,10 +267,13 @@ class ProxyRegistry:
             event_type: Type of event (e.g., "pending_created").
             data: Event payload.
         """
-        await self._broadcast_sse_event(
-            event_type,
-            {**data, "proxy_name": proxy_name},
-        )
+        enriched: dict[str, Any] = {**data, "proxy_name": proxy_name}
+        async with self._lock:
+            conn = self._proxies.get(proxy_name)
+            if conn is not None:
+                enriched["proxy_id"] = conn.proxy_id
+
+        await self._broadcast_sse_event(event_type, enriched)
 
         # Also emit incidents_updated for incident-related events
         if event_type in self._INCIDENT_EVENT_TYPES:

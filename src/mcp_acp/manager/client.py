@@ -96,22 +96,22 @@ class ManagerClient:
         self,
         proxy_name: str,
         instance_id: str,
+        proxy_id: str,
         manager_socket_path: Path | None = None,
         proxy_api_socket_path: str | None = None,
-        proxy_id: str | None = None,
     ) -> None:
         """Initialize manager client.
 
         Args:
             proxy_name: Name of this proxy (e.g., "filesystem").
             instance_id: Unique instance ID for this proxy run.
+            proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
             manager_socket_path: Path to manager socket. Defaults to MANAGER_SOCKET_PATH.
             proxy_api_socket_path: Path to this proxy's API socket (for manager routing).
-            proxy_id: Stable proxy identifier (e.g., "px_a1b2c3d4:filesystem-server").
         """
         self._proxy_name = proxy_name
         self._instance_id = instance_id
-        self._proxy_id = proxy_id or ""
+        self._proxy_id = proxy_id
         self._socket_path = manager_socket_path or MANAGER_SOCKET_PATH
         self._proxy_api_socket_path = proxy_api_socket_path or ""
         self._reader: asyncio.StreamReader | None = None
