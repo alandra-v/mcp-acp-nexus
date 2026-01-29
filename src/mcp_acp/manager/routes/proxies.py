@@ -523,7 +523,8 @@ def _check_http_health(url: str, timeout: int, mtls_config: MTLSConfig | None) -
         mtls_config: Optional mTLS configuration.
 
     Raises:
-        APIError: If health check fails (backend unreachable or cert error).
+        APIError: If health check fails (PROXY_INVALID for SSL/cert errors,
+            BACKEND_UNREACHABLE for connectivity errors).
     """
     from mcp_acp.constants import HEALTH_CHECK_TIMEOUT_SECONDS
     from mcp_acp.utils.transport import check_http_health
@@ -569,7 +570,7 @@ def _check_http_health(url: str, timeout: int, mtls_config: MTLSConfig | None) -
             )
         raise APIError(
             status_code=400,
-            code=ErrorCode.PROXY_INVALID,
+            code=ErrorCode.BACKEND_UNREACHABLE,
             message=f"Backend health check failed: could not reach {url}",
             details={"url": url, "error": str(e)},
         )
@@ -638,8 +639,8 @@ async def create_proxy(body: CreateProxyRequest) -> CreateProxyResponse:
     # Build mTLS config (validates paths exist)
     mtls_config = _build_mtls_config(body)
 
-    # Check HTTP backend health if configured
-    if http_config is not None:
+    # Check HTTP backend health if configured (skip if user already confirmed)
+    if http_config is not None and not body.skip_health_check:
         _check_http_health(http_config.url, http_config.timeout, mtls_config)
 
     # Generate proxy ID

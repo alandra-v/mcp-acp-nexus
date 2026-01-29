@@ -20,6 +20,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -34,7 +44,7 @@ import { notifyError } from '@/hooks/useErrorSound'
 import { toast } from '@/components/ui/sonner'
 import { COPY_FEEDBACK_DURATION_MS, DEFAULT_HTTP_TIMEOUT_SECONDS } from '@/constants'
 import type { CreateProxyRequest, CreateProxyResponse, TransportType } from '@/types/api'
-import { ApiError } from '@/types/api'
+import { ApiError, ErrorCode } from '@/types/api'
 
 // Validation constants (aligned with CLI)
 const PROXY_NAME_MAX_LENGTH = 64
@@ -89,6 +99,8 @@ export function AddProxyModal({
   const [copied, setCopied] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [showHealthCheckConfirm, setShowHealthCheckConfirm] = useState(false)
+  const [healthCheckMessage, setHealthCheckMessage] = useState('')
 
   const isStdio = formState.transport === 'stdio' || formState.transport === 'auto'
   const isHttp = formState.transport === 'streamablehttp' || formState.transport === 'auto'
@@ -104,6 +116,8 @@ export function AddProxyModal({
       setCopied(false)
       setShowAdvanced(false)
       setTouched({})
+      setShowHealthCheckConfirm(false)
+      setHealthCheckMessage('')
     }
   }, [open])
 
@@ -177,6 +191,57 @@ export function AddProxyModal({
     setTouched((prev) => ({ ...prev, [field]: true }))
   }, [])
 
+  // Build CreateProxyRequest from current form state
+  const buildRequest = useCallback((overrides?: Partial<CreateProxyRequest>): CreateProxyRequest => {
+    const request: CreateProxyRequest = {
+      name: formState.name.trim(),
+      server_name: formState.server_name.trim(),
+      transport: formState.transport,
+      ...overrides,
+    }
+
+    // STDIO fields
+    if (isStdio && formState.command) {
+      request.command = formState.command.trim()
+      if (formState.args && formState.args.length > 0) {
+        request.args = formState.args
+      }
+    }
+
+    // Attestation fields
+    if (isStdio) {
+      if (formState.attestation_slsa_owner?.trim()) {
+        request.attestation_slsa_owner = formState.attestation_slsa_owner.trim()
+      }
+      if (formState.attestation_sha256?.trim()) {
+        request.attestation_sha256 = formState.attestation_sha256.trim()
+      }
+      if (formState.attestation_require_signature) {
+        request.attestation_require_signature = true
+      }
+    }
+
+    // HTTP fields
+    if (isHttp && formState.url) {
+      request.url = formState.url.trim()
+      if (formState.timeout && formState.timeout !== DEFAULT_HTTP_TIMEOUT_SECONDS) {
+        request.timeout = formState.timeout
+      }
+      if (formState.api_key?.trim()) {
+        request.api_key = formState.api_key.trim()
+      }
+    }
+
+    // mTLS fields
+    if (formState.mtls_cert && formState.mtls_key && formState.mtls_ca) {
+      request.mtls_cert = formState.mtls_cert.trim()
+      request.mtls_key = formState.mtls_key.trim()
+      request.mtls_ca = formState.mtls_ca.trim()
+    }
+
+    return request
+  }, [formState, isStdio, isHttp])
+
   // Handle submit
   const handleSubmit = useCallback(async () => {
     if (!validation.isValid) return
@@ -185,57 +250,17 @@ export function AddProxyModal({
     setError(null)
 
     try {
-      // Build request, omitting empty optional fields
-      const request: CreateProxyRequest = {
-        name: formState.name.trim(),
-        server_name: formState.server_name.trim(),
-        transport: formState.transport,
-      }
-
-      // STDIO fields
-      if (isStdio && formState.command) {
-        request.command = formState.command.trim()
-        if (formState.args && formState.args.length > 0) {
-          request.args = formState.args
-        }
-      }
-
-      // Attestation fields
-      if (isStdio) {
-        if (formState.attestation_slsa_owner?.trim()) {
-          request.attestation_slsa_owner = formState.attestation_slsa_owner.trim()
-        }
-        if (formState.attestation_sha256?.trim()) {
-          request.attestation_sha256 = formState.attestation_sha256.trim()
-        }
-        if (formState.attestation_require_signature) {
-          request.attestation_require_signature = true
-        }
-      }
-
-      // HTTP fields
-      if (isHttp && formState.url) {
-        request.url = formState.url.trim()
-        if (formState.timeout && formState.timeout !== DEFAULT_HTTP_TIMEOUT_SECONDS) {
-          request.timeout = formState.timeout
-        }
-        if (formState.api_key?.trim()) {
-          request.api_key = formState.api_key.trim()
-        }
-      }
-
-      // mTLS fields
-      if (formState.mtls_cert && formState.mtls_key && formState.mtls_ca) {
-        request.mtls_cert = formState.mtls_cert.trim()
-        request.mtls_key = formState.mtls_key.trim()
-        request.mtls_ca = formState.mtls_ca.trim()
-      }
-
-      const response = await createProxy(request)
+      const response = await createProxy(buildRequest())
       setResult(response)
       toast.success(`Proxy "${response.proxy_name}" created`)
       setView('success')
     } catch (err) {
+      if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_UNREACHABLE)) {
+        setHealthCheckMessage(err.message)
+        setShowHealthCheckConfirm(true)
+        return
+      }
+
       let message = 'Failed to create proxy'
 
       if (err instanceof ApiError) {
@@ -253,7 +278,35 @@ export function AddProxyModal({
     } finally {
       setSubmitting(false)
     }
-  }, [formState, isStdio, isHttp, validation.isValid])
+  }, [buildRequest, validation.isValid])
+
+  // Resubmit with skip_health_check after user confirms
+  const handleConfirmSkipHealthCheck = useCallback(async () => {
+    setShowHealthCheckConfirm(false)
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const response = await createProxy(buildRequest({ skip_health_check: true }))
+      setResult(response)
+      toast.success(`Proxy "${response.proxy_name}" created`)
+      setView('success')
+    } catch (err) {
+      let message = 'Failed to create proxy'
+      if (err instanceof ApiError) {
+        message = err.message
+        const proxyName = err.getDetail<string>('proxy_name')
+        if (proxyName) {
+          message = `Proxy "${proxyName}": ${message}`
+        }
+      } else if (err instanceof Error) {
+        message = err.message
+      }
+      setError(message)
+    } finally {
+      setSubmitting(false)
+    }
+  }, [buildRequest])
 
   // Handle copy snippet
   const handleCopy = useCallback(async () => {
@@ -635,6 +688,25 @@ export function AddProxyModal({
           </>
         )}
       </DialogContent>
+
+      {/* Health check confirmation dialog */}
+      <AlertDialog open={showHealthCheckConfirm} onOpenChange={setShowHealthCheckConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Server unreachable</AlertDialogTitle>
+            <AlertDialogDescription>
+              {healthCheckMessage}
+              {' '}The server may be offline temporarily. Continue anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmSkipHealthCheck}>
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   )
 }

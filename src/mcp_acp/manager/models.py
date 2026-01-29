@@ -114,6 +114,9 @@ class AuthStatusResponse(FrozenModel):
         email: User email from ID token (if available).
         name: User name from ID token (if available).
         provider: OIDC provider name (e.g., 'auth0').
+        client_id: OIDC client ID (if configured).
+        audience: OIDC audience (if configured).
+        scopes: OIDC scopes (if configured).
         token_expires_in_hours: Hours until token expires (if authenticated).
         has_refresh_token: Whether a refresh token is available.
         storage_backend: Token storage backend ('keyring' or 'file').
@@ -125,6 +128,9 @@ class AuthStatusResponse(FrozenModel):
     email: str | None = None
     name: str | None = None
     provider: str | None = None
+    client_id: str | None = None
+    audience: str | None = None
+    scopes: list[str] | None = None
     token_expires_in_hours: float | None = None
     has_refresh_token: bool | None = None
     storage_backend: str | None = None
@@ -150,6 +156,7 @@ class CreateProxyRequest(BaseModel):
         mtls_cert: Path to client certificate for mTLS (PEM format).
         mtls_key: Path to client private key for mTLS (PEM format).
         mtls_ca: Path to CA bundle for server verification (PEM format).
+        skip_health_check: Skip HTTP health check (set after user confirms).
     """
 
     name: str = Field(min_length=1, max_length=64)
@@ -174,6 +181,9 @@ class CreateProxyRequest(BaseModel):
     mtls_cert: str | None = None
     mtls_key: str | None = None
     mtls_ca: str | None = None
+
+    # Skip health check (used after user confirms unreachable backend)
+    skip_health_check: bool = False
 
 
 class ConfigSnippetResponse(FrozenModel):
