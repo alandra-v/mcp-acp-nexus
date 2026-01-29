@@ -76,3 +76,6 @@ pip-wheel-metadata/
 # Additional test frameworks
 .hypothesis/
 .nox/
+
+# Node
+node_modules/
