@@ -411,6 +411,15 @@ Additional features implemented after Phase 5 completion.
   - `POST /api/manager/auth/reload` - reload tokens and broadcast to proxies
   - `POST /api/manager/auth/clear` - clear tokens and notify proxies
   - `GET /api/manager/auth/status` - get auth status from manager
+  - `POST /api/manager/auth/login` - start device flow with SSE-driven completion (background poller)
+  - `POST /api/manager/auth/logout` - clear tokens from storage and notify proxies
+  - `POST /api/manager/auth/logout-federated` - clear tokens and return Auth0 logout URL
+
+- [x] **Web UI auth migrated to manager endpoints**
+  - Login/logout works without a running proxy (manager handles device flow)
+  - SSE `auth_login` / `auth_login_failed` events replace client-side polling
+  - `useDeviceFlow` hook listens for SSE custom events instead of polling `/auth/login/poll`
+  - Identity provider wired to manager client for token distribution to proxies
 
 ### Audit Integrity UI
 
@@ -466,41 +475,60 @@ Backend credentials (API keys for HTTP backends) are securely stored in OS keych
 
 **Status: Not Started**
 
-Proxy deletion with audit trail preservation and recovery support.
+Proxy deletion with audit trail preservation, unified archive, and recovery support.
+
+- [ ] **Unified archive directory helpers**
+  - `get_archive_dir()` → `~/.mcp-acp/archive/`
+  - `get_archived_proxy_dir(archive_name)` → `~/.mcp-acp/archive/{name}_{timestamp}/`
+  - `list_archived_proxies()` → list archive folder names
 
 - [ ] **Soft delete (archive)**
-  - Archive config + policy to `proxies/.deleted/{name}_{timestamp}/`
-  - Archive audit + system logs to `logs/proxies/.deleted/{name}_{timestamp}/`
+  - Refuse if proxy is currently running (registry check, no --force)
+  - Archive config + policy to `~/.mcp-acp/archive/{name}_{timestamp}/config/`
+  - Archive audit + system logs to `~/.mcp-acp/archive/{name}_{timestamp}/logs/`
   - Delete debug logs immediately (no security value)
-  - Remove encryption key from keychain
-  - Remove backend credential from keychain (`proxy:{name}:backend` key)
-  - Write README.txt with deletion metadata and recovery instructions
+  - Write `metadata.json` (machine-readable manifest with original paths)
+  - Write `README.txt` (human-readable recovery instructions)
+  - Remove backend credential from keychain (last step - non-recoverable)
+  - Report archived and deleted sizes in output
 
 - [ ] **Purge command**
-  - `mcp-acp proxy purge <archive_name>` - Permanently delete archived data
+  - `mcp-acp proxy purge <name>` - accepts proxy name (if single archive) or full archive name
+  - Disambiguation prompt when multiple archives exist for same proxy name
   - Confirmation prompt before deletion
   - `mcp-acp proxy delete <name> --purge` - Direct hard delete
 
 - [ ] **List deleted proxies**
   - `mcp-acp proxy list --deleted`
 
+- [ ] **Manager notification**
+  - CLI notifies manager via UDS after deletion (same pattern as `auth/notify-login`)
+  - Manager broadcasts `proxy_deleted` SSE event to connected browsers
+  - UI proxy list page removes card on event
+  - UI proxy detail page redirects to `/` with toast if viewing deleted proxy
+
 - [ ] **Delete safety checks**
-  - Warn if proxy currently connected
+  - Refuse deletion if proxy is registered/running (409 Conflict)
   - Remind user to update client config (e.g., Claude Desktop)
 
 - [ ] **UI delete flow**
+  - Delete button on proxy detail page header (disabled for running proxies)
   - Confirmation dialog showing what will be archived vs deleted
-  - Recovery instructions in dialog
-  - Client config reminder
+  - Client config reminder in dialog
+  - `DELETE /api/manager/proxies/{proxy_name}` endpoint (with `?purge=true` option)
+  - After deletion: success toast + navigate to proxy list page
 
 - [ ] **Edge cases**
   - Timestamp in folder name prevents collisions
-  - Fail-safe: don't delete original until archive succeeds
+  - copytree-then-rmtree: original preserved if copy fails
   - Restore blocked if proxy with same name exists
+  - Manager not running during CLI delete: proceeds without SSE broadcast
 
 - [ ] **Tests**
-  - Delete/archive tests
-  - Purge tests
+  - Delete/archive tests (verify archive structure, metadata.json content)
+  - Purge tests (single archive, multiple archives disambiguation)
+  - Running proxy refusal tests
+  - Manager notification / SSE event tests
   - Edge case handling tests
 
 ---
