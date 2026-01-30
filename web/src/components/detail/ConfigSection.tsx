@@ -1,19 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, useId, cloneElement, isValidElement, Children } from 'react'
 import { Key, Trash2 } from 'lucide-react'
 import { Section } from './Section'
+import { SetApiKeyDialog, DeleteApiKeyDialog } from './ApiKeyDialogs'
+import { PendingChangesSection } from './PendingChangesSection'
+import { configToFormState, formStatesEqual, formStateToUpdateRequest, COMMON_SCOPES } from './configTransform'
+import type { FormState } from './configTransform'
 import { useConfig } from '@/hooks/useConfig'
 import { useAuth } from '@/hooks/useAuth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import {
   Select,
   SelectContent,
@@ -25,234 +21,12 @@ import { toast } from '@/components/ui/sonner'
 import { notifyError } from '@/hooks/useErrorSound'
 import { cn } from '@/lib/utils'
 import { setProxyApiKey, deleteProxyApiKey } from '@/api/config'
-import type { ConfigResponse, ConfigUpdateRequest, TransportType, ConfigChange } from '@/api/config'
+import type { TransportType } from '@/api/config'
 
 interface ConfigSectionProps {
   loaded?: boolean
   /** When provided, uses manager-level endpoints to access config regardless of proxy status */
   proxyId?: string
-}
-
-// Common OAuth scopes
-const COMMON_SCOPES = [
-  { value: 'openid', label: 'OpenID', description: 'Required for OIDC' },
-  { value: 'profile', label: 'Profile', description: 'User profile info' },
-  { value: 'email', label: 'Email', description: 'Email address' },
-  { value: 'offline_access', label: 'Offline Access', description: 'Refresh tokens' },
-] as const
-
-// Form state type - mirrors ConfigResponse but with mutable fields
-interface FormState {
-  // Proxy
-  proxy_name: string
-  // Backend
-  backend_server_name: string
-  backend_transport: TransportType
-  // STDIO
-  stdio_command: string
-  stdio_args: string // comma-separated
-  // STDIO Attestation
-  attestation_slsa_owner: string
-  attestation_sha256: string
-  attestation_require_signature: boolean
-  // HTTP
-  http_url: string
-  http_timeout: string
-  // Logging
-  log_dir: string
-  log_level: string
-  include_payloads: boolean
-  // Auth - OIDC
-  oidc_issuer: string
-  oidc_client_id: string
-  oidc_audience: string
-  oidc_scopes: string[] // array of scope values
-  // Auth - mTLS
-  mtls_client_cert_path: string
-  mtls_client_key_path: string
-  mtls_ca_bundle_path: string
-  // HITL
-  hitl_timeout_seconds: string
-  hitl_approval_ttl_seconds: string
-}
-
-/**
- * Convert ConfigResponse to form state for editing.
- * Transforms nested config structure to flat form fields.
- */
-function configToFormState(config: ConfigResponse): FormState {
-  return {
-    proxy_name: config.proxy.name,
-    backend_server_name: config.backend.server_name,
-    backend_transport: config.backend.transport ?? 'auto',
-    stdio_command: config.backend.stdio?.command || '',
-    stdio_args: config.backend.stdio?.args.join(', ') || '',
-    attestation_slsa_owner: config.backend.stdio?.attestation?.slsa_owner || '',
-    attestation_sha256: config.backend.stdio?.attestation?.expected_sha256 || '',
-    attestation_require_signature: config.backend.stdio?.attestation?.require_code_signature || false,
-    http_url: config.backend.http?.url || '',
-    http_timeout: config.backend.http?.timeout.toString() || '30',
-    log_dir: config.logging.log_dir,
-    log_level: config.logging.log_level,
-    include_payloads: config.logging.include_payloads,
-    oidc_issuer: config.auth?.oidc?.issuer || '',
-    oidc_client_id: config.auth?.oidc?.client_id || '',
-    oidc_audience: config.auth?.oidc?.audience || '',
-    oidc_scopes: config.auth?.oidc?.scopes || [],
-    mtls_client_cert_path: config.auth?.mtls?.client_cert_path || '',
-    mtls_client_key_path: config.auth?.mtls?.client_key_path || '',
-    mtls_ca_bundle_path: config.auth?.mtls?.ca_bundle_path || '',
-    hitl_timeout_seconds: config.hitl.timeout_seconds.toString(),
-    hitl_approval_ttl_seconds: config.hitl.approval_ttl_seconds.toString(),
-  }
-}
-
-/**
- * Build update request from form state changes.
- * Only includes fields that differ from the original config.
- */
-function formStateToUpdateRequest(
-  form: FormState,
-  original: ConfigResponse
-): ConfigUpdateRequest {
-  const updates: ConfigUpdateRequest = {}
-
-  // Proxy
-  if (form.proxy_name !== original.proxy.name) {
-    updates.proxy = { name: form.proxy_name }
-  }
-
-  // Backend
-  const backendUpdates: ConfigUpdateRequest['backend'] = {}
-  if (form.backend_server_name !== original.backend.server_name) {
-    backendUpdates.server_name = form.backend_server_name
-  }
-  if (form.backend_transport !== original.backend.transport) {
-    backendUpdates.transport = form.backend_transport
-  }
-
-  // STDIO (command, args, attestation)
-  const originalStdioCommand = original.backend.stdio?.command || ''
-  const originalStdioArgs = original.backend.stdio?.args.join(', ') || ''
-  const originalSlsaOwner = original.backend.stdio?.attestation?.slsa_owner || ''
-  const originalSha256 = original.backend.stdio?.attestation?.expected_sha256 || ''
-  const originalRequireSig = original.backend.stdio?.attestation?.require_code_signature || false
-
-  const stdioChanged = form.stdio_command !== originalStdioCommand ||
-    form.stdio_args !== originalStdioArgs ||
-    form.attestation_slsa_owner !== originalSlsaOwner ||
-    form.attestation_sha256 !== originalSha256 ||
-    form.attestation_require_signature !== originalRequireSig
-
-  if (stdioChanged) {
-    const args = form.stdio_args
-      .split(',')
-      .map((a) => a.trim())
-      .filter(Boolean)
-
-    // Build attestation update if any attestation field has a value
-    const hasAttestation = form.attestation_slsa_owner || form.attestation_sha256 || form.attestation_require_signature
-    const attestationUpdate = hasAttestation ? {
-      slsa_owner: form.attestation_slsa_owner || undefined,
-      expected_sha256: form.attestation_sha256 || undefined,
-      require_code_signature: form.attestation_require_signature || undefined,
-    } : undefined
-
-    backendUpdates.stdio = {
-      command: form.stdio_command || undefined,
-      args: args.length > 0 ? args : undefined,
-      attestation: attestationUpdate,
-    }
-  }
-
-  // HTTP
-  const originalHttpUrl = original.backend.http?.url || ''
-  const originalHttpTimeout = original.backend.http?.timeout.toString() || '30'
-  if (form.http_url !== originalHttpUrl || form.http_timeout !== originalHttpTimeout) {
-    backendUpdates.http = {
-      url: form.http_url || undefined,
-      timeout: form.http_timeout ? parseInt(form.http_timeout, 10) : undefined,
-    }
-  }
-
-  if (Object.keys(backendUpdates).length > 0) {
-    updates.backend = backendUpdates
-  }
-
-  // Logging (log_dir is derived from proxy name, not editable)
-  const loggingUpdates: ConfigUpdateRequest['logging'] = {}
-  if (form.log_level !== original.logging.log_level) {
-    loggingUpdates.log_level = form.log_level
-  }
-  if (form.include_payloads !== original.logging.include_payloads) {
-    loggingUpdates.include_payloads = form.include_payloads
-  }
-  if (Object.keys(loggingUpdates).length > 0) {
-    updates.logging = loggingUpdates
-  }
-
-  // Auth - OIDC
-  if (original.auth?.oidc) {
-    const oidcUpdates: ConfigUpdateRequest['auth'] = { oidc: {} }
-    const originalScopes = original.auth.oidc.scopes
-    if (form.oidc_issuer !== original.auth.oidc.issuer) {
-      oidcUpdates.oidc!.issuer = form.oidc_issuer
-    }
-    if (form.oidc_client_id !== original.auth.oidc.client_id) {
-      oidcUpdates.oidc!.client_id = form.oidc_client_id
-    }
-    if (form.oidc_audience !== original.auth.oidc.audience) {
-      oidcUpdates.oidc!.audience = form.oidc_audience
-    }
-    // Compare scopes arrays
-    const scopesChanged =
-      form.oidc_scopes.length !== originalScopes.length ||
-      form.oidc_scopes.some((s) => !originalScopes.includes(s))
-    if (scopesChanged) {
-      oidcUpdates.oidc!.scopes = form.oidc_scopes
-    }
-    if (Object.keys(oidcUpdates.oidc!).length > 0) {
-      updates.auth = { ...updates.auth, ...oidcUpdates }
-    }
-  }
-
-  // Auth - mTLS (handle both updates and new configuration)
-  const formHasMtls = form.mtls_client_cert_path || form.mtls_client_key_path || form.mtls_ca_bundle_path
-  if (original.auth?.mtls || formHasMtls) {
-    const originalCert = original.auth?.mtls?.client_cert_path || ''
-    const originalKey = original.auth?.mtls?.client_key_path || ''
-    const originalCa = original.auth?.mtls?.ca_bundle_path || ''
-
-    const mtlsUpdates: ConfigUpdateRequest['auth'] = { mtls: {} }
-    if (form.mtls_client_cert_path !== originalCert) {
-      mtlsUpdates.mtls!.client_cert_path = form.mtls_client_cert_path
-    }
-    if (form.mtls_client_key_path !== originalKey) {
-      mtlsUpdates.mtls!.client_key_path = form.mtls_client_key_path
-    }
-    if (form.mtls_ca_bundle_path !== originalCa) {
-      mtlsUpdates.mtls!.ca_bundle_path = form.mtls_ca_bundle_path
-    }
-    if (Object.keys(mtlsUpdates.mtls!).length > 0) {
-      updates.auth = { ...updates.auth, ...mtlsUpdates }
-    }
-  }
-
-  // HITL
-  const hitlUpdates: ConfigUpdateRequest['hitl'] = {}
-  const originalTimeout = original.hitl.timeout_seconds.toString()
-  const originalTtl = original.hitl.approval_ttl_seconds.toString()
-  if (form.hitl_timeout_seconds !== originalTimeout) {
-    hitlUpdates.timeout_seconds = parseInt(form.hitl_timeout_seconds, 10)
-  }
-  if (form.hitl_approval_ttl_seconds !== originalTtl) {
-    hitlUpdates.approval_ttl_seconds = parseInt(form.hitl_approval_ttl_seconds, 10)
-  }
-  if (Object.keys(hitlUpdates).length > 0) {
-    updates.hitl = hitlUpdates
-  }
-
-  return updates
 }
 
 export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
@@ -278,7 +52,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
     if (config && form) {
       // Only reset form if config actually changed (successful save)
       const newFormState = configToFormState(config)
-      if (JSON.stringify(newFormState) !== JSON.stringify(form)) {
+      if (!formStatesEqual(newFormState, form)) {
         setForm(newFormState)
       }
     }
@@ -288,7 +62,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
   const isDirty = useMemo(() => {
     if (!config || !form) return false
     const original = configToFormState(config)
-    return JSON.stringify(form) !== JSON.stringify(original)
+    return !formStatesEqual(form, original)
   }, [config, form])
 
   // Update form field
@@ -772,71 +546,22 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
         </div>
       </div>
 
-      {/* Set/Update API Key Dialog */}
-      <Dialog open={showApiKeyDialog} onOpenChange={(open) => {
-        setShowApiKeyDialog(open)
-        if (!open) setApiKeyInput('')
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {config.backend.http?.credential_key ? 'Update API Key' : 'Set API Key'}
-            </DialogTitle>
-            <DialogDescription>
-              The API key will be stored securely in your OS keychain, not in config files.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <Input
-              type="password"
-              placeholder="Enter API key or bearer token"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              autoFocus
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              This key is used for backend authentication when using HTTP transport.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowApiKeyDialog(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSetApiKey}
-              disabled={!apiKeyInput.trim() || savingApiKey}
-            >
-              {savingApiKey ? 'Saving...' : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete API Key Confirmation Dialog */}
-      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove API Key</DialogTitle>
-            <DialogDescription>
-              This will delete the API key from your OS keychain. The proxy will no longer authenticate with the backend server. You can set a new API key at any time.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDeleteApiKey}
-              disabled={savingApiKey}
-            >
-              {savingApiKey ? 'Removing...' : 'Remove'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* API Key Dialogs */}
+      <SetApiKeyDialog
+        open={showApiKeyDialog}
+        onOpenChange={setShowApiKeyDialog}
+        isUpdate={!!config.backend.http?.credential_key}
+        apiKeyInput={apiKeyInput}
+        onApiKeyInputChange={setApiKeyInput}
+        onSave={handleSetApiKey}
+        saving={savingApiKey}
+      />
+      <DeleteApiKeyDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        onDelete={handleDeleteApiKey}
+        saving={savingApiKey}
+      />
     </Section>
   )
 }
@@ -881,71 +606,6 @@ function FormRow({ label, hint, children }: FormRowProps) {
         {hint && <p id={`${id}-hint`} className="text-xs text-muted-foreground">{hint}</p>}
       </div>
       <div className="flex-1">{enhancedChild}</div>
-    </div>
-  )
-}
-
-interface PendingChangesSectionProps {
-  changes: ConfigChange[]
-}
-
-/**
- * Format a value for display in the changelog.
- */
-function formatValue(value: string | number | boolean | string[] | null): string {
-  if (value === null || value === undefined) return '(not set)'
-  if (Array.isArray(value)) return value.join(', ') || '(empty)'
-  if (typeof value === 'boolean') return value ? 'true' : 'false'
-  if (typeof value === 'string' && value === '') return '(empty)'
-  return String(value)
-}
-
-/**
- * Display pending changes between running and saved config.
- * These are changes that will take effect after restart.
- */
-function PendingChangesSection({ changes }: PendingChangesSectionProps) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-        <h3 className="text-sm font-semibold text-amber-400">
-          Pending Changes ({changes.length})
-        </h3>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        These changes are saved to the config file but not yet active. Restart the proxy to apply.
-      </p>
-      <div className="bg-base-900/50 rounded-md border border-base-800 overflow-hidden">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-base-800 bg-base-900/50">
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Field</th>
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Running</th>
-              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Saved</th>
-            </tr>
-          </thead>
-          <tbody>
-            {changes.map((change, idx) => (
-              <tr
-                key={change.field}
-                className={cn(
-                  'border-b border-base-800/50 last:border-0',
-                  idx % 2 === 0 ? 'bg-transparent' : 'bg-base-900/30'
-                )}
-              >
-                <td className="px-3 py-2 font-mono text-base-300">{change.field}</td>
-                <td className="px-3 py-2 text-red-400/80">
-                  <span className="line-through opacity-60">{formatValue(change.running_value)}</span>
-                </td>
-                <td className="px-3 py-2 text-green-400/80">
-                  {formatValue(change.saved_value)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   )
 }
