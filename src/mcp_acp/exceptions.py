@@ -28,7 +28,6 @@ __all__ = [
     "PERMISSION_DENIED_CODE",
     "PermissionDeniedError",
     "PolicyEnforcementFailure",
-    "ProxyRunningError",
     "SessionBindingViolationError",
 ]
 
@@ -272,14 +271,6 @@ class SessionBindingViolationError(CriticalSecurityFailure):
 
     exit_code = 15
     failure_type = "session_binding_violation"
-
-
-class ProxyRunningError(Exception):
-    """Proxy is currently running and cannot be deleted.
-
-    Raised when attempting to delete a proxy that is registered with
-    the manager (currently running). The proxy must be stopped first.
-    """
 
 
 class ConfigurationError(CriticalSecurityFailure):
