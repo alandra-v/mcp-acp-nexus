@@ -124,15 +124,19 @@ export function ProxyDetailPage() {
     }
   }, [managerProxy?.proxy_name])
 
-  const handleDeleteProxy = useCallback(async () => {
+  const handleDeleteProxy = useCallback(async (purge: boolean) => {
     if (!proxyId) return
 
     setIsDeleting(true)
     deletingLocallyRef.current = true
     try {
-      await deleteProxy(proxyId)
+      await deleteProxy(proxyId, { purge })
       setShowDeleteConfirm(false)
-      toast.success(`Proxy '${managerProxy?.proxy_name}' deleted`)
+      toast.success(
+        purge
+          ? `Proxy '${managerProxy?.proxy_name}' permanently deleted`
+          : `Proxy '${managerProxy?.proxy_name}' deleted`
+      )
       navigate('/')
     } catch (e) {
       deletingLocallyRef.current = false
