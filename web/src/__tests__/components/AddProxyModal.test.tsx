@@ -295,9 +295,12 @@ describe('AddProxyModal', () => {
 
       expect(screen.getByText('HTTP Configuration')).toBeInTheDocument()
       expect(screen.getByLabelText(/URL/)).toBeInTheDocument()
-      expect(screen.getByLabelText(/API Key/)).toBeInTheDocument()
       // STDIO fields should not be visible
       expect(screen.queryByText('STDIO Configuration')).not.toBeInTheDocument()
+      // API Key is in the Advanced section, not the main HTTP section
+      expect(screen.queryByLabelText(/API Key/)).not.toBeInTheDocument()
+      await user.click(screen.getByText('Advanced'))
+      expect(screen.getByLabelText(/API Key/)).toBeInTheDocument()
     })
 
     it('shows both STDIO and HTTP fields for auto transport', async () => {
