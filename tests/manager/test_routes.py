@@ -84,8 +84,8 @@ class TestManagerProxiesEndpoint:
     ) -> None:
         """Returns empty list when no proxies are configured."""
         # Mock list_configured_proxies to return empty list
-        # Patch where it's used (in the proxies submodule)
-        monkeypatch.setattr("mcp_acp.manager.routes.proxies.list_configured_proxies", lambda: [])
+        # Patch where it's used (in the proxies.listing submodule)
+        monkeypatch.setattr("mcp_acp.manager.routes.proxies.listing.list_configured_proxies", lambda: [])
 
         response = app.get("/api/manager/proxies")
 
@@ -117,8 +117,10 @@ class TestManagerProxiesEndpoint:
         )
 
         # Mock the config functions
-        # Patch where it's used (in the proxies submodule)
-        monkeypatch.setattr("mcp_acp.manager.routes.proxies.list_configured_proxies", lambda: ["proxy-a"])
+        # Patch where it's used (in the proxies.listing submodule)
+        monkeypatch.setattr(
+            "mcp_acp.manager.routes.proxies.listing.list_configured_proxies", lambda: ["proxy-a"]
+        )
         monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: tmp_path / "proxies")
 
         # Register the proxy (mark as running)
@@ -167,22 +169,22 @@ class TestProxyCreationEndpoint:
         proxies_dir.mkdir(parents=True)
 
         monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
-        # Patch where these are used (in the proxies submodule)
+        # Patch where these are used (in the proxies.creation submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_config_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_config_path",
             lambda name: proxies_dir / name / "config.json",
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_policy_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_policy_path",
             lambda name: proxies_dir / name / "policy.json",
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.save_proxy_config",
+            "mcp_acp.manager.routes.proxies.creation.save_proxy_config",
             lambda name, config: (proxies_dir / name).mkdir(parents=True, exist_ok=True)
             or (proxies_dir / name / "config.json").write_text("{}"),
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.save_policy",
+            "mcp_acp.manager.routes.proxies.creation.save_policy",
             lambda policy, path: path.parent.mkdir(parents=True, exist_ok=True) or path.write_text("{}"),
         )
 
@@ -336,21 +338,21 @@ class TestProxyCreationEndpoint:
             (proxies_dir / name / "config.json").write_text("{}")
 
         monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
-        # Patch where these are used (in the proxies submodule)
+        # Patch where these are used (in the proxies.creation submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_config_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_config_path",
             lambda name: proxies_dir / name / "config.json",
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_policy_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_policy_path",
             lambda name: proxies_dir / name / "policy.json",
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.save_proxy_config",
+            "mcp_acp.manager.routes.proxies.creation.save_proxy_config",
             mock_save_proxy_config,
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.save_policy",
+            "mcp_acp.manager.routes.proxies.creation.save_policy",
             lambda policy, path: path.parent.mkdir(parents=True, exist_ok=True) or path.write_text("{}"),
         )
 
@@ -386,9 +388,9 @@ class TestProxyCreationEndpoint:
         proxies_dir.mkdir(parents=True)
 
         monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
-        # Patch where it's used (in the proxies submodule)
+        # Patch where it's used (in the proxies.creation submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_config_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_config_path",
             lambda name: proxies_dir / name / "config.json",
         )
         # Skip health check - make it succeed
@@ -445,9 +447,9 @@ class TestProxyCreationEndpoint:
         proxies_dir.mkdir(parents=True)
 
         monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
-        # Patch where it's used (in the proxies submodule)
+        # Patch where it's used (in the proxies.creation submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_config_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_config_path",
             lambda name: proxies_dir / name / "config.json",
         )
 
@@ -514,26 +516,24 @@ class TestDuplicateBackendDetection:
         }
         (proxy_dir / "config.json").write_text(json.dumps(config))
 
+        # Note: find_duplicate_backend → list_configured_proxies → get_proxies_dir()
+        # The get_proxies_dir patch below ensures duplicate detection finds test proxies.
         monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.list_configured_proxies",
-            lambda: ["existing-proxy"],
-        )
-        monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_config_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_config_path",
             lambda name: proxies_dir / name / "config.json",
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.get_proxy_policy_path",
+            "mcp_acp.manager.routes.proxies.creation.get_proxy_policy_path",
             lambda name: proxies_dir / name / "policy.json",
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.save_proxy_config",
+            "mcp_acp.manager.routes.proxies.creation.save_proxy_config",
             lambda name, config: (proxies_dir / name).mkdir(parents=True, exist_ok=True)
             or (proxies_dir / name / "config.json").write_text("{}"),
         )
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.save_policy",
+            "mcp_acp.manager.routes.proxies.creation.save_policy",
             lambda policy, path: path.parent.mkdir(parents=True, exist_ok=True) or path.write_text("{}"),
         )
 
@@ -860,9 +860,9 @@ class TestConfigSnippetEndpoint:
         self, app: TestClient, monkeypatch: "pytest.MonkeyPatch"
     ) -> None:
         """Returns config snippet for all configured proxies."""
-        # Patch where it's used (in the proxies submodule)
+        # Patch where it's used (in the proxies.snippet submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.list_configured_proxies",
+            "mcp_acp.manager.routes.proxies.snippet.list_configured_proxies",
             lambda: ["proxy-a", "proxy-b"],
         )
 
@@ -880,9 +880,9 @@ class TestConfigSnippetEndpoint:
         self, app: TestClient, monkeypatch: "pytest.MonkeyPatch"
     ) -> None:
         """Returns config snippet for a single specified proxy."""
-        # Patch where it's used (in the proxies submodule)
+        # Patch where it's used (in the proxies.snippet submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.list_configured_proxies",
+            "mcp_acp.manager.routes.proxies.snippet.list_configured_proxies",
             lambda: ["proxy-a", "proxy-b"],
         )
 
@@ -896,9 +896,9 @@ class TestConfigSnippetEndpoint:
 
     def test_returns_404_for_unknown_proxy(self, app: TestClient, monkeypatch: "pytest.MonkeyPatch") -> None:
         """Returns 404 when specified proxy doesn't exist."""
-        # Patch where it's used (in the proxies submodule)
+        # Patch where it's used (in the proxies.snippet submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.list_configured_proxies",
+            "mcp_acp.manager.routes.proxies.snippet.list_configured_proxies",
             lambda: ["proxy-a"],
         )
 
@@ -910,9 +910,9 @@ class TestConfigSnippetEndpoint:
 
     def test_includes_executable_path(self, app: TestClient, monkeypatch: "pytest.MonkeyPatch") -> None:
         """Response includes executable path."""
-        # Patch where it's used (in the proxies submodule)
+        # Patch where it's used (in the proxies.snippet submodule)
         monkeypatch.setattr(
-            "mcp_acp.manager.routes.proxies.list_configured_proxies",
+            "mcp_acp.manager.routes.proxies.snippet.list_configured_proxies",
             lambda: ["test"],
         )
 
