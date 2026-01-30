@@ -14,7 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mcp_acp.manager.client import ManagerClient, is_manager_available
+from mcp_acp.manager.client import ManagerClient
+from mcp_acp.manager.lifecycle import is_manager_available
 from mcp_acp.manager.protocol import encode_ndjson
 
 
@@ -426,7 +427,7 @@ class TestIsManagerAvailable:
 
     def test_returns_false_when_socket_missing(self) -> None:
         """Returns False when socket file doesn't exist."""
-        with patch("mcp_acp.manager.client.MANAGER_SOCKET_PATH", Path("/tmp/nonexistent.sock")):
+        with patch("mcp_acp.manager.lifecycle.MANAGER_SOCKET_PATH", Path("/tmp/nonexistent.sock")):
             result = is_manager_available()
             assert result is False
 
@@ -440,7 +441,7 @@ class TestIsManagerAvailable:
         server = await asyncio.start_unix_server(handle_client, path=str(temp_socket_path))
 
         try:
-            with patch("mcp_acp.manager.client.MANAGER_SOCKET_PATH", temp_socket_path):
+            with patch("mcp_acp.manager.lifecycle.MANAGER_SOCKET_PATH", temp_socket_path):
                 result = is_manager_available()
                 assert result is True
         finally:

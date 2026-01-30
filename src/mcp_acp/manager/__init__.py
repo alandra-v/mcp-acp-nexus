@@ -4,6 +4,7 @@ Manager daemon serves UI and coordinates proxies.
 - daemon.py: Manager daemon process (HTTP + UDS servers)
 - registry.py: Proxy registry for tracking connected proxies
 - client.py: Manager client for proxy-to-manager communication
+- lifecycle.py: Manager daemon lifecycle utilities (availability check, auto-start)
 - state.py: ProxyState for API exposure
 - protocol.py: Shared NDJSON protocol utilities
 - events.py: SSE event types
@@ -24,6 +25,10 @@ from __future__ import annotations
 from .client import (
     ManagerClient,
     ManagerConnectionError,
+)
+
+# Lifecycle (manager auto-start)
+from .lifecycle import (
     ensure_manager_running,
     is_manager_available,
 )
@@ -88,6 +93,7 @@ __all__ = [
     # Client
     "ManagerClient",
     "ManagerConnectionError",
+    # Lifecycle
     "ensure_manager_running",
     "is_manager_available",
     # Config
