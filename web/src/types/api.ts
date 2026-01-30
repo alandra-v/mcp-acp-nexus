@@ -71,6 +71,15 @@ export interface CreateProxyResponse {
   message: string
 }
 
+/** Response from DELETE /api/manager/proxies/{proxy_id} */
+export interface ProxyDeleteResponse {
+  archived: string[]
+  deleted: string[]
+  archive_name: string | null
+  archived_size: number
+  deleted_size: number
+}
+
 /** Response from GET /api/manager/config-snippet */
 export interface ConfigSnippetResponse {
   mcpServers: Record<string, { command: string; args: string[] }>
@@ -317,6 +326,13 @@ export interface SSEProxyDisconnectedEvent extends SSESystemEventBase {
   instance_id?: string
 }
 
+export interface SSEProxyDeletedEvent extends SSESystemEventBase {
+  type: 'proxy_deleted'
+  proxy_name?: string
+  proxy_id?: string
+  archive_name?: string
+}
+
 // System events (extend SSESystemEventBase, have severity/message)
 export type SSESystemEvent =
   | SSEPendingNotFoundEvent
@@ -335,6 +351,7 @@ export type SSESystemEvent =
   | SSEIncidentsUpdatedEvent
   | SSEProxyRegisteredEvent
   | SSEProxyDisconnectedEvent
+  | SSEProxyDeletedEvent
 
 // Discriminated union of all SSE event types
 export type SSEEvent =
@@ -382,6 +399,7 @@ export const ErrorCode = {
   // Conflict (409)
   CONFLICT: 'CONFLICT', // Generic 409
   PROXY_EXISTS: 'PROXY_EXISTS', // Proxy already exists
+  PROXY_RUNNING: 'PROXY_RUNNING', // Proxy is running, cannot delete
 
   // Proxy creation (400, 500)
   PROXY_INVALID: 'PROXY_INVALID', // Invalid proxy configuration

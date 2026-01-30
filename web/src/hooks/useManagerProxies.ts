@@ -79,11 +79,13 @@ export function useManagerProxies(): UseManagerProxiesResult {
 
     window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
     window.addEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleProxyChange)
+    window.addEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyChange)
     return () => {
       // Abort any in-flight fetch on cleanup
       sseControllerRef.current?.abort()
       window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
       window.removeEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleProxyChange)
+      window.removeEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyChange)
     }
   }, [fetchProxies])
 

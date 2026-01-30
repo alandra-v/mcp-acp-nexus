@@ -203,6 +203,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         case 'proxy_disconnected':
           window.dispatchEvent(new CustomEvent('proxy-registered')) // Same event triggers refetch
           break
+        case 'proxy_deleted':
+          toast.info(`Proxy '${event.proxy_name || 'unknown'}' deleted`)
+          window.dispatchEvent(new CustomEvent('proxy-deleted', { detail: event }))
+          break
 
         // Incidents updated - trigger refetch of incidents summary
         case 'incidents_updated':

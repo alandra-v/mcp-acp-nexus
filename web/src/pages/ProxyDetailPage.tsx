@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
-import { Copy, Check } from 'lucide-react'
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import { Copy, Check, Trash2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { BackButton } from '@/components/ui/BackButton'
@@ -19,9 +19,12 @@ import { useManagerProxies } from '@/hooks/useManagerProxies'
 import { useProxyDetail } from '@/hooks/useProxyDetail'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
-import { getConfigSnippet } from '@/api/proxies'
+import { getConfigSnippet, deleteProxy } from '@/api/proxies'
 import { verifyAuditLogs } from '@/api/audit'
+import { ApiError } from '@/types/api'
 import { notifyError } from '@/hooks/useErrorSound'
+import { toast } from '@/components/ui/sonner'
+import { DeleteProxyConfirmDialog } from '@/components/proxy/DeleteProxyConfirmDialog'
 import { COPY_FEEDBACK_DURATION_MS, SSE_EVENTS } from '@/constants'
 import { cn } from '@/lib/utils'
 
@@ -30,12 +33,15 @@ const VALID_SECTIONS: DetailSection[] = ['overview', 'audit', 'policy', 'config'
 export function ProxyDetailPage() {
   const { id: proxyId } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { proxies: managerProxies, loading: managerLoading } = useManagerProxies()
   const { approve, approveOnce, deny } = useAppState()
   const { clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const [loaded, setLoaded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [auditHasIssues, setAuditHasIssues] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // Get section from URL or default to 'overview'
   const sectionParam = searchParams.get('section')
@@ -86,11 +92,22 @@ export function ProxyDetailPage() {
     const handleProxyChange = () => fetchAuditStatus()
     window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
 
+    // Navigate away if this proxy is deleted externally (CLI or another tab)
+    const handleProxyDeleted = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.proxy_id === proxyId) {
+        toast.info(`Proxy '${detail.proxy_name || proxyId}' was deleted`)
+        navigate('/')
+      }
+    }
+    window.addEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyDeleted)
+
     return () => {
       controller.abort()
       window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
+      window.removeEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyDeleted)
     }
-  }, [proxyId])
+  }, [proxyId, navigate])
 
   const handleCopyConfig = useCallback(async () => {
     const proxyName = managerProxy?.proxy_name
@@ -105,6 +122,26 @@ export function ProxyDetailPage() {
       notifyError('Failed to copy config')
     }
   }, [managerProxy?.proxy_name])
+
+  const handleDeleteProxy = useCallback(async () => {
+    if (!proxyId) return
+
+    setIsDeleting(true)
+    try {
+      await deleteProxy(proxyId)
+      setShowDeleteConfirm(false)
+      toast.success(`Proxy '${managerProxy?.proxy_name}' deleted`)
+      navigate('/')
+    } catch (e) {
+      if (e instanceof ApiError) {
+        notifyError(e.message || 'Failed to delete proxy')
+      } else {
+        notifyError('Failed to delete proxy')
+      }
+    } finally {
+      setIsDeleting(false)
+    }
+  }, [proxyId, managerProxy?.proxy_name, navigate])
 
   if (managerLoading) {
     return (
@@ -204,6 +241,17 @@ export function ProxyDetailPage() {
               </>
             )}
           </Button>
+          <span title={isActive ? 'Stop the proxy before deleting' : 'Delete this proxy'}>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isActive}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete
+            </Button>
+          </span>
         </div>
 
         {/* Sidebar */}
@@ -269,6 +317,14 @@ export function ProxyDetailPage() {
           )}
         </div>
       </div>
+
+      <DeleteProxyConfirmDialog
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        proxyName={managerProxy.proxy_name}
+        onConfirm={handleDeleteProxy}
+        isDeleting={isDeleting}
+      />
     </Layout>
   )
 }

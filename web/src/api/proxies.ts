@@ -4,10 +4,11 @@
  * Manager-level API: /api/manager/proxies - lists all configured proxies with config + runtime data
  */
 
-import { apiGet, apiPost, type RequestOptions } from './client'
+import { apiGet, apiPost, apiDelete, type RequestOptions } from './client'
 import type {
   Proxy,
   ProxyDetailResponse,
+  ProxyDeleteResponse,
   CreateProxyRequest,
   CreateProxyResponse,
   ConfigSnippetResponse,
@@ -45,6 +46,21 @@ export async function createProxy(
   options?: RequestOptions
 ): Promise<CreateProxyResponse> {
   return apiPost<CreateProxyResponse>('/manager/proxies', request, options)
+}
+
+/**
+ * Delete a proxy configuration.
+ * Soft deletes (archives) by default. Pass purge=true to permanently delete.
+ */
+export async function deleteProxy(
+  proxyId: string,
+  options?: RequestOptions & { purge?: boolean }
+): Promise<ProxyDeleteResponse> {
+  const params = options?.purge ? '?purge=true' : ''
+  return apiDelete<ProxyDeleteResponse>(
+    `/manager/proxies/${encodeURIComponent(proxyId)}${params}`,
+    options
+  )
 }
 
 /**

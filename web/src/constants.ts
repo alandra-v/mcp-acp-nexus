@@ -18,6 +18,7 @@ export const DEFAULT_LOG_LIMIT = 50
 export const SSE_EVENTS = {
   PROXY_REGISTERED: 'proxy-registered',
   PROXY_DISCONNECTED: 'proxy-disconnected',
+  PROXY_DELETED: 'proxy-deleted',
   AUTH_STATE_CHANGED: 'auth-state-changed',
   STATS_UPDATED: 'stats-updated',
   INCIDENTS_UPDATED: 'incidents-updated',
