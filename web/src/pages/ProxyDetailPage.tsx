@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { Copy, Check, Trash2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
@@ -42,6 +42,7 @@ export function ProxyDetailPage() {
   const [auditHasIssues, setAuditHasIssues] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const deletingLocallyRef = useRef(false)
 
   // Get section from URL or default to 'overview'
   const sectionParam = searchParams.get('section')
@@ -95,7 +96,7 @@ export function ProxyDetailPage() {
     // Navigate away if this proxy is deleted externally (CLI or another tab)
     const handleProxyDeleted = (e: Event) => {
       const detail = (e as CustomEvent).detail
-      if (detail?.proxy_id === proxyId) {
+      if (detail?.proxy_id === proxyId && !deletingLocallyRef.current) {
         toast.info(`Proxy '${detail.proxy_name || proxyId}' was deleted`)
         navigate('/')
       }
@@ -127,12 +128,14 @@ export function ProxyDetailPage() {
     if (!proxyId) return
 
     setIsDeleting(true)
+    deletingLocallyRef.current = true
     try {
       await deleteProxy(proxyId)
       setShowDeleteConfirm(false)
       toast.success(`Proxy '${managerProxy?.proxy_name}' deleted`)
       navigate('/')
     } catch (e) {
+      deletingLocallyRef.current = false
       if (e instanceof ApiError) {
         notifyError(e.message || 'Failed to delete proxy')
       } else {
