@@ -11,7 +11,6 @@
  * - Copy to clipboard button
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
 import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
 import {
   Dialog,
@@ -39,19 +38,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { createProxy } from '@/api/proxies'
-import { notifyError } from '@/hooks/useErrorSound'
-import { toast } from '@/components/ui/sonner'
-import { COPY_FEEDBACK_DURATION_MS, DEFAULT_HTTP_TIMEOUT_SECONDS } from '@/constants'
-import type { CreateProxyRequest, CreateProxyResponse, TransportType } from '@/types/api'
-import { ApiError, ErrorCode } from '@/types/api'
-
-// Validation constants (aligned with CLI)
-const PROXY_NAME_MAX_LENGTH = 64
-const PROXY_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
-const RESERVED_NAMES = ['manager', 'all', 'default']
-const URL_PATTERN = /^https?:\/\/.+/i
-const SHA256_PATTERN = /^[a-fA-F0-9]{64}$/
+import { DEFAULT_HTTP_TIMEOUT_SECONDS } from '@/constants'
+import type { TransportType } from '@/types/api'
+import { TRANSPORT_OPTIONS } from './addProxyConstants'
+import { useAddProxyForm } from './useAddProxyForm'
 
 interface AddProxyModalProps {
   open: boolean
@@ -59,316 +49,42 @@ interface AddProxyModalProps {
   onCreated: () => void
 }
 
-type ModalView = 'form' | 'success'
-
-const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: string }[] = [
-  { value: 'stdio', label: 'STDIO', description: 'Local command (npx, python, etc.)' },
-  { value: 'streamablehttp', label: 'HTTP', description: 'Remote HTTP server' },
-  { value: 'auto', label: 'Auto', description: 'Prefer HTTP if reachable, fallback to STDIO' },
-]
-
-/** Format proxy creation error for display. */
-function formatCreateError(err: unknown): string {
-  if (err instanceof ApiError) {
-    const proxyName = err.getDetail<string>('proxy_name')
-    return proxyName ? `Proxy "${proxyName}": ${err.message}` : err.message
-  }
-  if (err instanceof Error) return err.message
-  return 'Failed to create proxy'
-}
-
-function getInitialFormState(): CreateProxyRequest {
-  return {
-    name: '',
-    server_name: '',
-    transport: 'stdio',
-    command: '',
-    args: [],
-    url: '',
-    timeout: DEFAULT_HTTP_TIMEOUT_SECONDS,
-    api_key: '',
-    mtls_cert: '',
-    mtls_key: '',
-    mtls_ca: '',
-    attestation_slsa_owner: '',
-    attestation_sha256: '',
-    attestation_require_signature: false,
-  }
-}
-
 export function AddProxyModal({
   open,
   onOpenChange,
   onCreated,
 }: AddProxyModalProps) {
-  const [view, setView] = useState<ModalView>('form')
-  const [formState, setFormState] = useState<CreateProxyRequest>(getInitialFormState())
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<CreateProxyResponse | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [touched, setTouched] = useState<Record<string, boolean>>({})
-  const [showHealthCheckConfirm, setShowHealthCheckConfirm] = useState(false)
-  const [healthCheckMessage, setHealthCheckMessage] = useState('')
-  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false)
-  const [duplicateMessage, setDuplicateMessage] = useState('')
-
-  const isStdio = formState.transport === 'stdio' || formState.transport === 'auto'
-  const isHttp = formState.transport === 'streamablehttp' || formState.transport === 'auto'
-  const isHttpOnly = formState.transport === 'streamablehttp'
-
-  // Reset state when dialog opens
-  useEffect(() => {
-    if (open) {
-      setView('form')
-      setFormState(getInitialFormState())
-      setError(null)
-      setResult(null)
-      setCopied(false)
-      setShowAdvanced(false)
-      setTouched({})
-      setShowHealthCheckConfirm(false)
-      setHealthCheckMessage('')
-      setShowDuplicateConfirm(false)
-      setDuplicateMessage('')
-    }
-  }, [open])
-
-  // Update form field
-  const updateField = useCallback(<K extends keyof CreateProxyRequest>(
-    field: K,
-    value: CreateProxyRequest[K]
-  ) => {
-    setFormState((prev) => ({ ...prev, [field]: value }))
-    setError(null)
-  }, [])
-
-  // Field-level validation
-  const fieldErrors = useMemo(() => {
-    const errors: Record<string, string> = {}
-    const nameTrimmed = formState.name.trim()
-
-    // Name validation
-    if (!nameTrimmed) {
-      errors.name = 'Name is required'
-    } else if (nameTrimmed.length > PROXY_NAME_MAX_LENGTH) {
-      errors.name = `Name too long (max ${PROXY_NAME_MAX_LENGTH} characters)`
-    } else if (!PROXY_NAME_PATTERN.test(nameTrimmed)) {
-      errors.name = 'Must start with letter or number, then letters, numbers, hyphens, or underscores'
-    } else if (RESERVED_NAMES.includes(nameTrimmed.toLowerCase())) {
-      errors.name = `"${nameTrimmed}" is reserved. Choose a different name.`
-    }
-
-    // Server name validation
-    if (!formState.server_name.trim()) {
-      errors.server_name = 'Server name is required'
-    }
-
-    // Command validation (STDIO/Auto)
-    if (isStdio && !formState.command?.trim()) {
-      errors.command = 'Command is required for STDIO transport'
-    }
-
-    // URL validation (HTTP/Auto)
-    const urlTrimmed = formState.url?.trim()
-    if (isHttpOnly && !urlTrimmed) {
-      errors.url = 'URL is required for HTTP transport'
-    } else if (urlTrimmed && !URL_PATTERN.test(urlTrimmed)) {
-      errors.url = 'URL must start with http:// or https://'
-    }
-
-    // SHA-256 validation (if provided)
-    const sha256Trimmed = formState.attestation_sha256?.trim()
-    if (sha256Trimmed && !SHA256_PATTERN.test(sha256Trimmed)) {
-      errors.attestation_sha256 = 'Must be exactly 64 hexadecimal characters'
-    }
-
-    // mTLS validation: all or none
-    const hasMtls = formState.mtls_cert || formState.mtls_key || formState.mtls_ca
-    const hasAllMtls = formState.mtls_cert && formState.mtls_key && formState.mtls_ca
-    if (hasMtls && !hasAllMtls) {
-      errors.mtls = 'mTLS requires all three: cert, key, and CA'
-    }
-
-    return errors
-  }, [formState, isStdio, isHttpOnly])
-
-  // Overall validation
-  const validation = useMemo(() => ({
-    isValid: Object.keys(fieldErrors).length === 0,
-    errors: Object.values(fieldErrors),
-  }), [fieldErrors])
-
-  // Handle field blur for validation
-  const handleBlur = useCallback((field: string) => {
-    setTouched((prev) => ({ ...prev, [field]: true }))
-  }, [])
-
-  // Build CreateProxyRequest from current form state
-  const buildRequest = useCallback((overrides?: Partial<CreateProxyRequest>): CreateProxyRequest => {
-    const request: CreateProxyRequest = {
-      name: formState.name.trim(),
-      server_name: formState.server_name.trim(),
-      transport: formState.transport,
-      ...overrides,
-    }
-
-    // STDIO fields
-    if (isStdio && formState.command) {
-      request.command = formState.command.trim()
-      if (formState.args && formState.args.length > 0) {
-        request.args = formState.args
-      }
-    }
-
-    // Attestation fields
-    if (isStdio) {
-      if (formState.attestation_slsa_owner?.trim()) {
-        request.attestation_slsa_owner = formState.attestation_slsa_owner.trim()
-      }
-      if (formState.attestation_sha256?.trim()) {
-        request.attestation_sha256 = formState.attestation_sha256.trim()
-      }
-      if (formState.attestation_require_signature) {
-        request.attestation_require_signature = true
-      }
-    }
-
-    // HTTP fields
-    if (isHttp && formState.url) {
-      request.url = formState.url.trim()
-      if (formState.timeout && formState.timeout !== DEFAULT_HTTP_TIMEOUT_SECONDS) {
-        request.timeout = formState.timeout
-      }
-      if (formState.api_key?.trim()) {
-        request.api_key = formState.api_key.trim()
-      }
-    }
-
-    // mTLS fields
-    if (formState.mtls_cert && formState.mtls_key && formState.mtls_ca) {
-      request.mtls_cert = formState.mtls_cert.trim()
-      request.mtls_key = formState.mtls_key.trim()
-      request.mtls_ca = formState.mtls_ca.trim()
-    }
-
-    return request
-  }, [formState, isStdio, isHttp])
-
-  // Handle submit
-  const handleSubmit = useCallback(async () => {
-    if (!validation.isValid) return
-
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      const response = await createProxy(buildRequest())
-      setResult(response)
-      toast.success(`Proxy "${response.proxy_name}" created`)
-      onCreated()
-      setView('success')
-    } catch (err) {
-      if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_UNREACHABLE)) {
-        setHealthCheckMessage(err.message)
-        setShowHealthCheckConfirm(true)
-        return
-      }
-      if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_DUPLICATE)) {
-        setDuplicateMessage(err.message)
-        setShowDuplicateConfirm(true)
-        return
-      }
-
-      setError(formatCreateError(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }, [buildRequest, validation.isValid, onCreated])
-
-  // Resubmit with skip_health_check after user confirms
-  const handleConfirmSkipHealthCheck = useCallback(async () => {
-    setShowHealthCheckConfirm(false)
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      const response = await createProxy(buildRequest({ skip_health_check: true }))
-      setResult(response)
-      toast.success(`Proxy "${response.proxy_name}" created`)
-      onCreated()
-      setView('success')
-    } catch (err) {
-      if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_DUPLICATE)) {
-        setDuplicateMessage(err.message)
-        setShowDuplicateConfirm(true)
-        return
-      }
-      setError(formatCreateError(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }, [buildRequest, onCreated])
-
-  // Resubmit with skip_duplicate_check after user confirms
-  const handleConfirmSkipDuplicate = useCallback(async () => {
-    setShowDuplicateConfirm(false)
-    setSubmitting(true)
-    setError(null)
-
-    try {
-      const response = await createProxy(buildRequest({
-        skip_duplicate_check: true,
-        skip_health_check: true,
-      }))
-      setResult(response)
-      toast.success(`Proxy "${response.proxy_name}" created`)
-      onCreated()
-      setView('success')
-    } catch (err) {
-      setError(formatCreateError(err))
-    } finally {
-      setSubmitting(false)
-    }
-  }, [buildRequest, onCreated])
-
-  // Handle copy snippet
-  const handleCopy = useCallback(async () => {
-    if (!result?.claude_desktop_snippet) return
-
-    try {
-      const snippet = { mcpServers: result.claude_desktop_snippet }
-      await navigator.clipboard.writeText(JSON.stringify(snippet, null, 2))
-      setCopied(true)
-      setTimeout(() => setCopied(false), COPY_FEEDBACK_DURATION_MS)
-    } catch {
-      notifyError('Failed to copy to clipboard')
-    }
-  }, [result])
-
-  // Handle done
-  const handleDone = useCallback(() => {
-    onOpenChange(false)
-    onCreated()
-  }, [onOpenChange, onCreated])
-
-  // Parse args input
-  const handleArgsChange = useCallback((value: string) => {
-    // Split by spaces, respecting quoted strings
-    const args = value.trim() ? value.split(/\s+/) : []
-    updateField('args', args)
-  }, [updateField])
-
-  // Check if advanced section has values
-  const hasAdvancedValues = !!(
-    formState.api_key ||
-    formState.mtls_cert || formState.mtls_key || formState.mtls_ca ||
-    (formState.timeout && formState.timeout !== DEFAULT_HTTP_TIMEOUT_SECONDS) ||
-    formState.attestation_slsa_owner ||
-    formState.attestation_sha256 ||
-    formState.attestation_require_signature
-  )
+  const {
+    view,
+    formState,
+    touched,
+    fieldErrors,
+    isValid,
+    isStdio,
+    isHttp,
+    isHttpOnly,
+    submitting,
+    error,
+    result,
+    copied,
+    showAdvanced,
+    setShowAdvanced,
+    hasAdvancedValues,
+    showHealthCheckConfirm,
+    healthCheckMessage,
+    setShowHealthCheckConfirm,
+    showDuplicateConfirm,
+    duplicateMessage,
+    setShowDuplicateConfirm,
+    updateField,
+    handleBlur,
+    handleArgsChange,
+    handleSubmit,
+    handleCopy,
+    handleDone,
+    handleConfirmSkipHealthCheck,
+    handleConfirmSkipDuplicate,
+  } = useAddProxyForm({ open, onCreated, onOpenChange })
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -661,7 +377,7 @@ export function AddProxyModal({
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
                 Cancel
               </Button>
-              <Button onClick={handleSubmit} disabled={!validation.isValid || submitting}>
+              <Button onClick={handleSubmit} disabled={!isValid || submitting}>
                 {submitting ? 'Creating...' : 'Create Proxy'}
               </Button>
             </DialogFooter>
