@@ -172,11 +172,10 @@ def start(headless: bool, proxy_name: str | None) -> None:
         sys.exit(1)
     if not config_path.exists():
         available = list_configured_proxies()
-        available_hint = f"\n\nAvailable proxies: {', '.join(available)}" if available else ""
         show_startup_error_popup(
             title="MCP ACP",
             message=f"Proxy '{proxy_name}' not found.",
-            detail=f"Run in terminal:\n  mcp-acp proxy add\n\nThen restart your MCP client.{available_hint}",
+            detail="Run in terminal:\n  mcp-acp proxy list\n\nto see available proxies.",
             backoff=True,
         )
         click.echo(err=True)
@@ -294,8 +293,8 @@ def start(headless: bool, proxy_name: str | None) -> None:
                 bootstrap_log_path,
                 event="mtls_cert_not_found",
                 error=e,
-                popup_message="mTLS certificate not found.",
-                popup_detail=f"{e}\n\nCheck the mTLS section in:\n  {config_path}",
+                popup_message=f"mTLS certificate not found for proxy '{proxy_name}'.",
+                popup_detail=f"{e}\n\nCheck your mTLS certificate configuration.",
                 terminal_message=f"Error: mTLS certificate not found: {e}",
             )
         elif "policy" in error_msg:
@@ -383,7 +382,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
             bootstrap_log_path,
             event="backend_timeout",
             error=e,
-            popup_message="Backend connection timed out.",
+            popup_message=f"Backend connection timed out for '{loaded_config.backend.server_name}' via proxy '{proxy_name}'.",
             popup_detail=f"{e}\n\nCheck that the backend server is running and responsive.",
             terminal_message=f"Error: Backend connection timed out: {e}",
             newline_prefix=False,
@@ -397,7 +396,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
                 bootstrap_log_path,
                 event="ssl_error",
                 error=e,
-                popup_message="SSL/TLS error.",
+                popup_message=f"SSL/TLS error for '{loaded_config.backend.server_name}' via proxy '{proxy_name}'.",
                 popup_detail=f"{e}\n\nCheck your mTLS certificate configuration.",
                 terminal_message=f"Error: SSL/TLS error: {e}",
                 newline_prefix=False,
@@ -407,7 +406,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
                 bootstrap_log_path,
                 event="backend_connection_failed",
                 error=e,
-                popup_message="Backend connection failed.",
+                popup_message=f"Backend connection failed to '{loaded_config.backend.server_name}' via proxy '{proxy_name}'.",
                 popup_detail=f"{e}\n\nCheck that the backend server is running.",
                 terminal_message=f"Error: Backend connection failed: {e}",
                 newline_prefix=False,
@@ -418,7 +417,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
             bootstrap_log_path,
             event="audit_failure",
             error=e,
-            popup_message="Audit log failure.",
+            popup_message=f"Audit log failure for proxy '{proxy_name}'.",
             popup_detail=f"{e}\n\nThe proxy cannot start without a writable audit log.\nCheck file permissions in the log directory.",
             terminal_message=f"Error: Audit log failure: {e}",
             exit_code=AuditFailure.exit_code,
@@ -510,7 +509,7 @@ def start(headless: bool, proxy_name: str | None) -> None:
             bootstrap_log_path,
             event="startup_failed",
             error=e,
-            popup_message="Proxy startup failed.",
+            popup_message=f"Proxy '{proxy_name}' startup failed.",
             popup_detail=f"{e}",
             terminal_message=f"Error: Proxy startup failed: {e}",
             newline_prefix=False,

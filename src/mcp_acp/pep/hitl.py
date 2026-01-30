@@ -81,7 +81,7 @@ class HITLHandler:
         is_supported: Whether HITL dialogs are supported on this platform.
     """
 
-    def __init__(self, config: "HITLConfig") -> None:
+    def __init__(self, config: "HITLConfig", proxy_name: str | None = None) -> None:
         """Initialize HITL handler.
 
         Logs a warning on non-macOS platforms since HITL dialogs
@@ -89,8 +89,10 @@ class HITLHandler:
 
         Args:
             config: HITL configuration.
+            proxy_name: Proxy instance name for dialog identification.
         """
         self.config = config
+        self._proxy_name = proxy_name
         self._system_logger = get_system_logger()
         self.is_supported = sys.platform == "darwin"
 
@@ -334,9 +336,12 @@ class HITLHandler:
         message_parts: list[str] = []
         timeout_seconds = self.config.timeout_seconds
 
-        # Header: What operation and which backend
+        # Proxy identification (for multi-proxy deployments)
+        if self._proxy_name:
+            message_parts.append(f"Proxy: {self._proxy_name}")
+
+        # Header: What operation
         message_parts.append(f"Tool: {tool_name}")
-        message_parts.append(f"Backend: {backend_id}")
 
         # Target path if present
         if path:
@@ -344,14 +349,13 @@ class HITLHandler:
             display_path = path if len(path) <= 60 else "..." + path[-57:]
             message_parts.append(f"Path: {display_path}")
 
-        # Why HITL was triggered
-        if matched_rule:
-            message_parts.append(f"Rule: {matched_rule}")
-
         # Side effects (security-relevant info)
         if tool and tool.side_effects:
             effects = ", ".join(effect.value for effect in tool.side_effects)
             message_parts.append(f"Effects: {effects}")
+
+        # Which backend server
+        message_parts.append(f"Server: {backend_id}")
 
         # User making the request
         message_parts.append(f"User: {subject_id}")

@@ -110,7 +110,7 @@ def _write_shutdown_log(
         return False
 
 
-def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
+def _show_shutdown_popup(failure_type: str, log_dir: Path, proxy_name: str | None = None) -> None:
     """Show a popup alerting the user that the proxy shut down.
 
     Best effort - fails silently if osascript unavailable.
@@ -119,18 +119,30 @@ def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
     Args:
         failure_type: Category of failure (e.g., "audit_failure").
         log_dir: Directory containing crash breadcrumb file.
+        proxy_name: Proxy instance name for identification.
     """
     if platform.system() != "Darwin":
         return
 
+    from mcp_acp.pep.applescript import escape_applescript_string
+
     crash_file = log_dir / CRASH_BREADCRUMB_FILENAME
 
+    display_type = failure_type.replace("_", " ")
+    if proxy_name:
+        shutdown_msg = f"Proxy '{proxy_name}' shut down due to {display_type}."
+    else:
+        shutdown_msg = f"Proxy shut down due to {display_type}."
+
+    safe_msg = escape_applescript_string(shutdown_msg)
+    safe_crash_file = escape_applescript_string(str(crash_file))
+
     script = f"""
-    display alert "MCP ACP" message "Proxy shut down due to {failure_type}.
+    display alert "MCP ACP" message "{safe_msg}
 
 Restart your MCP client.
 
-Details: {crash_file}" as critical buttons {{"OK"}} default button "OK"
+Details: {safe_crash_file}" as critical buttons {{"OK"}} default button "OK"
     """
 
     try:
@@ -215,15 +227,17 @@ class ShutdownCoordinator:
     11. Background task calls os._exit() after delay
     """
 
-    def __init__(self, log_dir: Path, system_logger: "logging.Logger") -> None:
+    def __init__(self, log_dir: Path, system_logger: "logging.Logger", proxy_name: str | None = None) -> None:
         """Initialize the shutdown coordinator.
 
         Args:
             log_dir: Directory for breadcrumb file (e.g., <log_dir>/mcp-acp/proxies/default/)
             system_logger: System logger for critical events
+            proxy_name: Proxy instance name for popup identification.
         """
         self.log_dir = log_dir
         self.system_logger = system_logger
+        self._proxy_name = proxy_name
         self._shutdown_in_progress = False
         self._shutdown_reason: str | None = None
         self._shutdown_exit_code: int = 1
@@ -372,7 +386,7 @@ class ShutdownCoordinator:
 
         # 6. Show popup to user (best effort - macOS only)
         try:
-            _show_shutdown_popup(failure_type, self.log_dir)
+            _show_shutdown_popup(failure_type, self.log_dir, self._proxy_name)
         except Exception:
             pass  # Best effort
 

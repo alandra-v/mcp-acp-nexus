@@ -114,7 +114,7 @@ class PolicyEnforcementMiddleware(Middleware):
         self._policy_version = policy_version
         self._proxy_name = proxy_name
         self._proxy_id = proxy_id
-        self._hitl_handler = HITLHandler(hitl_config)
+        self._hitl_handler = HITLHandler(hitl_config, proxy_name=proxy_name)
         self._hitl_config = hitl_config  # For cache settings
         # Approval cache for reducing HITL dialog fatigue
         # Exposed via `approval_store` property for proxy to wire to API app.state

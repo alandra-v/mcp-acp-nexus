@@ -248,7 +248,7 @@ def create_proxy(
 
     # Create shutdown coordinator for fail-closed behavior
     # Note: log_dir_path and system_logger were already set above during integrity verification
-    shutdown_coordinator = ShutdownCoordinator(log_dir_path, system_logger)
+    shutdown_coordinator = ShutdownCoordinator(log_dir_path, system_logger, proxy_name=proxy_name)
 
     # Create shutdown callback with hybrid approach:
     # Try async coordinator if event loop is running, fall back to sync
