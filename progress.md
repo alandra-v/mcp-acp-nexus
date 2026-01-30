@@ -219,9 +219,10 @@ Multi-proxy CLI support is complete. Users can configure multiple proxies and te
 
 - [x] **Shared CLI helpers** - `require_proxy_name()`, `validate_proxy_if_provided()` in utils/cli/helpers.py
 
-**Later Commands (Phase 7+):**
+**Later Commands (Phase 7 — Complete):**
 
-- [ ] **`mcp-acp proxy remove <name>`** - Remove proxy with archiving
+- [x] **`mcp-acp proxy delete <name>`** - Delete proxy with archiving
+- [x] **`mcp-acp proxy purge <name>`** - Permanently delete archived proxy
 
 ### Step 4.3: Infrastructure Changes
 
@@ -371,7 +372,7 @@ UI enhancements for multi-proxy observation (no lifecycle control).
 
 ---
 
-## Phase 5.5: Additional Features (Post Phase 5)
+## Phase 5.5: Additional Features
 
 **Status: Complete**
 
@@ -473,63 +474,70 @@ Backend credentials (API keys for HTTP backends) are securely stored in OS keych
 
 ## Phase 7: Proxy Deletion
 
-**Status: Not Started**
+**Status: Complete**
 
 Proxy deletion with audit trail preservation, unified archive, and recovery support.
 
-- [ ] **Unified archive directory helpers**
-  - `get_archive_dir()` → `~/.mcp-acp/archive/`
-  - `get_archived_proxy_dir(archive_name)` → `~/.mcp-acp/archive/{name}_{timestamp}/`
-  - `list_archived_proxies()` → list archive folder names
+- [x] **Shared deletion module** (`manager/deletion.py`)
+  - `DeleteResult` / `PurgeResult` frozen slotted dataclasses
+  - `get_archive_dir()`, `get_archived_proxy_dir()`, `list_archived_proxies()`
+  - `delete_proxy(name, purge, deleted_by)` — shared by CLI and API
+  - `purge_archived_proxy(archive_name)` — permanent deletion
+  - `format_size()` deduplicated to `utils/file_helpers.py` (shared by deletion, CLI logs, CLI proxy)
 
-- [ ] **Soft delete (archive)**
-  - Refuse if proxy is currently running (registry check, no --force)
-  - Archive config + policy to `~/.mcp-acp/archive/{name}_{timestamp}/config/`
-  - Archive audit + system logs to `~/.mcp-acp/archive/{name}_{timestamp}/logs/`
-  - Delete debug logs immediately (no security value)
-  - Write `metadata.json` (machine-readable manifest with original paths)
-  - Write `README.txt` (human-readable recovery instructions)
-  - Remove backend credential from keychain (last step - non-recoverable)
-  - Report archived and deleted sizes in output
+- [x] **Soft delete (archive)**
+  - Callers check running status before calling (CLI checks socket, API checks registry)
+  - Archive config dir → `archive/{name}_{ts}/config/`
+  - Archive audit + system log subdirs → `archive/{name}_{ts}/logs/`
+  - Archive log-dir root files: `.integrity_state`, `.last_crash`, `shutdowns.jsonl`
+  - Delete debug logs (no security value), socket file
+  - Remove backend credential from keychain (tracked in metadata; non-recoverable)
+  - Write `metadata.json` (machine-readable manifest with actual state)
+  - Write `README.txt` (conditional content listing actual archived files)
+  - Config dir removal deferred until after metadata is safely written
 
-- [ ] **Purge command**
-  - `mcp-acp proxy purge <name>` - accepts proxy name (if single archive) or full archive name
-  - Disambiguation prompt when multiple archives exist for same proxy name
+- [x] **Purge command**
+  - `mcp-acp proxy purge <name>` — accepts proxy name (disambiguation) or full archive name
   - Confirmation prompt before deletion
-  - `mcp-acp proxy delete <name> --purge` - Direct hard delete
+  - `mcp-acp proxy delete <name> --purge` — direct hard delete
 
-- [ ] **List deleted proxies**
+- [x] **List deleted proxies**
   - `mcp-acp proxy list --deleted`
 
-- [ ] **Manager notification**
-  - CLI notifies manager via UDS after deletion (same pattern as `auth/notify-login`)
-  - Manager broadcasts `proxy_deleted` SSE event to connected browsers
-  - UI proxy list page removes card on event
-  - UI proxy detail page redirects to `/` with toast if viewing deleted proxy
+- [x] **Manager notification**
+  - `PROXY_DELETED` added to `SSEEventType` enum
+  - CLI notifies manager via HTTP POST to `/api/manager/proxies/notify-deleted` (fire-and-forget, matches `auth/notify-login` pattern)
+  - API deletion broadcasts SSE directly (best-effort, wrapped in try/except)
+  - Manager logs deletion at WARNING level (persists to `system.jsonl`)
+  - UI proxy list removes card on `proxy_deleted` SSE event
+  - UI proxy detail page navigates to `/` with toast if viewing deleted proxy (cross-tab safe)
 
-- [ ] **Delete safety checks**
-  - Refuse deletion if proxy is registered/running (409 Conflict)
-  - Remind user to update client config (e.g., Claude Desktop)
+- [x] **Delete safety checks**
+  - CLI: socket connect check before deletion, `OSError` catch around deletion
+  - API: registry check, returns 409 if running
+  - Confirmation dialog reminds user to update client config
 
-- [ ] **UI delete flow**
-  - Delete button on proxy detail page header (disabled for running proxies)
-  - Confirmation dialog showing what will be archived vs deleted
-  - Client config reminder in dialog
-  - `DELETE /api/manager/proxies/{proxy_name}` endpoint (with `?purge=true` option)
-  - After deletion: success toast + navigate to proxy list page
+- [x] **UI delete flow**
+  - Delete button on proxy detail header (disabled when running, tooltip explains why)
+  - `DeleteProxyConfirmDialog` with archive vs delete summary + client config reminder
+  - `DELETE /api/manager/proxies/{proxy_id}` endpoint (with `?purge=true` option)
+  - Frontend `deleteProxy()` supports purge parameter
+  - `ApiError` type narrowing surfaces server error messages
+  - After deletion: success toast + navigate to proxy list
 
-- [ ] **Edge cases**
+- [x] **CLI refactored to subpackage**
+  - `cli/commands/proxy.py` split into `proxy/` subpackage: `__init__.py`, `add.py`, `auth.py`, `delete.py`, `list_cmd.py`, `purge.py`
+
+- [x] **Edge cases**
   - Timestamp in folder name prevents collisions
-  - copytree-then-rmtree: original preserved if copy fails
-  - Restore blocked if proxy with same name exists
+  - Config dir removal deferred until metadata safely written
   - Manager not running during CLI delete: proceeds without SSE broadcast
+  - SSE broadcast failure doesn't affect deletion success (API returns 200)
 
-- [ ] **Tests**
-  - Delete/archive tests (verify archive structure, metadata.json content)
-  - Purge tests (single archive, multiple archives disambiguation)
-  - Running proxy refusal tests
-  - Manager notification / SSE event tests
-  - Edge case handling tests
+- [x] **Tests**
+  - `test_deletion.py`: archive structure, metadata.json, purge, empty archive cleanup
+  - `test_routes.py`: DELETE endpoint (200, 404, 409), POST notify-deleted (200, validation)
+  - `test_proxy_commands.py`: updated for subpackage imports
 
 ---
 
@@ -738,7 +746,7 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
 - [x] Full manager-owned auth lifecycle with token distribution (Phase 4 Step 4)
 - [x] UI updated for multi-proxy observation (Phase 5)
 - [x] Backend credential security via OS keychain (Phase 6)
-- [ ] Proxy deletion with audit trail preservation (Phase 7)
+- [x] Proxy deletion with audit trail preservation (Phase 7)
 - [ ] Toast notifications for proxy events (Phase 8)
 - [ ] Crash detection with UI notification (Phase 8)
 - [ ] Basic performance metrics displayed in UI (Phase 9)
