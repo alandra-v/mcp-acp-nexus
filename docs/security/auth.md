@@ -239,7 +239,7 @@ Authentication events are logged to `audit/auth.jsonl`:
 
 Success events for per-request validation are not logged to reduce noise.
 
-See [logging_specs/audit/auth.md](logging_specs/audit/auth.md) for full schema.
+See [logging_specs/audit/auth.md](../reference/logging_specs/audit/auth.md) for full schema.
 
 ---
 
@@ -265,6 +265,6 @@ The proxy uses standard protocols and works with any compliant provider:
 ## See Also
 
 - [Backend Authentication](backend_auth.md) for mTLS and binary attestation
-- [API Reference](api_reference.md) for auth endpoints
+- [API Reference](../reference/api_reference.md) for auth endpoints
 - [Security](security.md) for security architecture
-- [Configuration](configuration.md) for full config reference
+- [Configuration](../getting-started/configuration.md) for full config reference

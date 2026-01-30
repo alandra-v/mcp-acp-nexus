@@ -112,7 +112,7 @@ The proxy implements Zero Trust Architecture based on the seven tenets defined i
 | Transport | FastMCP transport abstraction | STDIO, streamable HTTP |
 | Middleware | FastMCP middleware stack | Composable ordering |
 | Configuration | Version field, Pydantic models | Schema evolution supported |
-| Policy engine | `PolicyEngineProtocol` in pdp/ | Pluggable (Casbin, OPA, Cedar) |
+| Policy engine | `PolicyEngineProtocol` in pdp/ | Pluggable (built-in ABAC engine implemented) |
 | Logging | Pydantic models, JSONL format | Extensible (SystemEvent allows extra fields) |
 
 
@@ -127,7 +127,7 @@ The codebase is organized by domain with related responsibilities grouped togeth
 | `proxy.py` | Main entry point, lifecycle orchestration |
 | `config.py` | Configuration models (Pydantic) |
 | `api/` | Management API server (FastAPI), routes, schemas |
-| `manager/` | UI state aggregation (ProxyState, SSE events) |
+| `manager/` | Manager daemon, proxy coordination, registry, SSE events, state aggregation |
 | `cli/` | Command-line interface (Click-based) |
 | `context/` | ABAC context building (subject, action, resource, environment) |
 | `pdp/` | Policy Decision Point (engine, matcher, rules) |
@@ -136,7 +136,7 @@ The codebase is organized by domain with related responsibilities grouped togeth
 | `security/` | Security infrastructure (auth, posture, integrity, shutdown) |
 | `telemetry/` | Logging (audit, debug, system) |
 | `web/` | Static files for React UI |
-| `utils/` | Helpers (config, policy, history logging) |
+| `utils/` | Helpers (transport, config, policy, logging, history logging, file ops) |
 
 ---
 
@@ -166,7 +166,7 @@ The `DecisionContext` flows through the system for policy evaluation, logging, a
 
 ## State Management
 
-The `manager/` module provides state aggregation for the Management API.
+The `manager/` module runs a daemon process that coordinates proxies, serves the web UI (port 8765), handles proxy registration via UDS, and provides state aggregation for the Management API.
 
 **ProxyState** aggregates:
 - Cached HITL approvals
@@ -184,7 +184,8 @@ The `manager/` module provides state aggregation for the Management API.
 - **Rate limiting**: rate_limit_triggered, rate_limit_approved, rate_limit_denied
 - **Cache**: cache_cleared, cache_entry_deleted, cached_snapshot
 - **Request processing**: request_error, hitl_parse_failed, tool_sanitization_failed
-- **Live updates**: stats_updated, new_log_entries
+- **Proxy lifecycle**: proxy_deleted
+- **Live updates**: stats_updated, new_log_entries, incidents_updated
 - **Critical events**: critical_shutdown, audit_init_failed, device_health_failed, session_hijacking, audit_tampering, audit_missing, audit_permission_denied, health_degraded, health_monitor_failed
 
 See `manager/events.py` for the full `SSEEventType` enum.
@@ -199,22 +200,25 @@ See `manager/events.py` for the full `SSEEventType` enum.
 - Single session, single backend server
 - STDIO and Streamable HTTP transports
 
-**Stage 2 (Current): Authentication & Authorization**
+**Stage 2: Authentication & Authorization**
 - OIDC authentication (Auth0 IdP)
 - mTLS for proxy↔backend authentication
 - User ID, email, scopes from JWT tokens
 - Background health monitors with fail-closed shutdown
 - Web UI for monitoring and HITL
 
-**Stage 3: Multi-server**
-- Multiple backend servers with per-server policies
+**Stage 3 (Current): Multi-server**
+- Multiple backend servers with per-proxy configs and policies
+- Manager daemon for proxy coordination and web UI serving
+- Per-proxy log directories, audit trails, and hash chain state
+- Proxy registry with UDS-based registration
 
 ---
 
 ## See Also
 
 - [API Reference](api_reference.md) for Management API endpoints
-- [Security](security.md) for security design decisions
-- [Logging](logging.md) for telemetry architecture
+- [Security](../security/security.md) for security design decisions
+- [Logging](../security/logging.md) for telemetry architecture
 - [Policies](policies.md) for policy evaluation
 - [Request Flow Diagrams](request_flow_diagrams.md) for detailed sequence diagrams of lifecycle and operation phases

@@ -368,7 +368,7 @@ Continuous health checks for backend MCP servers (beyond startup validation).
 
 Enable non-STDIO clients (ChatGPT, custom apps) to connect via HTTP.
 
-See [design/http-client-support.md](design/http-client-support.md) for full design.
+See [design/http-client-support.md](http-client-support.md) for full design.
 
 ### Summary
 

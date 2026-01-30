@@ -4,7 +4,7 @@
 
 This proxy implements a Zero Trust security model: all operations are denied by default, every request is evaluated independently, and all errors result in denial. The proxy enforces policy at the MCP protocol layer, providing access control, audit logging, and human oversight for AI tool operations.
 
-For the full Zero Trust architecture and PEP/PDP design, see [Architecture](architecture.md).
+For the full Zero Trust architecture and PEP/PDP design, see [Architecture](../reference/architecture.md).
 
 ---
 
@@ -127,7 +127,7 @@ If startup fails due to configuration or validation errors:
 3. **Policy rules** - user-defined rules evaluated with combining algorithm (HITL > DENY > ALLOW)
 4. **Default action** - DENY if no rules match
 
-**Policy Enforcement**: Every non-discovery request is evaluated against policy rules. See [Policies](policies.md) for rule syntax, combining algorithm, and HITL configuration.
+**Policy Enforcement**: Every non-discovery request is evaluated against policy rules. See [Policies](../reference/policies.md) for rule syntax, combining algorithm, and HITL configuration.
 
 **Protected Paths**: The config and log directories cannot be accessed by MCP tools, regardless of policy rules. This prevents backend servers from:
 
@@ -300,14 +300,14 @@ Prevents modification even with root access—files can only be appended to.
 
 **Linux:**
 ```bash
-sudo chattr +a ~/.mcp-acp-nexus/logs/mcp_acp_logs/audit/*.jsonl
+sudo chattr +a ~/.local/state/mcp-acp/proxies/<name>/audit/*.jsonl
 # Verify: lsattr shows 'a' flag
 # Remove: sudo chattr -a <path>
 ```
 
 **macOS:**
 ```bash
-chflags uappend ~/.mcp-acp-nexus/logs/mcp_acp_logs/audit/*.jsonl
+chflags uappend ~/Library/Logs/mcp-acp/proxies/<name>/audit/*.jsonl
 # System-level (requires root to remove): sudo chflags sappend <path>
 # Remove: chflags nouappend <path>
 ```
@@ -480,8 +480,8 @@ For most deployments where you control the allowed directories, this is low risk
 
 ## See Also
 
-- [Architecture](architecture.md) - Zero Trust principles, PEP/PDP separation, request flow
+- [Architecture](../reference/architecture.md) - Zero Trust principles, PEP/PDP separation, request flow
 - [Authentication](auth.md) - User authentication, binary attestation, device health, session binding
 - [Backend Authentication](backend_auth.md) - mTLS configuration, certificate management
-- [Policies](policies.md) - Policy syntax, HITL configuration, combining algorithm
+- [Policies](../reference/policies.md) - Policy syntax, HITL configuration, combining algorithm
 - [Logging](logging.md) - Log structure, formats, correlation IDs

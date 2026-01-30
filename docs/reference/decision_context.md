@@ -248,5 +248,5 @@ When multiple rules match, the policy engine uses this precedence: **HITL > DENY
 ## See Also
 
 - [Policies](policies.md) - Policy rule syntax and conditions
-- [Security](security.md) - Overall security architecture
-- [Logging](logging.md) - Decision audit logging
+- [Security](../security/security.md) - Overall security architecture
+- [Logging](../security/logging.md) - Decision audit logging

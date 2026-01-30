@@ -4,7 +4,9 @@
 
 ## How to Configure
 
-Configuration is created via the `mcp-acp init` command:
+Configuration is a two-step process: initialize authentication, then add proxies.
+
+**Step 1: Initialize authentication** (creates `manager.json`, shared across all proxies):
 
 ```bash
 # Interactive setup (recommended)
@@ -14,54 +16,58 @@ mcp-acp init
 mcp-acp init --non-interactive \
   --oidc-issuer https://your-tenant.auth0.com \
   --oidc-client-id your-client-id \
-  --oidc-audience your-api-audience \
-  --log-dir ~/.mcp-acp \
+  --oidc-audience your-api-audience
+```
+
+**Init options**:
+- `--non-interactive` - Skip prompts (requires all OIDC flags)
+- `--oidc-issuer`, `--oidc-client-id`, `--oidc-audience` - Authentication (required)
+- `--force` - Overwrite existing config without prompting
+
+**Step 2: Add a proxy** (creates per-proxy `config.json` and `policy.json`):
+
+```bash
+# Interactive setup (recommended)
+mcp-acp proxy add
+
+# Non-interactive STDIO backend
+mcp-acp proxy add --name filesystem \
   --server-name filesystem \
   --connection-type stdio \
   --command npx \
   --args "-y,@modelcontextprotocol/server-filesystem,/tmp"
+
+# Non-interactive HTTP backend with mTLS
+mcp-acp proxy add --name my-api \
+  --server-name my-api \
+  --connection-type http \
+  --url https://localhost:3000/mcp \
+  --mtls-cert /path/to/client.crt \
+  --mtls-key /path/to/client.key \
+  --mtls-ca /path/to/ca-bundle.crt
 ```
 
-**Init options**:
-- `--non-interactive` - Skip prompts (requires all options to be specified)
-- `--oidc-issuer`, `--oidc-client-id`, `--oidc-audience` - Authentication (required)
-- `--mtls-cert`, `--mtls-key`, `--mtls-ca` - mTLS for HTTPS backends (optional)
-- `--attestation-slsa-owner`, `--attestation-sha256`, `--attestation-require-signature` - Binary attestation for STDIO backends (optional)
-- `--log-dir`, `--log-level`, `--include-payloads/--no-include-payloads` - Logging configuration
-- `--server-name`, `--connection-type`, `--command`, `--args`, `--url`, `--timeout` - Backend configuration
-- `--force` - Overwrite existing config without prompting
+**Proxy add options**:
+- `--name, -n` - Proxy name (1-64 chars, alphanumeric/hyphens/underscores, cannot start with `_` or `.`, reserved: `manager`, `all`, `default`)
+- `--server-name` - Display name for the backend server
+- `--connection-type` - `stdio`, `http`, or `auto`
+- `--command`, `--args` - STDIO backend command and arguments (comma-separated)
+- `--url`, `--timeout` - HTTP backend URL and timeout (1-300s, default: 30)
+- `--api-key` - API key or bearer token for HTTP backend auth (stored securely in keychain)
+- `--mtls-cert`, `--mtls-key`, `--mtls-ca` - mTLS for HTTPS backends (all three required if any provided)
+- `--attestation-slsa-owner`, `--attestation-sha256`, `--attestation-require-signature` - Binary attestation for STDIO backends
 
-To manage existing configuration:
+To manage existing configuration (all subcommands accept `--manager` or `--proxy <name>`):
 
 ```bash
-# View current config
-mcp-acp config show
-mcp-acp config show --json    # Machine-readable format
-
-# Show file location
-mcp-acp config path
-
-# Edit via CLI (validates after save)
-mcp-acp config edit
-
-# Or edit manually
-
-# Validate config file
-mcp-acp config validate
-mcp-acp config validate --path /path/to/config.json  # Validate alternate file
+mcp-acp config show --manager              # View manager config
+mcp-acp config show --proxy my-proxy       # View proxy config (--json for machine-readable)
+mcp-acp config path                        # Show all config file paths
+mcp-acp config edit --proxy my-proxy       # Edit in $EDITOR (validates after save)
+mcp-acp config validate                    # Validate all configs
 ```
 
-**No hot reload**: Changes require proxy restart.
-
-**Config history**: All configuration changes are logged to `config_history.jsonl` for audit:
-
-| Event | Description |
-|-------|-------------|
-| `config_created` | Initial creation via `mcp-acp init` |
-| `config_loaded` | Loaded at proxy startup |
-| `config_updated` | Updated via `mcp-acp config edit` |
-| `manual_change_detected` | File modified outside of CLI (detected on next load) |
-| `config_validation_failed` | Invalid JSON or schema validation error |
+**No config hot reload**: Config changes require proxy restart. Policy supports hot-reload via `mcp-acp policy reload`, `SIGHUP`, or the management API. All configuration changes are logged to `config_history.jsonl` for audit.
 
 ---
 
@@ -76,28 +82,42 @@ Configuration is stored in an OS-specific application directory:
 | Windows | `C:\Users\<user>\AppData\Roaming\mcp-acp\` |
 
 **Files**:
-- `mcp_acp_config.json` - operational settings (auth, logging, backend, proxy, HITL)
-- `policy.json` - security policies (rules only; HITL settings are in config)
-
-**Log directory**: User-specified via `--log-dir` during init. Logs are stored in a `mcp_acp_logs/` subdirectory:
-
 ```
-<log_dir>/
-└── mcp_acp_logs/
-    ├── debug/                  # Only created when log_level=DEBUG
-    │   ├── client_wire.jsonl
-    │   └── backend_wire.jsonl
-    ├── system/
-    │   ├── system.jsonl
-    │   ├── config_history.jsonl
-    │   └── policy_history.jsonl
-    └── audit/                  # Always enabled (security audit trail)
-        ├── operations.jsonl
-        ├── decisions.jsonl
-        └── auth.jsonl
+<config_dir>/
+├── manager.json                    # Shared settings (OIDC auth, ui_port, log_dir)
+└── proxies/
+    └── <name>/
+        ├── config.json             # Per-proxy settings (backend, HITL, mTLS, logging)
+        └── policy.json             # Per-proxy security policies
 ```
 
-**File permissions**: Config directory is `0o700` (owner only), config files are `0o600`. Writes are atomic to prevent corruption. See [Security](security.md) for details.
+**Log directory**: Platform-specific default (configurable in `manager.json`). Logs are stored in `mcp-acp/`:
+
+| Platform | Default log_dir |
+|----------|----------------|
+| macOS | `~/Library/Logs` |
+| Linux | `~/.local/state` (XDG) |
+
+```
+<log_dir>/mcp-acp/
+├── manager/                    # Manager daemon logs
+│   └── system.jsonl
+└── proxies/                    # Proxy logs (one subfolder per proxy)
+    └── <name>/                 # Proxy name (default: "default")
+        ├── debug/              # Only created when log_level=DEBUG
+        │   ├── client_wire.jsonl
+        │   └── backend_wire.jsonl
+        ├── system/
+        │   ├── system.jsonl
+        │   ├── config_history.jsonl
+        │   └── policy_history.jsonl
+        └── audit/              # Always enabled (security audit trail)
+            ├── operations.jsonl
+            ├── decisions.jsonl
+            └── auth.jsonl
+```
+
+**File permissions**: Config directory is `0o700` (owner only), config files are `0o600`. Writes are atomic to prevent corruption. See [Security](../security/security.md) for details.
 
 **Bootstrap log**: If config is invalid and `log_dir` is unavailable, errors are written to `bootstrap.jsonl` in the config directory.
 
@@ -105,110 +125,105 @@ Configuration is stored in an OS-specific application directory:
 
 ## What is Configured
 
-### mcp_acp_config.json
+### manager.json
+
+Shared settings created by `mcp-acp init`. OIDC authentication is shared across all proxies.
 
 ```json
 {
+  "ui_port": 8765,
+  "log_dir": "~/Library/Logs",
   "auth": {
     "oidc": {
       "issuer": "https://your-tenant.auth0.com",
       "client_id": "your-client-id",
       "audience": "your-api-audience",
       "scopes": ["openid", "profile", "email", "offline_access"]
-    },
-    "mtls": {
-      "client_cert_path": "/path/to/client.crt",
-      "client_key_path": "/path/to/client.key",
-      "ca_bundle_path": "/path/to/ca-bundle.crt"
     }
-  },
-  "logging": {
-    "log_dir": "~/.mcp-acp",
-    "log_level": "INFO",
-    "include_payloads": true
-  },
-  "backend": {
-    "server_name": "filesystem",
-    "transport": "auto",
-    "stdio": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
-      "attestation": {
-        "expected_sha256": "abc123...",
-        "require_signature": true,
-        "slsa_owner": "github-username"
-      }
-    },
-    "http": {
-      "url": "http://localhost:3000/mcp",
-      "timeout": 30
-    }
-  },
-  "proxy": {
-    "name": "mcp-acp"
-  },
-  "hitl": {
-    "timeout_seconds": 60,
-    "approval_ttl_seconds": 600
   }
 }
 ```
 
-### Authentication Settings
-
 | Field | Description |
 |-------|-------------|
-| `auth.oidc.issuer` | OIDC issuer URL (e.g., `https://tenant.auth0.com`) |
+| `ui_port` | HTTP port for web UI (default: 8765, range: 1024-65535) |
+| `log_dir` | Base directory for all logs (platform default, see log directory table above) |
+| `auth.oidc.issuer` | OIDC issuer URL (must start with `https://`) |
 | `auth.oidc.client_id` | Auth0 application client ID |
 | `auth.oidc.audience` | API audience for token validation |
 | `auth.oidc.scopes` | OAuth scopes (default: `["openid", "profile", "email", "offline_access"]`) |
-| `auth.mtls.client_cert_path` | Client certificate path, PEM format (optional, for mTLS backends) |
-| `auth.mtls.client_key_path` | Client private key path, PEM format |
-| `auth.mtls.ca_bundle_path` | CA bundle for server verification, PEM format |
 
-### Logging Settings
+### Per-Proxy config.json
+
+Per-proxy settings created by `mcp-acp proxy add`. Each proxy has independent backend, HITL, mTLS, and logging configuration.
+
+```json
+{
+  "proxy_id": "px_a1b2c3d4:server-filesystem",
+  "created_at": "2025-12-03T10:30:45.123Z",
+  "backend": {
+    "server_name": "filesystem",
+    "transport": "stdio",
+    "stdio": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  },
+  "hitl": {
+    "timeout_seconds": 60,
+    "approval_ttl_seconds": 600
+  },
+  "log_level": "INFO",
+  "include_payloads": true
+}
+```
+
+Optional sections not shown: `backend.stdio.attestation`, `backend.http`, `mtls`. See field tables below for all options.
+
+### Proxy Identity
 
 | Field | Description |
 |-------|-------------|
-| `log_dir` | Base directory for logs (required, logs stored in `mcp_acp_logs/` subdirectory) |
-| `log_level` | `DEBUG` or `INFO`. DEBUG enables wire logs |
-| `include_payloads` | Include full payloads in debug logs |
+| `proxy_id` | Stable identifier (`px_{uuid8}:{sanitized_backend_name}`), auto-generated on creation |
+| `created_at` | ISO 8601 timestamp of proxy creation |
 
 ### Backend Settings
 
 | Field | Description |
 |-------|-------------|
-| `server_name` | Display name for the backend server |
-| `transport` | `"stdio"`, `"streamablehttp"`, or `"auto"` (default: `"auto"`) |
-| `stdio.command` | Command to spawn backend (e.g., `npx`) |
-| `stdio.args` | Arguments for the command |
-| `stdio.attestation.expected_sha256` | Expected SHA-256 hash of the binary (optional) |
-| `stdio.attestation.require_signature` | Require valid code signature, macOS only (optional) |
-| `stdio.attestation.slsa_owner` | GitHub owner for SLSA provenance verification (optional) |
-| `http.url` | Backend Streamable HTTP server URL |
-| `http.timeout` | Streamable HTTP connection timeout in seconds (default: 30, min: 1, max: 300) |
+| `backend.server_name` | Display name for the backend server |
+| `backend.transport` | `"stdio"`, `"streamablehttp"`, or `"auto"` (default: `"auto"`) |
+| `backend.stdio.command` | Command to spawn backend (e.g., `npx`) |
+| `backend.stdio.args` | Arguments for the command |
+| `backend.stdio.attestation.expected_sha256` | Expected SHA-256 hash of the binary (optional) |
+| `backend.stdio.attestation.require_signature` | Require valid code signature, macOS only (optional) |
+| `backend.stdio.attestation.slsa_owner` | GitHub owner for SLSA provenance verification (optional) |
+| `backend.http.url` | Backend Streamable HTTP server URL |
+| `backend.http.timeout` | Streamable HTTP connection timeout in seconds (default: 30, min: 1, max: 300) |
+| `backend.http.credential_key` | Keychain reference for API key/bearer token (set via `--api-key`, see [Backend Auth](../security/backend_auth.md)) |
 
-### Transport Selection
+### mTLS Settings
 
-- `"transport": "stdio"` - Use STDIO only (requires `stdio` config)
-- `"transport": "streamablehttp"` - Use Streamable HTTP only (requires `http` config)
-- `"transport": "auto"` - Auto-detect: prefers HTTP if reachable, falls back to STDIO
+mTLS is configured per-proxy (different backends may need different certificates).
 
-**Auto-detection logic at runtime**:
-1. If transport is explicitly set (`"stdio"` or `"streamablehttp"`):
-   - Use specified transport if available
-   - **Fail** if specified transport not available (no silent fallback)
-2. If transport is `"auto"`:
-   - Try Streamable HTTP with retry (3 attempts, ~6s total)
-   - If still unreachable → fall back to STDIO
+| Field | Description |
+|-------|-------------|
+| `mtls.client_cert_path` | Client certificate path, PEM format |
+| `mtls.client_key_path` | Client private key path, PEM format |
+| `mtls.ca_bundle_path` | CA bundle for server verification, PEM format |
 
-**Startup retry**: HTTP backends are retried with exponential backoff (2s → 4s) to allow starting the proxy before the backend is ready.
+### Logging Settings
 
-**Streamable HTTP preferred**: MCP spec positions it as the modern default.
+Logging is configured per-proxy. The base `log_dir` is in `manager.json`.
+
+| Field | Description |
+|-------|-------------|
+| `log_level` | `"DEBUG"` or `"INFO"` (default: `"INFO"`). DEBUG enables wire logs for this proxy |
+| `include_payloads` | Include full message payloads in debug logs (default: `true`) |
 
 ### HITL Settings
 
-Human-in-the-Loop settings are configured in `mcp_acp_config.json` (not policy.json).
+Human-in-the-Loop settings are configured in the per-proxy `config.json` (not policy.json).
 
 | Field | Description |
 |-------|-------------|
@@ -216,11 +231,11 @@ Human-in-the-Loop settings are configured in `mcp_acp_config.json` (not policy.j
 | `hitl.default_on_timeout` | Action on timeout (always "deny", cannot be changed) |
 | `hitl.approval_ttl_seconds` | Cached approval lifetime (default: 600, min: 300, max: 900) |
 
-**Note**: `cache_side_effects` is configured per-rule in policy.json, not in config. See [Policies](policies.md#hitl-configuration) for details.
+**Note**: `cache_side_effects` is configured per-rule in policy.json, not in config. See [Policies](../reference/policies.md#hitl-configuration) for details.
 
 ### policy.json
 
-Security policies are configured separately. See [Policies](policies.md) for full syntax.
+Security policies are configured separately. See [Policies](../reference/policies.md) for full syntax.
 
 ```json
 {
@@ -232,21 +247,7 @@ Security policies are configured separately. See [Policies](policies.md) for ful
 }
 ```
 
-**Note:** HITL settings (timeout, caching) are in `mcp_acp_config.json`, not `policy.json`.
-
----
-
-## API Endpoints
-
-The Management API provides configuration endpoints:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/config` | Get current configuration (from memory) |
-| `PUT` | `/api/config` | Update configuration file (requires restart) |
-| `GET` | `/api/config/compare` | Compare running vs saved config |
-
-See [API Reference](api_reference.md) for full endpoint documentation.
+**Note:** HITL settings (timeout, caching) are in the per-proxy `config.json`, not `policy.json`.
 
 ---
 
@@ -274,12 +275,22 @@ See [API Reference](api_reference.md) for full endpoint documentation.
 - **Symlink protection**: Paths resolved via `realpath()` to prevent bypass attacks
 
 **Validation constraints** (enforced by Pydantic):
-- `issuer`, `client_id`, `audience`: Non-empty strings
+- `issuer`, `client_id`, `audience`: Non-empty strings (`issuer` must start with `https://`)
+- `ui_port`: 1024-65535
 - `log_dir`, `server_name`, `command`: Non-empty strings
 - `http.url`: Must start with `http://` or `https://`
 - `http.timeout`: 1-300 seconds
 - `log_level`: Must be `"DEBUG"` or `"INFO"`
 - `transport`: Must be `"stdio"`, `"streamablehttp"`, or `"auto"`
+- `proxy_id`: Must match `px_{8 hex chars}:{lowercase-alphanumeric-dashes}`
+- `hitl.timeout_seconds`: 5-300 seconds
+- `hitl.approval_ttl_seconds`: 300-900 seconds
+
+**Proxy name validation** (enforced at creation time):
+- 1-64 characters
+- Must start with alphanumeric character
+- Only alphanumeric, hyphens, underscores allowed
+- Reserved names: `manager`, `all`, `default`
 
 ---
 
@@ -301,10 +312,6 @@ Environment variables cannot be passed to backend processes.
 
 No CLI flags to override config at runtime. All settings come from config files.
 
-### Multiple Backend Servers
-
-Only one backend server is supported. Multi-server support planned for the future.
-
 ### Client Transport
 
 Client-to-proxy communication is STDIO only. HTTP client transport not supported (required for ChatGPT integration).
@@ -314,7 +321,8 @@ Client-to-proxy communication is STDIO only. HTTP client transport not supported
 ## See Also
 
 - [Usage](usage.md) for CLI commands
-- [API Reference](api_reference.md) for config API endpoints
-- [Policies](policies.md) for policy configuration
-- [Logging](logging.md) for log file details
-- [Security](security.md) for file permissions, atomic writes, audit integrity
+- [API Reference](../reference/api_reference.md) for config API endpoints
+- [Policies](../reference/policies.md) for policy configuration
+- [Backend Auth](../security/backend_auth.md) for API key and mTLS configuration
+- [Logging](../security/logging.md) for log file details
+- [Security](../security/security.md) for file permissions, atomic writes, audit integrity

@@ -495,12 +495,12 @@ To reduce HITL dialog fatigue, approvals can be cached for repeated operations:
 
 ### Audit & Security
 
-All HITL decisions are logged to `decisions.jsonl`. See [Logging](logging.md) for details and [Security](security.md) for HITL security design decisions.
+All HITL decisions are logged to `decisions.jsonl`. See [Logging](../security/logging.md) for details and [Security](../security/security.md) for HITL security design decisions.
 
 ---
 
 ## See Also
 
-- [Configuration](configuration.md) for policy file location and HITL settings (in config.json)
-- [Security](security.md) for fail-closed behavior
-- [Logging](logging.md) for decision logging
+- [Configuration](../getting-started/configuration.md) for policy file location and HITL settings (in config.json)
+- [Security](../security/security.md) for fail-closed behavior
+- [Logging](../security/logging.md) for decision logging

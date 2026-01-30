@@ -62,12 +62,14 @@ Log settings are configured in two places:
 **Per-proxy** (`proxies/<name>/config.json`):
 ```json
 {
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "include_payloads": true
 }
 ```
 - `log_level`: Proxy logging level (`DEBUG` or `INFO`). `DEBUG` enables wire-level debug logs for that proxy.
+- `include_payloads`: Whether to include full message payloads in debug wire logs (default: `true`). Only relevant when `log_level=DEBUG`.
 
-See [Configuration](configuration.md) for full options.
+See [Configuration](../getting-started/configuration.md) for full options.
 
 ---
 
@@ -79,13 +81,13 @@ Security audit trail - **ALWAYS enabled, cannot be disabled**.
 
 MCP operation audit trail following the **Kipling method (5W1H)**: Who (subject), What (method, tool), When (timestamp), Where (backend, path), Why (policy decision), How (arguments, transport).
 
-**See**: [logging_specs/audit/operations.md](logging_specs/audit/operations.md) for full schema.
+**See**: [logging_specs/audit/operations.md](../reference/logging_specs/audit/operations.md) for full schema.
 
 ### decisions.jsonl
 
 Every policy evaluation decision, including HITL outcomes. Captures matched rules, final decision, performance metrics, and approval details.
 
-**See**: [logging_specs/audit/decisions.md](logging_specs/audit/decisions.md) for full schema.
+**See**: [logging_specs/audit/decisions.md](../reference/logging_specs/audit/decisions.md) for full schema.
 
 ### auth.jsonl
 
@@ -93,7 +95,7 @@ Authentication events for Zero Trust compliance. Based on OCSF Authentication (3
 
 **Note**: Success events for per-request token validation and device health checks are not logged to reduce noise. Only failures and session lifecycle events are logged.
 
-**See**: [logging_specs/audit/auth.md](logging_specs/audit/auth.md) for full schema.
+**See**: [logging_specs/audit/auth.md](../reference/logging_specs/audit/auth.md) for full schema.
 
 ---
 
@@ -103,19 +105,19 @@ Authentication events for Zero Trust compliance. Based on OCSF Authentication (3
 
 Operational issues and errors (backend disconnections, path normalization failures, etc.). **Only WARNING, ERROR, CRITICAL levels are logged to file.**
 
-**See**: [logging_specs/system/system.md](logging_specs/system/system.md) for full schema.
+**See**: [logging_specs/system/system.md](../reference/logging_specs/system/system.md) for full schema.
 
 ### config_history.jsonl
 
 Configuration change audit trail with versioning and checksums.
 
-**See**: [logging_specs/system/config_history.md](logging_specs/system/config_history.md) for full schema.
+**See**: [logging_specs/system/config_history.md](../reference/logging_specs/system/config_history.md) for full schema.
 
 ### policy_history.jsonl
 
 Policy change audit trail with versioning and checksums.
 
-**See**: [logging_specs/system/policy_history.md](logging_specs/system/policy_history.md) for full schema.
+**See**: [logging_specs/system/policy_history.md](../reference/logging_specs/system/policy_history.md) for full schema.
 
 ---
 
@@ -148,7 +150,7 @@ Manager operational logs including:
 
 Not hash-chain protected (uses standard Python logging format).
 
-**See**: [logging_specs/manager/system.md](logging_specs/manager/system.md) for full schema.
+**See**: [logging_specs/manager/system.md](../reference/logging_specs/manager/system.md) for full schema.
 
 ---
 
@@ -204,7 +206,9 @@ Certain logs are protected by cryptographic hash chains for tamper detection.
 - `audit/auth.jsonl`
 - `system/system.jsonl`
 
-**Not protected:** `config_history.jsonl`, `policy_history.jsonl`, debug logs, manager logs.
+**Protected at runtime only:** `config_history.jsonl`, `policy_history.jsonl` (hash chain is configured when the proxy starts; entries written outside the proxy process are not chain-protected).
+
+**Not protected:** debug logs, manager logs.
 
 ### Hash Chain Fields
 
@@ -249,7 +253,7 @@ Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https:/
 | `config_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
 | `policy_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
 
-**Full schemas**: See `docs/logging_specs/` for detailed field documentation.
+**Full schemas**: See `docs/reference/logging_specs/` for detailed field documentation.
 
 ---
 
@@ -261,9 +265,9 @@ Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https:/
 
 **Payload redaction**: Arguments are never logged in full - only SHA256 hash and byte length. Full payloads only in debug logs.
 
-**Log injection prevention**: Newlines and carriage returns are escaped in logged strings.
+**Log injection prevention**: Newlines, carriage returns, and tabs are escaped in logged strings.
 
-**Blocking I/O**: Audit logging is synchronous with `fsync` to guarantee data reaches disk.
+**Blocking I/O**: Audit logging is synchronous (write + flush). Startup verification, emergency audit writes, and background health checks additionally use `fsync` to guarantee data reaches disk.
 
 **File identity checks**: Before each audit write, the handler verifies the file exists with the same inode/device. If deleted or replaced, the proxy shuts down.
 
@@ -278,5 +282,5 @@ See [Security](security.md#audit-and-logging-security) for complete details incl
 ## See Also
 
 - [Security](security.md) for audit log integrity and fail-closed behavior
-- [Configuration](configuration.md) for log directory settings
-- [logging_specs/](logging_specs/) for detailed field schemas
+- [Configuration](../getting-started/configuration.md) for log directory settings
+- [logging_specs/](../reference/logging_specs/) for detailed field schemas

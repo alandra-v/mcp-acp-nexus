@@ -5,7 +5,7 @@
 - **Python 3.11+** (3.11, 3.12, or 3.13)
 - **pip** or **uv** package manager
 - **Node.js 18+** (for MCP servers that use npx)
-- **OIDC Provider** (Auth0, Okta, Azure AD, etc.) with Device Flow enabled - see [Auth](auth.md)
+- **OIDC Provider** (Auth0, Okta, Azure AD, etc.) with Device Flow enabled - see [Auth](../security/auth.md)
 
 ## Platform Requirements
 

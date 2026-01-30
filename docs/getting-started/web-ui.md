@@ -137,9 +137,57 @@ A banner displays when the backend disconnects, showing reconnection attempts.
 
 ---
 
+## Manager Daemon Lifecycle
+
+The manager daemon serves the web UI and coordinates multiple proxies. It has intelligent lifecycle management to avoid running indefinitely when not needed.
+
+### Auto-Start
+
+The manager starts automatically when:
+- A proxy starts and the UI is enabled (default behavior)
+- You run `mcp-acp manager start` manually
+
+### Idle Shutdown
+
+The manager automatically shuts down after **5 minutes of inactivity** to conserve resources. Activity is defined as:
+
+- Proxy connections/disconnections
+- Browser tabs opening/closing (SSE connections)
+- API requests (except status checks)
+
+**Idle conditions** (all must be true for shutdown):
+- No proxies connected
+- No browser tabs with UI open
+- No API activity for 5 minutes
+
+**Grace period**: The manager waits 60 seconds after startup before checking for idle shutdown, giving you time to start proxies or open the UI.
+
+**What doesn't count as activity**:
+- CLI status checks (`mcp-acp manager status`)
+- SSE keepalive messages
+
+### Logs
+
+Idle shutdown is logged to `<log_dir>/mcp-acp/manager/system.jsonl`:
+
+```json
+{
+  "time": "2025-01-26T10:30:00.123Z",
+  "event": "idle_shutdown_triggered",
+  "message": "Manager idle for 300s, shutting down",
+  "details": {
+    "proxy_count": 0,
+    "sse_count": 0,
+    "seconds_idle": 300.5
+  }
+}
+```
+
+---
+
 ## See Also
 
 - [Usage](usage.md) — CLI commands
 - [Configuration](configuration.md) — Config file format
-- [Logging](logging.md) — Audit logs
-- [API Reference](api_reference.md) — REST API and SSE events
+- [Logging](../security/logging.md) — Audit logs
+- [API Reference](../reference/api_reference.md) — REST API and SSE events

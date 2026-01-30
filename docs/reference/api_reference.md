@@ -325,5 +325,5 @@ All errors return a structured response with error codes for programmatic handli
 ## See Also
 
 - [Architecture](architecture.md) for system overview
-- [Configuration](configuration.md) for config file format
+- [Configuration](../getting-started/configuration.md) for config file format
 - [Policies](policies.md) for policy rule syntax

@@ -70,7 +70,7 @@ The proxy controls the client→backend path. Some ZTA concerns are outside this
 
 ## Deferred Work
 
-Features deferred from Stage 3 PoC. See [roadmap.md](roadmap.md) for details.
+Features deferred from Stage 3 PoC. See [roadmap.md](../design/roadmap.md) for details.
 
 | Roadmap Item | Tenet | Why Deferred |
 |--------------|-------|--------------|
@@ -93,4 +93,4 @@ Beyond web development or proxy architecture:
 ## References
 
 - NIST SP 800-207: Zero Trust Architecture
-- [roadmap.md](roadmap.md) - Deferred improvements
+- [roadmap.md](../design/roadmap.md) - Deferred improvements

@@ -811,4 +811,4 @@ None of these systems are designed for AI agent access patterns. A purpose-built
 ## See Also
 
 - [multi.md](multi.md) - Multi-proxy architecture (STDIO mode)
-- [Architecture](../architecture.md) - Overall system design
+- [Architecture](../reference/architecture.md) - Overall system design
