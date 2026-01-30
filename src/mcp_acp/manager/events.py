@@ -90,6 +90,9 @@ class SSEEventType(str, Enum):
     HITL_PARSE_FAILED = "hitl_parse_failed"
     TOOL_SANITIZATION_FAILED = "tool_sanitization_failed"
 
+    # Proxy lifecycle
+    PROXY_DELETED = "proxy_deleted"
+
     # Live updates
     STATS_UPDATED = "stats_updated"
     NEW_LOG_ENTRIES = "new_log_entries"

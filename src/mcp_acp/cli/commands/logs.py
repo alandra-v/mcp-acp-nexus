@@ -18,7 +18,7 @@ import click
 from mcp_acp.manager.config import list_configured_proxies
 from mcp_acp.utils.cli import load_manager_config_or_exit, require_proxy_name
 from mcp_acp.utils.config import get_log_path
-from mcp_acp.utils.file_helpers import scan_backup_files
+from mcp_acp.utils.file_helpers import format_size, scan_backup_files
 
 from ..styling import style_label
 
@@ -97,15 +97,6 @@ def logs_list(proxy_name: str | None) -> None:
             click.echo()
 
 
-def _format_size(size: int) -> str:
-    """Format file size in human-readable form."""
-    if size > 1024 * 1024:
-        return f"{size / (1024 * 1024):.1f} MB"
-    elif size > 1024:
-        return f"{size / 1024:.1f} KB"
-    return f"{size} bytes"
-
-
 def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
     """Show detailed log info for a specific proxy."""
     click.echo("\n" + style_label(f"Log files: {proxy_name}") + "\n")
@@ -116,7 +107,7 @@ def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
 
         if exists:
             size = log_path.stat().st_size
-            size_str = _format_size(size)
+            size_str = format_size(size)
 
             # Count lines (entries)
             try:
@@ -141,7 +132,7 @@ def _show_proxy_logs(proxy_name: str, log_dir_str: str) -> None:
         if backups:
             click.echo(f"               {click.style(f'{len(backups)} backup(s):', fg='yellow')}")
             for backup in backups:
-                size_str = _format_size(backup.size_bytes)
+                size_str = format_size(backup.size_bytes)
                 click.echo(f"                 - {backup.filename} ({size_str})")
 
         click.echo()

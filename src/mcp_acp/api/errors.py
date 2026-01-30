@@ -90,6 +90,7 @@ class ErrorCode(str, Enum):
     # Conflict errors (409)
     CONFLICT = "CONFLICT"  # Generic 409 for unmapped exceptions
     PROXY_EXISTS = "PROXY_EXISTS"  # Proxy already exists
+    PROXY_RUNNING = "PROXY_RUNNING"  # Proxy is running, cannot delete
 
     # Proxy creation errors (400, 500)
     PROXY_INVALID = "PROXY_INVALID"  # Invalid proxy configuration

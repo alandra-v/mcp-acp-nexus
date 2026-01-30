@@ -35,6 +35,7 @@ __all__ = [
     "ManagerStatusResponse",
     "PendingApprovalInfo",
     "Proxy",
+    "ProxyDeleteResponse",
     "ProxyDetailResponse",
     "ProxyRuntimeInfo",
     "ProxyStats",
@@ -274,6 +275,24 @@ class ProxyDetailResponse(Proxy):
     client_id: str | None = None
     pending_approvals: list[dict[str, Any]] | None = None
     cached_approvals: list[dict[str, Any]] | None = None
+
+
+class ProxyDeleteResponse(FrozenModel):
+    """Response model for proxy deletion.
+
+    Attributes:
+        archived: List of items that were archived.
+        deleted: List of items that were permanently deleted.
+        archive_name: Name of the archive directory (None if purged).
+        archived_size: Total size of archived data in bytes.
+        deleted_size: Total size of deleted data in bytes.
+    """
+
+    archived: list[str]
+    deleted: list[str]
+    archive_name: str | None = None
+    archived_size: int = 0
+    deleted_size: int = 0
 
 
 class ManagerStatusResponse(FrozenModel):

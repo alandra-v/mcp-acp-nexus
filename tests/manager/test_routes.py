@@ -480,6 +480,195 @@ class TestProxyCreationEndpoint:
         assert "health check failed" in data["detail"]["message"].lower()
 
 
+class TestProxyDeletionEndpoint:
+    """Tests for DELETE /api/manager/proxies/{proxy_id} endpoint."""
+
+    def test_delete_returns_200_with_summary(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """DELETE returns 200 with deletion summary."""
+        # Set up proxy config (proxy_id must match ^px_[a-f0-9]{8}:[a-z0-9-]+$)
+        proxies_dir = tmp_path / "proxies"
+        proxy_dir = proxies_dir / "test-proxy"
+        proxy_dir.mkdir(parents=True)
+        (proxy_dir / "config.json").write_text(
+            '{"proxy_id": "px_a1b2c3d4:test-server", "created_at": "2024-01-15T10:30:00Z",'
+            '"backend": {"server_name": "Test", "transport": "stdio",'
+            '"stdio": {"command": "test", "args": []}}, "hitl": {}}'
+        )
+
+        monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
+
+        # Mock deletion module to avoid filesystem operations
+        from mcp_acp.manager.deletion import DeleteResult
+
+        def mock_delete_proxy(name, *, purge=False, deleted_by="api"):
+            return DeleteResult(
+                archived=["Config + policy", "Audit logs"],
+                deleted=["Debug logs", "Backend credential from keychain"],
+                archive_name="test-proxy_2024-01-15T10-30-00",
+                archived_size=1024,
+                deleted_size=2048,
+            )
+
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.delete_proxy",
+            mock_delete_proxy,
+        )
+
+        response = app.delete("/api/manager/proxies/px_a1b2c3d4:test-server")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "Config + policy" in data["archived"]
+        assert "Debug logs" in data["deleted"]
+        assert data["archive_name"] == "test-proxy_2024-01-15T10-30-00"
+        assert data["archived_size"] == 1024
+
+    async def test_delete_running_proxy_returns_409(
+        self,
+        registry: ProxyRegistry,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """DELETE of running proxy returns 409."""
+        # Set up proxy config (proxy_id must match ^px_[a-f0-9]{8}:[a-z0-9-]+$)
+        proxies_dir = tmp_path / "proxies"
+        proxy_dir = proxies_dir / "running-proxy"
+        proxy_dir.mkdir(parents=True)
+        (proxy_dir / "config.json").write_text(
+            '{"proxy_id": "px_abcd1234:running-server", "created_at": "2024-01-15T10:30:00Z",'
+            '"backend": {"server_name": "Running", "transport": "stdio",'
+            '"stdio": {"command": "test", "args": []}}, "hitl": {}}'
+        )
+
+        monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
+
+        # Register the proxy (mark as running)
+        reader, writer = AsyncMock(), AsyncMock()
+        writer.close = MagicMock()
+        writer.wait_closed = AsyncMock()
+
+        await registry.register(
+            proxy_name="running-proxy",
+            proxy_id="px_abcd1234:running-server",
+            instance_id="inst_running",
+            config_summary={},
+            socket_path="/tmp/running.sock",
+            reader=reader,
+            writer=writer,
+        )
+
+        fastapi_app = create_manager_api_app(token="test", registry=registry)
+        client = TestClient(fastapi_app)
+
+        response = client.delete("/api/manager/proxies/px_abcd1234:running-server")
+
+        assert response.status_code == 409
+        data = response.json()
+        assert data["detail"]["code"] == "PROXY_RUNNING"
+
+    def test_delete_nonexistent_proxy_returns_404(self, app: TestClient) -> None:
+        """DELETE of nonexistent proxy returns 404."""
+        response = app.delete("/api/manager/proxies/px_00000000:none")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"]["code"] == "PROXY_NOT_FOUND"
+
+    def test_delete_with_purge_param(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """DELETE with ?purge=true passes purge flag."""
+        proxies_dir = tmp_path / "proxies"
+        proxy_dir = proxies_dir / "purge-proxy"
+        proxy_dir.mkdir(parents=True)
+        (proxy_dir / "config.json").write_text(
+            '{"proxy_id": "px_ef012345:purge-server", "created_at": "2024-01-15T10:30:00Z",'
+            '"backend": {"server_name": "Purge", "transport": "stdio",'
+            '"stdio": {"command": "test", "args": []}}, "hitl": {}}'
+        )
+
+        monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
+
+        from mcp_acp.manager.deletion import DeleteResult
+
+        purge_called = []
+
+        def mock_delete_proxy(name, *, purge=False, deleted_by="api"):
+            purge_called.append(purge)
+            return DeleteResult(
+                archived=[],
+                deleted=["Config directory", "Log directory"],
+                archive_name=None,
+                archived_size=0,
+                deleted_size=4096,
+            )
+
+        monkeypatch.setattr(
+            "mcp_acp.manager.deletion.delete_proxy",
+            mock_delete_proxy,
+        )
+
+        response = app.delete("/api/manager/proxies/px_ef012345:purge-server?purge=true")
+
+        assert response.status_code == 200
+        assert purge_called == [True]
+        data = response.json()
+        assert data["archive_name"] is None
+
+
+class TestProxyDeletedNotificationEndpoint:
+    """Tests for POST /api/manager/proxies/notify-deleted endpoint."""
+
+    def test_notify_deleted_returns_ok(self, app: TestClient) -> None:
+        """POST returns {ok: true} and accepts notification payload."""
+        response = app.post(
+            "/api/manager/proxies/notify-deleted",
+            json={
+                "proxy_id": "px_a1b2c3d4:test-server",
+                "proxy_name": "test-proxy",
+                "archive_name": "test-proxy_2024-01-15T10-30-00",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+
+    def test_notify_deleted_without_archive_name(self, app: TestClient) -> None:
+        """POST accepts notification without archive_name (purge case)."""
+        response = app.post(
+            "/api/manager/proxies/notify-deleted",
+            json={
+                "proxy_id": "px_a1b2c3d4:test-server",
+                "proxy_name": "test-proxy",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+
+    def test_notify_deleted_missing_required_fields(self, app: TestClient) -> None:
+        """POST rejects missing required fields."""
+        response = app.post(
+            "/api/manager/proxies/notify-deleted",
+            json={
+                "proxy_name": "test-proxy",
+                # Missing proxy_id
+            },
+        )
+
+        assert response.status_code == 422
+
+
 class TestConfigSnippetEndpoint:
     """Tests for GET /api/manager/config-snippet endpoint."""
 

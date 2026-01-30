@@ -36,6 +36,7 @@ __all__ = [
     "get_app_dir",
     # File operations
     "compute_file_checksum",
+    "format_size",
     "set_secure_permissions",
     "require_file_exists",
     "load_validated_json",
@@ -138,6 +139,23 @@ def get_app_dir() -> Path:
         Path to the application directory.
     """
     return Path(click.get_app_dir(APP_NAME))
+
+
+def format_size(size_bytes: int) -> str:
+    """Format byte size as human-readable string.
+
+    Args:
+        size_bytes: Size in bytes.
+
+    Returns:
+        Human-readable size string (e.g., "1.5 KB", "3.2 MB").
+    """
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    else:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
 def compute_file_checksum(file_path: Path) -> str:
