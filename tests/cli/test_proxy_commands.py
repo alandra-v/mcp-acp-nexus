@@ -539,6 +539,121 @@ class TestProxyList:
         assert "filesystem_" in result.output
 
 
+def _delete_sample_proxy(
+    cli_runner: CliRunner,
+    name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    temp_config_dir: Path,
+) -> str:
+    """Delete a sample proxy and return the archive name.
+
+    Helper shared by purge tests that need an archived proxy.
+    """
+    monkeypatch.setattr(
+        "mcp_acp.security.credential_storage.BackendCredentialStorage",
+        type("MockCred", (), {"__init__": lambda s, n: None, "delete": lambda s: None}),
+    )
+    monkeypatch.setattr(
+        "mcp_acp.manager.deletion.get_proxy_log_dir",
+        lambda n: temp_config_dir / "nonexistent_logs" / n,
+    )
+    monkeypatch.setattr(
+        "mcp_acp.manager.deletion.get_proxy_socket_path",
+        lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
+    )
+    monkeypatch.setattr(
+        "mcp_acp.cli.commands.proxy.delete._is_proxy_running",
+        lambda n: False,
+    )
+
+    cli_runner.invoke(proxy, ["delete", "--proxy", name, "--yes"])
+
+    # Return the archive name
+    archive_dir = temp_config_dir / "archive"
+    archives = sorted(d.name for d in archive_dir.iterdir() if d.is_dir())
+    return archives[-1]  # Most recent
+
+
+class TestProxyPurge:
+    """Tests for 'proxy purge' command."""
+
+    def test_purge_with_full_archive_name(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should purge when given full archive name."""
+        name, _ = sample_proxy
+        archive_name = _delete_sample_proxy(cli_runner, name, monkeypatch, temp_config_dir)
+
+        result = cli_runner.invoke(proxy, ["purge", archive_name, "--yes"])
+        assert result.exit_code == 0
+        assert "Purged" in result.output
+        assert not (temp_config_dir / "archive" / archive_name).exists()
+
+    def test_purge_with_proxy_name_single_archive(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should auto-resolve when only one archive exists for proxy name."""
+        name, _ = sample_proxy
+        archive_name = _delete_sample_proxy(cli_runner, name, monkeypatch, temp_config_dir)
+
+        # Use just the proxy name, not the full archive name
+        result = cli_runner.invoke(proxy, ["purge", name, "--yes"])
+        assert result.exit_code == 0
+        assert "Purged" in result.output
+        assert not (temp_config_dir / "archive" / archive_name).exists()
+
+    def test_purge_multiple_archives_disambiguation(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should list matching archives when multiple exist for same proxy name."""
+        # Create two fake archive directories manually
+        archive_dir = temp_config_dir / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        (archive_dir / "myproxy_2024-01-01T00-00-00").mkdir()
+        (archive_dir / "myproxy_2024-02-01T00-00-00").mkdir()
+
+        result = cli_runner.invoke(proxy, ["purge", "myproxy", "--yes"])
+        assert result.exit_code == 1
+        assert "Multiple archives found" in result.output
+        assert "myproxy_2024-01-01T00-00-00" in result.output
+        assert "myproxy_2024-02-01T00-00-00" in result.output
+
+    def test_purge_nonexistent_archive(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+    ) -> None:
+        """Should error for nonexistent archive."""
+        result = cli_runner.invoke(proxy, ["purge", "nonexistent", "--yes"])
+        assert result.exit_code == 1
+
+    def test_purge_with_yes_skips_confirm(
+        self,
+        cli_runner: CliRunner,
+        temp_config_dir: Path,
+        sample_proxy: tuple[str, PerProxyConfig],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Should skip confirmation with --yes flag."""
+        name, _ = sample_proxy
+        archive_name = _delete_sample_proxy(cli_runner, name, monkeypatch, temp_config_dir)
+
+        result = cli_runner.invoke(proxy, ["purge", archive_name, "-y"])
+        assert result.exit_code == 0
+        assert "Purged" in result.output
+
+
 class TestStartWithProxy:
     """Tests for 'start --proxy' command."""
 

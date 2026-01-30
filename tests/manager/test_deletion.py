@@ -326,15 +326,6 @@ class TestPurgeDelete:
         assert not (temp_config_dir / "archive").exists()
 
 
-class TestRunningProxyRefusal:
-    """Tests for running proxy safety check.
-
-    Note: The is_running guard was removed from delete_proxy() in Fix 7.
-    Both CLI and API callers check running status at their own level before
-    calling delete_proxy(). ProxyRunningError is still used by the API route.
-    """
-
-
 class TestPurgeArchived:
     """Tests for purging archived proxies."""
 
