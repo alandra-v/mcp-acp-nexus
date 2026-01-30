@@ -75,7 +75,7 @@ def manager_config(temp_config_dir: Path) -> Path:
 def mock_http_health(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock HTTP health check to avoid network calls."""
     monkeypatch.setattr(
-        "mcp_acp.cli.commands.proxy.check_http_health",
+        "mcp_acp.cli.commands.proxy.add.check_http_health",
         lambda url, timeout: None,  # Success - no exception
     )
 
@@ -364,7 +364,7 @@ class TestProxyDelete:
         )
         # Mock _is_proxy_running to return False
         monkeypatch.setattr(
-            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            "mcp_acp.cli.commands.proxy.delete._is_proxy_running",
             lambda n: False,
         )
 
@@ -417,7 +417,7 @@ class TestProxyDelete:
             lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
         )
         monkeypatch.setattr(
-            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            "mcp_acp.cli.commands.proxy.delete._is_proxy_running",
             lambda n: False,
         )
 
@@ -452,7 +452,7 @@ class TestProxyDelete:
             lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
         )
         monkeypatch.setattr(
-            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            "mcp_acp.cli.commands.proxy.delete._is_proxy_running",
             lambda n: False,
         )
 
@@ -470,7 +470,7 @@ class TestProxyDelete:
         name, _ = sample_proxy
 
         monkeypatch.setattr(
-            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            "mcp_acp.cli.commands.proxy.delete._is_proxy_running",
             lambda n: True,
         )
 
@@ -526,7 +526,7 @@ class TestProxyList:
             lambda n: temp_config_dir / "nonexistent_socket" / f"proxy_{n}.sock",
         )
         monkeypatch.setattr(
-            "mcp_acp.cli.commands.proxy._is_proxy_running",
+            "mcp_acp.cli.commands.proxy.delete._is_proxy_running",
             lambda n: False,
         )
 
