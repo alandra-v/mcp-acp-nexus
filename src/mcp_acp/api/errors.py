@@ -95,6 +95,7 @@ class ErrorCode(str, Enum):
     # Proxy creation errors (400, 500)
     PROXY_INVALID = "PROXY_INVALID"  # Invalid proxy configuration
     BACKEND_UNREACHABLE = "BACKEND_UNREACHABLE"  # Backend not reachable (non-fatal)
+    BACKEND_DUPLICATE = "BACKEND_DUPLICATE"  # Another proxy uses same backend
     PROXY_CREATION_FAILED = "PROXY_CREATION_FAILED"  # Failed to create proxy
 
     # Validation errors (400, 422)

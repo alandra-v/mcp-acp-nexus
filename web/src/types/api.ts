@@ -58,6 +58,8 @@ export interface CreateProxyRequest {
   mtls_ca?: string
   // Health check override
   skip_health_check?: boolean
+  // Duplicate backend override
+  skip_duplicate_check?: boolean
 }
 
 /** Response from POST /api/manager/proxies */
@@ -404,6 +406,7 @@ export const ErrorCode = {
   // Proxy creation (400, 500)
   PROXY_INVALID: 'PROXY_INVALID', // Invalid proxy configuration
   BACKEND_UNREACHABLE: 'BACKEND_UNREACHABLE', // Backend not reachable (non-fatal)
+  BACKEND_DUPLICATE: 'BACKEND_DUPLICATE', // Another proxy uses same backend
   PROXY_CREATION_FAILED: 'PROXY_CREATION_FAILED', // Failed to create proxy
 
   // Validation (400, 422)

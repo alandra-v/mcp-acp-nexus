@@ -32,6 +32,7 @@ from mcp_acp.config import (
 )
 from mcp_acp.constants import APP_NAME
 from mcp_acp.manager.config import (
+    find_duplicate_backend,
     get_proxy_config_path,
     get_proxy_policy_path,
     list_configured_proxies,
@@ -798,6 +799,17 @@ async def create_proxy(body: CreateProxyRequest) -> CreateProxyResponse:
     # Check HTTP backend health if configured (skip if user already confirmed)
     if http_config is not None and not body.skip_health_check:
         _check_http_health(http_config.url, http_config.timeout, mtls_config)
+
+    # Check for duplicate backends (skip if user already confirmed)
+    if not body.skip_duplicate_check:
+        dup_name = find_duplicate_backend(stdio_config, http_config)
+        if dup_name:
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.BACKEND_DUPLICATE,
+                message=f"Proxy '{dup_name}' already routes to this backend.",
+                details={"existing_proxy": dup_name},
+            )
 
     # Generate proxy ID
     proxy_id = generate_proxy_id(body.server_name)

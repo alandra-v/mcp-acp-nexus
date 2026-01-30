@@ -67,6 +67,16 @@ const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: str
   { value: 'auto', label: 'Auto', description: 'Prefer HTTP if reachable, fallback to STDIO' },
 ]
 
+/** Format proxy creation error for display. */
+function formatCreateError(err: unknown): string {
+  if (err instanceof ApiError) {
+    const proxyName = err.getDetail<string>('proxy_name')
+    return proxyName ? `Proxy "${proxyName}": ${err.message}` : err.message
+  }
+  if (err instanceof Error) return err.message
+  return 'Failed to create proxy'
+}
+
 function getInitialFormState(): CreateProxyRequest {
   return {
     name: '',
@@ -101,6 +111,8 @@ export function AddProxyModal({
   const [touched, setTouched] = useState<Record<string, boolean>>({})
   const [showHealthCheckConfirm, setShowHealthCheckConfirm] = useState(false)
   const [healthCheckMessage, setHealthCheckMessage] = useState('')
+  const [showDuplicateConfirm, setShowDuplicateConfirm] = useState(false)
+  const [duplicateMessage, setDuplicateMessage] = useState('')
 
   const isStdio = formState.transport === 'stdio' || formState.transport === 'auto'
   const isHttp = formState.transport === 'streamablehttp' || formState.transport === 'auto'
@@ -118,6 +130,8 @@ export function AddProxyModal({
       setTouched({})
       setShowHealthCheckConfirm(false)
       setHealthCheckMessage('')
+      setShowDuplicateConfirm(false)
+      setDuplicateMessage('')
     }
   }, [open])
 
@@ -253,6 +267,7 @@ export function AddProxyModal({
       const response = await createProxy(buildRequest())
       setResult(response)
       toast.success(`Proxy "${response.proxy_name}" created`)
+      onCreated()
       setView('success')
     } catch (err) {
       if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_UNREACHABLE)) {
@@ -260,25 +275,17 @@ export function AddProxyModal({
         setShowHealthCheckConfirm(true)
         return
       }
-
-      let message = 'Failed to create proxy'
-
-      if (err instanceof ApiError) {
-        message = err.message
-        // Use getDetail helper for type-safe access
-        const proxyName = err.getDetail<string>('proxy_name')
-        if (proxyName) {
-          message = `Proxy "${proxyName}": ${message}`
-        }
-      } else if (err instanceof Error) {
-        message = err.message
+      if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_DUPLICATE)) {
+        setDuplicateMessage(err.message)
+        setShowDuplicateConfirm(true)
+        return
       }
 
-      setError(message)
+      setError(formatCreateError(err))
     } finally {
       setSubmitting(false)
     }
-  }, [buildRequest, validation.isValid])
+  }, [buildRequest, validation.isValid, onCreated])
 
   // Resubmit with skip_health_check after user confirms
   const handleConfirmSkipHealthCheck = useCallback(async () => {
@@ -290,23 +297,41 @@ export function AddProxyModal({
       const response = await createProxy(buildRequest({ skip_health_check: true }))
       setResult(response)
       toast.success(`Proxy "${response.proxy_name}" created`)
+      onCreated()
       setView('success')
     } catch (err) {
-      let message = 'Failed to create proxy'
-      if (err instanceof ApiError) {
-        message = err.message
-        const proxyName = err.getDetail<string>('proxy_name')
-        if (proxyName) {
-          message = `Proxy "${proxyName}": ${message}`
-        }
-      } else if (err instanceof Error) {
-        message = err.message
+      if (err instanceof ApiError && err.hasCode(ErrorCode.BACKEND_DUPLICATE)) {
+        setDuplicateMessage(err.message)
+        setShowDuplicateConfirm(true)
+        return
       }
-      setError(message)
+      setError(formatCreateError(err))
     } finally {
       setSubmitting(false)
     }
-  }, [buildRequest])
+  }, [buildRequest, onCreated])
+
+  // Resubmit with skip_duplicate_check after user confirms
+  const handleConfirmSkipDuplicate = useCallback(async () => {
+    setShowDuplicateConfirm(false)
+    setSubmitting(true)
+    setError(null)
+
+    try {
+      const response = await createProxy(buildRequest({
+        skip_duplicate_check: true,
+        skip_health_check: true,
+      }))
+      setResult(response)
+      toast.success(`Proxy "${response.proxy_name}" created`)
+      onCreated()
+      setView('success')
+    } catch (err) {
+      setError(formatCreateError(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }, [buildRequest, onCreated])
 
   // Handle copy snippet
   const handleCopy = useCallback(async () => {
@@ -702,6 +727,24 @@ export function AddProxyModal({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmSkipHealthCheck}>
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Duplicate backend confirmation dialog */}
+      <AlertDialog open={showDuplicateConfirm} onOpenChange={setShowDuplicateConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Duplicate backend</AlertDialogTitle>
+            <AlertDialogDescription>
+              {duplicateMessage} Continue anyway?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmSkipDuplicate}>
               Continue
             </AlertDialogAction>
           </AlertDialogFooter>

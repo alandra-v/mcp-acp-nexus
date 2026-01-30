@@ -480,6 +480,190 @@ class TestProxyCreationEndpoint:
         assert "health check failed" in data["detail"]["message"].lower()
 
 
+class TestDuplicateBackendDetection:
+    """Tests for duplicate backend detection during proxy creation."""
+
+    def _setup_existing_proxy(
+        self,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+        *,
+        command: str = "test-cmd",
+        args: list[str] | None = None,
+        url: str | None = None,
+    ) -> Path:
+        """Create an existing proxy config for duplicate detection tests."""
+        proxies_dir = tmp_path / "proxies"
+        proxy_dir = proxies_dir / "existing-proxy"
+        proxy_dir.mkdir(parents=True)
+
+        # Build config JSON
+        backend: dict = {"server_name": "Existing Server"}
+        if url:
+            backend["transport"] = "streamablehttp"
+            backend["http"] = {"url": url, "timeout": 30}
+        else:
+            backend["transport"] = "stdio"
+            backend["stdio"] = {"command": command, "args": args or []}
+
+        config = {
+            "proxy_id": "px_a1b2c3d4:existing-server",
+            "created_at": "2024-01-15T10:30:00Z",
+            "backend": backend,
+            "hitl": {},
+        }
+        (proxy_dir / "config.json").write_text(json.dumps(config))
+
+        monkeypatch.setattr("mcp_acp.manager.config.get_proxies_dir", lambda: proxies_dir)
+        monkeypatch.setattr(
+            "mcp_acp.manager.routes.proxies.list_configured_proxies",
+            lambda: ["existing-proxy"],
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.routes.proxies.get_proxy_config_path",
+            lambda name: proxies_dir / name / "config.json",
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.routes.proxies.get_proxy_policy_path",
+            lambda name: proxies_dir / name / "policy.json",
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.routes.proxies.save_proxy_config",
+            lambda name, config: (proxies_dir / name).mkdir(parents=True, exist_ok=True)
+            or (proxies_dir / name / "config.json").write_text("{}"),
+        )
+        monkeypatch.setattr(
+            "mcp_acp.manager.routes.proxies.save_policy",
+            lambda policy, path: path.parent.mkdir(parents=True, exist_ok=True) or path.write_text("{}"),
+        )
+
+        return proxies_dir
+
+    def test_create_proxy_duplicate_stdio_backend(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """Creating a proxy with the same stdio command+args returns 400 BACKEND_DUPLICATE."""
+        self._setup_existing_proxy(tmp_path, monkeypatch, command="npx", args=["-y", "server"])
+
+        response = app.post(
+            "/api/manager/proxies",
+            json={
+                "name": "new-proxy",
+                "server_name": "New Server",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "server"],
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["code"] == "BACKEND_DUPLICATE"
+        assert "existing-proxy" in data["detail"]["message"]
+        assert data["detail"]["details"]["existing_proxy"] == "existing-proxy"
+
+    def test_create_proxy_duplicate_http_backend(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """Creating a proxy with the same HTTP URL returns 400 BACKEND_DUPLICATE."""
+        self._setup_existing_proxy(tmp_path, monkeypatch, url="https://example.com/mcp")
+
+        # Skip health check to get to the duplicate check
+        response = app.post(
+            "/api/manager/proxies",
+            json={
+                "name": "new-proxy",
+                "server_name": "New Server",
+                "transport": "streamablehttp",
+                "url": "https://example.com/mcp",
+                "skip_health_check": True,
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["detail"]["code"] == "BACKEND_DUPLICATE"
+        assert "existing-proxy" in data["detail"]["message"]
+
+    def test_create_proxy_duplicate_skip(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """skip_duplicate_check=true bypasses the duplicate warning."""
+        self._setup_existing_proxy(tmp_path, monkeypatch, command="npx", args=["-y", "server"])
+
+        response = app.post(
+            "/api/manager/proxies",
+            json={
+                "name": "new-proxy",
+                "server_name": "New Server",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "server"],
+                "skip_duplicate_check": True,
+            },
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["ok"] is True
+        assert data["proxy_name"] == "new-proxy"
+
+    def test_create_proxy_no_false_positive_different_command(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """Different command+args should not trigger duplicate warning."""
+        self._setup_existing_proxy(tmp_path, monkeypatch, command="npx", args=["-y", "server-a"])
+
+        response = app.post(
+            "/api/manager/proxies",
+            json={
+                "name": "new-proxy",
+                "server_name": "New Server",
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "server-b"],
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["ok"] is True
+
+    def test_create_proxy_no_false_positive_different_url(
+        self,
+        app: TestClient,
+        tmp_path: Path,
+        monkeypatch: "pytest.MonkeyPatch",
+    ) -> None:
+        """Different URL should not trigger duplicate warning."""
+        self._setup_existing_proxy(tmp_path, monkeypatch, url="https://example.com/mcp-a")
+
+        response = app.post(
+            "/api/manager/proxies",
+            json={
+                "name": "new-proxy",
+                "server_name": "New Server",
+                "transport": "streamablehttp",
+                "url": "https://example.com/mcp-b",
+                "skip_health_check": True,
+            },
+        )
+
+        assert response.status_code == 201
+        assert response.json()["ok"] is True
+
+
 class TestProxyDeletionEndpoint:
     """Tests for DELETE /api/manager/proxies/{proxy_id} endpoint."""
 

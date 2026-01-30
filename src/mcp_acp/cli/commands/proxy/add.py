@@ -28,6 +28,7 @@ from mcp_acp.constants import (
     TRANSPORT_TYPES,
 )
 from mcp_acp.manager.config import (
+    find_duplicate_backend,
     get_manager_config_path,
     get_proxy_config_path,
     get_proxy_policy_path,
@@ -222,6 +223,14 @@ def proxy_add(
             ca_bundle_path=mtls_ca,
         )
         click.echo(style_success("mTLS configured for HTTPS backend connections."))
+
+    # Warn about duplicate backend
+    if not yes:
+        dup_name = find_duplicate_backend(backend_config.stdio, backend_config.http)
+        if dup_name:
+            click.echo(style_warning(f"Proxy '{dup_name}' already routes to this backend."))
+            if not click.confirm("Continue anyway?", default=True):
+                raise SystemExit(0)
 
     # Build ProxyAddConfig for confirmation
     add_config = ProxyAddConfig(

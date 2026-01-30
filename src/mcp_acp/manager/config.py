@@ -16,6 +16,7 @@ from __future__ import annotations
 __all__ = [
     "ManagerConfig",
     "RESERVED_PROXY_NAMES",
+    "find_duplicate_backend",
     "get_manager_config_path",
     "get_manager_log_dir",
     "get_manager_system_log_path",
@@ -36,12 +37,16 @@ import logging
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, ValidationError
 
 from mcp_acp.config import AuthConfig
 from mcp_acp.constants import APP_NAME, DEFAULT_API_PORT
 from mcp_acp.utils.file_helpers import get_app_dir, set_secure_permissions
+
+if TYPE_CHECKING:
+    from mcp_acp.config import HttpTransportConfig, StdioTransportConfig
 
 _logger = logging.getLogger(f"{APP_NAME}.manager.config")
 
@@ -383,3 +388,43 @@ def list_configured_proxies() -> list[str]:
         return []
 
     return sorted(d.name for d in proxies_dir.iterdir() if d.is_dir() and not d.name.startswith("."))
+
+
+def find_duplicate_backend(
+    stdio_config: StdioTransportConfig | None,
+    http_config: HttpTransportConfig | None,
+) -> str | None:
+    """Check if an existing proxy already routes to the same backend.
+
+    Match criteria (transport-specific):
+    - stdio: same command + args tuple
+    - HTTP: same url
+
+    Args:
+        stdio_config: STDIO transport config to match against.
+        http_config: HTTP transport config to match against.
+
+    Returns:
+        Name of the matching proxy, or None if no duplicate found.
+    """
+    # Deferred import to avoid circular dependency (config -> manager.config)
+    from mcp_acp.config import load_proxy_config
+
+    for proxy_name in list_configured_proxies():
+        try:
+            existing = load_proxy_config(proxy_name)
+        except (FileNotFoundError, ValueError, OSError):
+            _logger.debug("Skipping proxy '%s' during duplicate check: config unreadable", proxy_name)
+            continue
+
+        if stdio_config is not None and existing.backend.stdio is not None:
+            if existing.backend.stdio.command == stdio_config.command and list(
+                existing.backend.stdio.args
+            ) == list(stdio_config.args):
+                return proxy_name
+
+        if http_config is not None and existing.backend.http is not None:
+            if existing.backend.http.url == http_config.url:
+                return proxy_name
+
+    return None

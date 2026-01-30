@@ -186,6 +186,9 @@ class CreateProxyRequest(BaseModel):
     # Skip health check (used after user confirms unreachable backend)
     skip_health_check: bool = False
 
+    # Skip duplicate backend check (used after user confirms duplicate)
+    skip_duplicate_check: bool = False
+
 
 class ConfigSnippetResponse(FrozenModel):
     """Response model for MCP client configuration snippet.
