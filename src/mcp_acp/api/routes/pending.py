@@ -140,6 +140,8 @@ async def list_pending_approvals(state: ProxyStateDep) -> list[PendingApprovalRe
             created_at=p.created_at,
             timeout_seconds=p.timeout_seconds,
             request_id=p.request_id,
+            can_cache=p.can_cache,
+            cache_ttl_seconds=p.cache_ttl_seconds,
         )
         for p in pending
     ]

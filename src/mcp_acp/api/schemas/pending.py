@@ -23,6 +23,8 @@ class PendingApprovalResponse(BaseModel):
     created_at: datetime
     timeout_seconds: int
     request_id: str
+    can_cache: bool = True
+    cache_ttl_seconds: int | None = None
 
 
 class ApprovalActionResponse(BaseModel):
