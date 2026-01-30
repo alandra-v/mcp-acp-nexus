@@ -1,6 +1,6 @@
 """Tests for manager idle shutdown functionality.
 
-Tests the _idle_shutdown_checker task and related constants.
+Tests the idle_shutdown_checker task and related constants.
 """
 
 from __future__ import annotations
@@ -11,11 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mcp_acp.manager.daemon import (
+from mcp_acp.manager.daemon.idle import (
     IDLE_CHECK_INTERVAL_SECONDS,
     IDLE_TIMEOUT_SECONDS,
     STARTUP_GRACE_PERIOD_SECONDS,
-    _idle_shutdown_checker,
+    idle_shutdown_checker,
 )
 from mcp_acp.manager.registry import ProxyRegistry
 
@@ -41,7 +41,7 @@ class TestIdleShutdownConstants:
 
 
 class TestIdleShutdownChecker:
-    """Tests for _idle_shutdown_checker task."""
+    """Tests for idle_shutdown_checker task."""
 
     @pytest.fixture
     def registry(self) -> ProxyRegistry:
@@ -73,7 +73,7 @@ class TestIdleShutdownChecker:
                 shutdown_event.set()
 
         with patch("asyncio.sleep", mock_sleep):
-            await _idle_shutdown_checker(registry, shutdown_event, startup_time)
+            await idle_shutdown_checker(registry, shutdown_event, startup_time)
 
         # Shutdown was set by our mock, not by idle detection
         # The checker should have continued past grace period checks
@@ -96,7 +96,7 @@ class TestIdleShutdownChecker:
             pass
 
         with patch("asyncio.sleep", mock_sleep):
-            await _idle_shutdown_checker(registry, shutdown_event, startup_time)
+            await idle_shutdown_checker(registry, shutdown_event, startup_time)
 
         # Should have triggered shutdown
         assert shutdown_event.is_set()
@@ -138,7 +138,7 @@ class TestIdleShutdownChecker:
                 shutdown_event.set()  # Stop the loop externally
 
         with patch("asyncio.sleep", mock_sleep):
-            await _idle_shutdown_checker(registry, shutdown_event, startup_time)
+            await idle_shutdown_checker(registry, shutdown_event, startup_time)
 
         # Shutdown was set by our mock after 3 iterations,
         # meaning the checker didn't trigger it (proxy was connected)
@@ -169,7 +169,7 @@ class TestIdleShutdownChecker:
                 shutdown_event.set()
 
         with patch("asyncio.sleep", mock_sleep):
-            await _idle_shutdown_checker(registry, shutdown_event, startup_time)
+            await idle_shutdown_checker(registry, shutdown_event, startup_time)
 
         # Checker didn't trigger shutdown (SSE subscriber present)
         assert iterations >= 3
@@ -196,7 +196,7 @@ class TestIdleShutdownChecker:
                 shutdown_event.set()
 
         with patch("asyncio.sleep", mock_sleep):
-            await _idle_shutdown_checker(registry, shutdown_event, startup_time)
+            await idle_shutdown_checker(registry, shutdown_event, startup_time)
 
         # Checker didn't trigger shutdown (recent activity)
         assert iterations >= 3
@@ -217,7 +217,7 @@ class TestIdleShutdownChecker:
             sleep_called = True
 
         with patch("asyncio.sleep", mock_sleep):
-            await _idle_shutdown_checker(registry, shutdown_event, startup_time)
+            await idle_shutdown_checker(registry, shutdown_event, startup_time)
 
         # Should exit before sleeping
         assert not sleep_called
