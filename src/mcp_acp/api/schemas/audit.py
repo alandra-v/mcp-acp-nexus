@@ -28,7 +28,7 @@ class AuditFileResult(BaseModel):
     name: str = Field(description="Log file name (e.g., 'operations', 'decisions')")
     description: str = Field(description="Human-readable description")
     status: str = Field(
-        description="Status: 'protected', 'unprotected', 'broken', 'empty', 'not_created', 'error'"
+        description="Status: 'protected', 'unprotected', 'broken', 'missing', 'empty', 'not_created', 'error'"
     )
     entry_count: int | None = Field(default=None, description="Number of entries in the file")
     last_sequence: int | None = Field(

@@ -343,6 +343,18 @@ def verify_file_integrity(
 
     # Handle file not existing
     if not log_path.exists():
+        # Check if state exists — if so, file was deleted after being protected
+        if state_manager is not None and log_dir is not None:
+            if state_manager.has_state_for_file(_compute_file_key(log_path, log_dir)):
+                return VerificationResult(
+                    success=False,
+                    errors=[
+                        "Log file was deleted but integrity state exists. "
+                        "This indicates the file was removed after being protected. "
+                        "Run 'mcp-acp audit repair' to clear stale state."
+                    ],
+                    warnings=[],
+                )
         return VerificationResult(
             success=True,
             errors=[],

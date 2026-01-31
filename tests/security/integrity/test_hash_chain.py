@@ -14,6 +14,7 @@ from mcp_acp.security.integrity.hash_chain import (
     HashChainFormatter,
     compute_entry_hash,
     verify_chain_integrity,
+    verify_file_integrity,
 )
 from mcp_acp.security.integrity.integrity_state import IntegrityStateManager
 
@@ -498,3 +499,61 @@ class TestVerifyChainIntegrity:
         # Empty file with no chain entries produces warning
         assert success is True
         assert any("no hash chain entries" in w.lower() for w in warnings)
+
+
+class TestVerifyFileIntegrity:
+    """Tests for verify_file_integrity detecting deleted files."""
+
+    @pytest.fixture
+    def temp_log_dir(self) -> Path:
+        """Create a temporary log directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_dir = Path(tmpdir) / "logs"
+            log_dir.mkdir(parents=True)
+            yield log_dir
+
+    def test_missing_file_no_state_returns_success(self, temp_log_dir: Path) -> None:
+        """Missing file with no integrity state returns success (not_created)."""
+        log_path = temp_log_dir / "audit" / "operations.jsonl"
+        state_manager = IntegrityStateManager(temp_log_dir)
+
+        result = verify_file_integrity(
+            log_path,
+            state_manager=state_manager,
+            log_dir=temp_log_dir,
+        )
+
+        assert result.success is True
+        assert any("not_created" in w for w in result.warnings)
+
+    def test_missing_file_with_state_returns_failure(self, temp_log_dir: Path) -> None:
+        """Missing file with integrity state returns failure (deleted)."""
+        log_path = temp_log_dir / "audit" / "operations.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.touch()  # File must exist for update_chain_state to stat it
+
+        # Create state manager and write an entry so state exists
+        state_manager = IntegrityStateManager(temp_log_dir)
+        file_key = str(log_path.relative_to(temp_log_dir))
+        state_manager.update_chain_state(file_key, "abc123", 1, log_path)
+
+        # Now delete the file to simulate deletion after protection
+        log_path.unlink()
+
+        result = verify_file_integrity(
+            log_path,
+            state_manager=state_manager,
+            log_dir=temp_log_dir,
+        )
+
+        assert result.success is False
+        assert any("deleted" in e.lower() for e in result.errors)
+
+    def test_missing_file_no_state_manager_returns_success(self, temp_log_dir: Path) -> None:
+        """Missing file with no state_manager passed returns success (backwards compat)."""
+        log_path = temp_log_dir / "audit" / "operations.jsonl"
+
+        result = verify_file_integrity(log_path)
+
+        assert result.success is True
+        assert any("not_created" in w for w in result.warnings)

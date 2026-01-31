@@ -116,19 +116,33 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
 
     for file_key, (description, internal_type) in AUDIT_LOG_FILES.items():
         log_path = get_log_path(proxy_name, internal_type, log_dir_str)
+        rel_key = str(log_path.relative_to(log_dir_path))
 
         # Scan for backup files (.broken.TIMESTAMP.jsonl)
         backups = get_backup_file_infos(log_path, log_dir_path)
 
         if not log_path.exists():
-            files.append(
-                AuditFileResult(
-                    name=file_key,
-                    description=description,
-                    status="not_created",
-                    backups=backups,
+            # Check if state exists — file was deleted after being protected
+            if state_manager.has_state_for_file(rel_key):
+                files.append(
+                    AuditFileResult(
+                        name=file_key,
+                        description=description,
+                        status="missing",
+                        errors=["File was deleted but integrity state exists - run audit repair"],
+                        backups=backups,
+                    )
                 )
-            )
+                total_broken += 1
+            else:
+                files.append(
+                    AuditFileResult(
+                        name=file_key,
+                        description=description,
+                        status="not_created",
+                        backups=backups,
+                    )
+                )
             continue
 
         try:
@@ -136,15 +150,29 @@ def _build_audit_verify(proxy_name: str, proxy_id: str) -> AuditVerifyResponse:
                 lines = [line.strip() for line in f if line.strip()]
 
             if not lines:
-                files.append(
-                    AuditFileResult(
-                        name=file_key,
-                        description=description,
-                        status="empty",
-                        entry_count=0,
-                        backups=backups,
+                # Check if state exists — file was emptied after being protected
+                if state_manager.has_state_for_file(rel_key):
+                    files.append(
+                        AuditFileResult(
+                            name=file_key,
+                            description=description,
+                            status="broken",
+                            entry_count=0,
+                            errors=["File is empty but integrity state exists - entries were deleted"],
+                            backups=backups,
+                        )
                     )
-                )
+                    total_broken += 1
+                else:
+                    files.append(
+                        AuditFileResult(
+                            name=file_key,
+                            description=description,
+                            status="empty",
+                            entry_count=0,
+                            backups=backups,
+                        )
+                    )
                 continue
 
             # Check last entry for hash chain fields
