@@ -36,7 +36,7 @@ export function ProxyDetailPage() {
   const navigate = useNavigate()
   const { proxies: managerProxies, loading: managerLoading } = useManagerProxies()
   const { pending, approve, approveOnce, deny } = useAppState()
-  const { clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
+  const { cached: proxyCached, loading: cachedLoading, clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const [loaded, setLoaded] = useState(false)
   const [copied, setCopied] = useState(false)
   const [auditHasIssues, setAuditHasIssues] = useState(false)
@@ -204,11 +204,12 @@ export function ProxyDetailPage() {
   const isActive = managerProxy.status === 'running'
   const isRunning = proxyDetail?.status === 'running'
 
-  // Use SSE-managed pending state filtered to this proxy (updates in real-time on approve/deny)
+  // Use SSE-managed state filtered to this proxy (updates in real-time)
   const proxyPending = pending.filter((p) => p.proxy_id === proxyId)
-
-  // Get cached approvals from detail response
-  const proxyCached = proxyDetail?.cached_approvals ?? []
+  const proxyFiltered = useMemo(
+    () => proxyCached.filter((c) => !c.proxy_id || c.proxy_id === proxyId),
+    [proxyCached, proxyId]
+  )
 
   return (
     <Layout showFooter={false}>
@@ -289,8 +290,8 @@ export function ProxyDetailPage() {
                 loaded={loaded}
               />
               <CachedSection
-                cached={proxyCached}
-                loading={detailLoading}
+                cached={proxyFiltered}
+                loading={cachedLoading}
                 onClear={clearCached}
                 onDelete={deleteCached}
                 loaded={loaded}

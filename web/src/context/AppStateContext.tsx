@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
-import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
+import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest, fetchCachedApprovals, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound, notifyError } from '@/hooks/useErrorSound'
@@ -7,6 +7,7 @@ import { requestNotificationPermission, showApprovalNotification } from '@/lib/n
 import { ApiError, type CachedApproval, type PendingApproval, type ProxyStats, type SSEEvent, type SSEEventType, type SSEProxyDisconnectedEvent, type SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
+const SHUTDOWN_TOAST_ID = 'proxy-shutdown'
 
 // Default messages for system events
 const DEFAULT_MESSAGES: Partial<Record<SSEEventType, string>> = {
@@ -143,20 +144,32 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     const handleEvent = (event: SSEEvent) => {
       switch (event.type) {
         // HITL-specific events
-        case 'snapshot':
-          setPending(event.approvals || [])
+        case 'snapshot': {
+          const snapshotApprovals = (event.approvals || []).map((a) =>
+            event.proxy_name ? { ...a, proxy_name: event.proxy_name } : a
+          )
+          setPending(snapshotApprovals)
           setConnected(true)
           setConnectionStatus('connected')
           // Reset error count on successful reconnect
           errorCountRef.current = 0
+          // Dismiss shutdown toast if proxy was restarted
+          if (isShutdownRef.current) {
+            toast.dismiss(SHUTDOWN_TOAST_ID)
+            isShutdownRef.current = false
+          }
           break
+        }
         case 'pending_created':
           if (event.approval) {
-            setPending((prev) => [...prev, event.approval!])
+            const created = event.proxy_name
+              ? { ...event.approval, proxy_name: event.proxy_name }
+              : event.approval
+            setPending((prev) => [...prev, created])
             playApprovalChime()
             // Request notification permission on first approval, then show notification
             requestNotificationPermission()
-              .then(() => showApprovalNotification(event.approval!))
+              .then(() => showApprovalNotification(created))
               .catch(() => {}) // Notification errors are non-critical
           }
           break
@@ -172,13 +185,26 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           }
           break
 
-        // Cached approvals snapshot (full state from SSE)
-        case 'cached_snapshot':
-          setCached(event.approvals || [])
+        // Cached approvals snapshot (full state from SSE, per-proxy)
+        case 'cached_snapshot': {
+          const eventProxyId = event.proxy_id
+          const tagged = (event.approvals || []).map((a) =>
+            eventProxyId ? { ...a, proxy_id: eventProxyId } : a
+          )
+          if (eventProxyId) {
+            // Merge: replace this proxy's entries, keep others
+            setCached((prev) => [
+              ...prev.filter((c) => c.proxy_id !== eventProxyId),
+              ...tagged,
+            ])
+          } else {
+            setCached(tagged)
+          }
           if (event.ttl_seconds !== undefined) {
             setCachedTtlSeconds(event.ttl_seconds)
           }
           break
+        }
 
         // Live stats update
         case 'stats_updated':
@@ -228,7 +254,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // The manager connection is still fine, only the proxy shut down
         case 'critical_shutdown':
           isShutdownRef.current = true
-          toast.error(event.message || 'Proxy shut down', { duration: 15_000 })
+          toast.error(event.message || 'Proxy shut down', { id: SHUTDOWN_TOAST_ID, duration: 15_000 })
           playErrorSound()
           break
 
@@ -292,10 +318,28 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // Refetch cached approvals from the REST API.
+  // Used after actions that modify the cache to guarantee the UI updates
+  // even if the SSE cached_snapshot event doesn't arrive.
+  const refetchCached = useCallback(async () => {
+    try {
+      const res = await fetchCachedApprovals()
+      setCached(res.approvals)
+      if (res.ttl_seconds !== undefined) {
+        setCachedTtlSeconds(res.ttl_seconds)
+      }
+    } catch {
+      // Non-critical — SSE may still deliver the update
+    }
+  }, [])
+
   const approve = useCallback(async (id: string) => {
     try {
       await approveRequest(id)
       toast.success('Request approved')
+      // Approval may have been cached — refetch after a short delay to let
+      // the middleware store the approval before we query for it
+      void setTimeout(() => void refetchCached(), 500)
     } catch (e) {
       // 404 errors emit SSE pending_not_found event with toast
       // 401/403 show specific authentication/authorization messages
@@ -311,7 +355,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         notifyError('Failed to approve request')
       }
     }
-  }, [])
+  }, [refetchCached])
 
   const approveOnce = useCallback(async (id: string) => {
     try {
@@ -358,7 +402,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const clearCached = useCallback(async () => {
     try {
       await clearCachedApprovals()
-      // Note: State update comes from SSE cached_snapshot event
+      setCached([])
     } catch {
       notifyError('Failed to clear cache')
     }
@@ -367,7 +411,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const deleteCached = useCallback(async (subjectId: string, toolName: string, path: string | null) => {
     try {
       await deleteCachedApproval(subjectId, toolName, path)
-      // Note: State update comes from SSE cached_snapshot event
+      setCached((prev) => prev.filter(
+        (c) => !(c.subject_id === subjectId && c.tool_name === toolName && c.path === path)
+      ))
     } catch {
       notifyError('Failed to delete cached approval')
     }

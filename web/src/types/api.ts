@@ -114,6 +114,7 @@ export interface IncidentEntry {
 export interface PendingApproval {
   id: string
   proxy_id: string
+  proxy_name?: string
   tool_name: string
   path: string | null
   subject_id: string
@@ -125,6 +126,7 @@ export interface PendingApproval {
 }
 
 export interface CachedApproval {
+  proxy_id?: string
   subject_id: string
   tool_name: string
   path: string | null
@@ -132,6 +134,13 @@ export interface CachedApproval {
   age_seconds: number
   ttl_seconds: number
   expires_in_seconds: number
+}
+
+/** Response from GET /api/approvals/cached */
+export interface ApprovalCacheResponse {
+  count: number
+  ttl_seconds: number
+  approvals: CachedApproval[]
 }
 
 export interface ProxyStatus {
@@ -209,6 +218,7 @@ export interface SSESnapshotEvent {
 export interface SSEPendingCreatedEvent {
   type: 'pending_created'
   approval: PendingApproval
+  proxy_name?: string
 }
 
 export interface SSEPendingResolvedEvent {
