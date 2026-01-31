@@ -29,7 +29,7 @@ export function setApiToken(token: string | null): void {
 /**
  * Ensure the API token is available (for dev mode).
  * In production, cookies handle auth so this is a no-op.
- * In dev mode, fetches token from /api/auth/dev-token if not already present.
+ * In dev mode, fetches token from /api/manager/auth/dev-token if not already present.
  */
 async function ensureToken(): Promise<void> {
   // Token already available (from window injection, test, or previous fetch)
@@ -47,7 +47,7 @@ async function ensureToken(): Promise<void> {
   // Fetch dev token (dev mode only - cross-origin needs Authorization header)
   tokenPromise = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/dev-token`, {
+      const res = await fetch(`${API_BASE}/manager/auth/dev-token`, {
         credentials: 'same-origin',
       })
       if (res.ok) {

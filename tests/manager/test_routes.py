@@ -23,6 +23,17 @@ from mcp_acp.manager.routes import (
     error_response,
 )
 
+# Valid 64-char hex token for SecurityMiddleware
+TEST_TOKEN = "a" * 64
+
+
+def _auth_headers() -> dict[str, str]:
+    """Return auth headers for GET requests (Bearer token + valid Host)."""
+    return {
+        "authorization": f"Bearer {TEST_TOKEN}",
+        "host": "localhost:8765",
+    }
+
 
 @pytest.fixture
 def registry() -> ProxyRegistry:
@@ -33,8 +44,8 @@ def registry() -> ProxyRegistry:
 @pytest.fixture
 def app(registry: ProxyRegistry) -> TestClient:
     """Create test client with fresh registry."""
-    fastapi_app = create_manager_api_app(token="test-token", registry=registry)
-    return TestClient(fastapi_app)
+    fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+    return TestClient(fastapi_app, headers=_auth_headers())
 
 
 class TestManagerStatusEndpoint:
@@ -67,8 +78,8 @@ class TestManagerStatusEndpoint:
             writer=writer,
         )
 
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         response = client.get("/api/manager/status")
 
@@ -138,8 +149,8 @@ class TestManagerProxiesEndpoint:
             writer=writer,
         )
 
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         response = client.get("/api/manager/proxies")
 
@@ -417,8 +428,8 @@ class TestProxyCreationEndpoint:
         )
 
         # Create app after patching
-        fastapi_app = create_manager_api_app(token="test-token", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         response = client.post(
             "/api/manager/proxies",
@@ -463,8 +474,8 @@ class TestProxyCreationEndpoint:
         )
 
         # Create app after patching
-        fastapi_app = create_manager_api_app(token="test-token", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         response = client.post(
             "/api/manager/proxies",
@@ -746,8 +757,8 @@ class TestProxyDeletionEndpoint:
             writer=writer,
         )
 
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         response = client.delete("/api/manager/proxies/px_abcd1234:running-server")
 
@@ -1050,8 +1061,8 @@ class TestProxyRoutingErrors:
             writer=writer,
         )
 
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         response = client.get("/api/proxy/broken/status")
 
@@ -1079,8 +1090,8 @@ class TestProxyRoutingErrors:
                 writer=writer,
             )
 
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         # Request without specifying proxy
         response = client.get("/api/approvals/pending")
@@ -1207,8 +1218,8 @@ class TestActivityTrackingMiddleware:
 
     def test_status_endpoint_does_not_record_activity(self, registry: ProxyRegistry) -> None:
         """Status endpoint requests don't reset idle timer."""
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         # Record activity and wait
         registry.record_activity()
@@ -1224,8 +1235,8 @@ class TestActivityTrackingMiddleware:
 
     def test_proxies_endpoint_records_activity(self, registry: ProxyRegistry) -> None:
         """Non-exempt endpoints reset idle timer."""
-        fastapi_app = create_manager_api_app(token="test", registry=registry)
-        client = TestClient(fastapi_app)
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
 
         # Wait to ensure time passes
         time.sleep(0.02)
@@ -1241,3 +1252,117 @@ class TestActivityTrackingMiddleware:
     def test_idle_exempt_paths_is_frozenset(self) -> None:
         """IDLE_EXEMPT_PATHS is immutable."""
         assert isinstance(IDLE_EXEMPT_PATHS, frozenset)
+
+
+class TestManagerSecurityMiddleware:
+    """Tests for SecurityMiddleware on the manager HTTP server."""
+
+    @pytest.fixture
+    def secured_app(self, registry: ProxyRegistry) -> TestClient:
+        """Create test client WITHOUT default auth headers."""
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        return TestClient(fastapi_app, raise_server_exceptions=False)
+
+    def test_request_without_token_returns_401(self, secured_app: TestClient) -> None:
+        """API request without token is rejected with 401."""
+        response = secured_app.get(
+            "/api/manager/status",
+            headers={"host": "localhost:8765"},
+        )
+        assert response.status_code == 401
+
+    def test_request_with_valid_bearer_returns_200(self, secured_app: TestClient) -> None:
+        """API request with valid Bearer token succeeds."""
+        response = secured_app.get(
+            "/api/manager/status",
+            headers=_auth_headers(),
+        )
+        assert response.status_code == 200
+
+    def test_request_with_valid_cookie_returns_200(self, secured_app: TestClient) -> None:
+        """API request with valid cookie token succeeds."""
+        secured_app.cookies.set("api_token", TEST_TOKEN)
+        response = secured_app.get(
+            "/api/manager/status",
+            headers={"host": "localhost:8765"},
+        )
+        secured_app.cookies.clear()
+        assert response.status_code == 200
+
+    def test_post_without_origin_returns_403(self, secured_app: TestClient) -> None:
+        """POST without Origin header and without Bearer token is rejected."""
+        response = secured_app.post(
+            "/api/manager/proxies/notify-deleted",
+            headers={"host": "localhost:8765"},
+            json={"proxy_id": "px_test:test", "proxy_name": "test"},
+        )
+        assert response.status_code == 403
+
+    def test_invalid_host_returns_403(self, secured_app: TestClient) -> None:
+        """Request with invalid Host header is rejected."""
+        response = secured_app.get(
+            "/api/manager/status",
+            headers={
+                "host": "evil.com",
+                "authorization": f"Bearer {TEST_TOKEN}",
+            },
+        )
+        assert response.status_code == 403
+
+    def test_static_files_bypass_auth(self, secured_app: TestClient) -> None:
+        """Static file serving (SPA) does not require auth."""
+        response = secured_app.get(
+            "/",
+            headers={"host": "localhost:8765"},
+        )
+        # 200 if static files exist, 404 if not built — neither is 401/403
+        assert response.status_code in (200, 404)
+
+    # Note: SSE /api/events tests are omitted here because the streaming
+    # EventSourceResponse blocks the synchronous TestClient. SSE auth handling
+    # is covered by tests/api/test_security.py (TestSecurityMiddlewareHTTP).
+
+    def test_rejected_request_does_not_trigger_activity(self, registry: ProxyRegistry) -> None:
+        """Rejected (401/403) requests do not trigger activity tracking."""
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, raise_server_exceptions=False)
+
+        # Record activity after client creation to avoid startup side effects
+        registry.record_activity()
+        time.sleep(0.05)
+        before = registry.seconds_since_last_activity()
+        assert before >= 0.04  # sanity check
+
+        # Unauthenticated request — rejected by SecurityMiddleware before
+        # reaching the track_activity middleware
+        client.get(
+            "/api/manager/proxies",
+            headers={"host": "localhost:8765"},
+        )
+
+        after = registry.seconds_since_last_activity()
+        assert after >= before
+
+
+class TestDevTokenEndpoint:
+    """Tests for GET /api/manager/auth/dev-token endpoint."""
+
+    def test_returns_404_when_not_dev_mode(self, app: TestClient, monkeypatch: "pytest.MonkeyPatch") -> None:
+        """Returns 404 when MCP_ACP_CORS_ORIGINS is not set."""
+        monkeypatch.delenv("MCP_ACP_CORS_ORIGINS", raising=False)
+
+        response = app.get("/api/manager/auth/dev-token")
+        assert response.status_code == 404
+
+    def test_returns_token_in_dev_mode(
+        self, registry: ProxyRegistry, monkeypatch: "pytest.MonkeyPatch"
+    ) -> None:
+        """Returns manager's api_token when CORS origins include Vite dev port."""
+        monkeypatch.setenv("MCP_ACP_CORS_ORIGINS", "http://localhost:3000")
+
+        fastapi_app = create_manager_api_app(token=TEST_TOKEN, registry=registry)
+        client = TestClient(fastapi_app, headers=_auth_headers())
+
+        response = client.get("/api/manager/auth/dev-token")
+        assert response.status_code == 200
+        assert response.json()["token"] == TEST_TOKEN

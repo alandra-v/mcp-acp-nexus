@@ -29,12 +29,14 @@ __all__ = [
     "error_response",
 ]
 
+import os
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.cors import CORSMiddleware
 
 from mcp_acp.api.errors import (
     APIError,
@@ -42,6 +44,7 @@ from mcp_acp.api.errors import (
     http_exception_handler,
     validation_error_handler,
 )
+from mcp_acp.api.security import SecurityMiddleware
 from mcp_acp.manager.registry import ProxyRegistry, get_proxy_registry
 
 from .forwarding import IDLE_EXEMPT_PATHS, MANAGER_API_PREFIXES
@@ -104,6 +107,10 @@ def create_manager_api_app(
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
+    # Middleware ordering — Starlette processes LIFO (last-added = outermost).
+    # Add in this order so the stack is: CORS → Security → track_activity → routes.
+
+    # 1. track_activity (first → innermost — only runs after security checks pass)
     @app.middleware("http")
     async def track_activity(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -118,6 +125,23 @@ def create_manager_api_app(
         if request.url.path not in IDLE_EXEMPT_PATHS:
             request.app.state.registry.record_activity()
         return response
+
+    # 2. SecurityMiddleware (middle — runs after CORS preflight is handled)
+    if token:
+        app.add_middleware(SecurityMiddleware, token=token, is_uds=False)
+
+    # 3. CORS (last → outermost — handles OPTIONS preflight before SecurityMiddleware)
+    cors_origins_env = os.environ.get("MCP_ACP_CORS_ORIGINS", "").strip()
+    if cors_origins_env:
+        cors_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization"],
+            max_age=3600,
+        )
 
     # Include all routers
     # Order matters: more specific routes should be included before catch-all routes

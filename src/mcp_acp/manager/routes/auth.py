@@ -6,16 +6,19 @@ __all__ = ["router"]
 
 import asyncio
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from mcp_acp.api.schemas.auth import (
     DeviceFlowStartResponse,
     FederatedLogoutResponse,
     LogoutResponse,
 )
+from mcp_acp.api.security import VITE_DEV_PORT
 from mcp_acp.constants import APP_NAME
 from mcp_acp.exceptions import AuthenticationError
 from mcp_acp.manager.config import load_manager_config
@@ -38,6 +41,58 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(f"{APP_NAME}.manager.auth")
 
 router = APIRouter(prefix="/api/manager/auth", tags=["auth"])
+
+
+# =============================================================================
+# Dev mode token endpoint
+# =============================================================================
+
+
+class _DevTokenResponse(BaseModel):
+    """Response for dev-token endpoint."""
+
+    token: str
+
+
+def _is_dev_mode() -> bool:
+    """Check if running in development mode.
+
+    Dev mode is detected by MCP_ACP_CORS_ORIGINS containing the Vite dev port.
+
+    Returns:
+        True if Vite dev port is present in CORS origins.
+    """
+    cors_origins = os.environ.get("MCP_ACP_CORS_ORIGINS", "")
+    return f":{VITE_DEV_PORT}" in cors_origins
+
+
+@router.get("/dev-token", response_model=_DevTokenResponse)
+async def get_dev_token(request: Request) -> _DevTokenResponse:
+    """Get API token for development mode.
+
+    Only available when MCP_ACP_CORS_ORIGINS includes the Vite dev port.
+    In production, returns 404.
+
+    Used by Vite dev server since it serves its own index.html and cannot
+    get the token from the manager's HttpOnly cookie injection.
+
+    Args:
+        request: FastAPI request object.
+
+    Returns:
+        _DevTokenResponse with the manager's api_token.
+
+    Raises:
+        HTTPException: 404 in production, 503 if token unavailable.
+    """
+    if not _is_dev_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    token = getattr(request.app.state, "api_token", None)
+    if not token:
+        raise HTTPException(status_code=503, detail="Token not available")
+
+    return _DevTokenResponse(token=token)
 
 
 # =============================================================================

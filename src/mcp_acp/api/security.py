@@ -60,11 +60,13 @@ ALLOWED_ORIGINS = {
     f"http://127.0.0.1:{VITE_DEV_PORT}",
 }
 
-# SSE endpoints that allow special auth handling
-SSE_ENDPOINTS = ("/pending", "/stream")
+# SSE endpoints that allow special auth handling (matched via path.endswith())
+# "/events" is loose — also matches forwarded proxy paths like /api/proxy/x/events.
+# This is safe since SSE handling only provides *alternative* auth, not a bypass.
+SSE_ENDPOINTS = ("/pending", "/stream", "/events")
 
 # Endpoints that bypass auth (dev mode only, protected by endpoint logic)
-AUTH_BYPASS_ENDPOINTS = ("/api/auth/dev-token",)
+AUTH_BYPASS_ENDPOINTS = ("/api/auth/dev-token", "/api/manager/auth/dev-token")
 
 # Max request size (1MB)
 MAX_REQUEST_SIZE = 1024 * 1024
