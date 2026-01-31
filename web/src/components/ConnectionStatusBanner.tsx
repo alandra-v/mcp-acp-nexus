@@ -27,11 +27,6 @@ export function ConnectionStatusBanner() {
         // Only show "Connection restored" on reconnection, not first connect
         setShowSuccess(true)
         setDismissed(false)
-        const timer = setTimeout(() => {
-          setShowSuccess(false)
-        }, 3000)
-        setPrevStatus(connectionStatus)
-        return () => clearTimeout(timer)
       } else {
         // First connection - just mark as connected, no banner
         setHasConnectedOnce(true)
@@ -45,6 +40,15 @@ export function ConnectionStatusBanner() {
 
     setPrevStatus(connectionStatus)
   }, [connectionStatus, prevStatus, hasConnectedOnce])
+
+  // Auto-hide success banner after 3 seconds (separate effect so the timer
+  // isn't killed by state updates in the main connection status effect)
+  useEffect(() => {
+    if (showSuccess) {
+      const timer = setTimeout(() => setShowSuccess(false), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [showSuccess])
 
   // Don't show banner if connected and not showing success message
   if (connectionStatus === 'connected' && !showSuccess) {
