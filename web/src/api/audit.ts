@@ -11,7 +11,7 @@ export type { BackupFileInfo }
 export interface AuditFileResult {
   name: string
   description: string
-  /** Status: 'protected', 'unprotected', 'broken', 'empty', 'not_created', 'error' */
+  /** Status: 'protected', 'unprotected', 'broken', 'missing', 'empty', 'not_created', 'error' */
   status: string
   entry_count: number | null
   last_sequence: number | null

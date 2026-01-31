@@ -50,6 +50,12 @@ const STATUS_CONFIG: Record<string, { icon: typeof Shield; color: string; label:
     label: 'Broken',
     description: 'Hash chain verification failed',
   },
+  missing: {
+    icon: ShieldAlert,
+    color: 'text-error',
+    label: 'Missing',
+    description: 'File was deleted after being protected',
+  },
   empty: {
     icon: Shield,
     color: 'text-muted-foreground',
@@ -87,7 +93,7 @@ function FileStatusRow({ file }: { file: AuditFileResult }) {
   const config = STATUS_CONFIG[file.status] || STATUS_CONFIG.error
   const Icon = config.icon
   const isRuntimeOnly = RUNTIME_ONLY_FILES.includes(file.name) && file.status === 'unprotected'
-  const isBroken = file.status === 'broken'
+  const isBroken = file.status === 'broken' || file.status === 'missing'
   const hasBackups = file.backups && file.backups.length > 0
 
   return (
@@ -248,7 +254,7 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
   // Calculate summary using API totals
   const protectedCount = status?.total_protected ?? 0
   const brokenCount = status?.total_broken ?? 0
-  const brokenFiles = status?.files.filter((f) => f.status === 'broken' || f.status === 'error') ?? []
+  const brokenFiles = status?.files.filter((f) => f.status === 'broken' || f.status === 'missing' || f.status === 'error') ?? []
   const totalFiles = status?.files.length ?? 0
 
   const summaryStatus =
@@ -347,7 +353,7 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
           <DialogHeader>
             <DialogTitle>Repair Audit Logs</DialogTitle>
             <DialogDescription>
-              The following files have broken hash chains and will be backed up and reset:
+              The following files have integrity issues and will be repaired:
             </DialogDescription>
           </DialogHeader>
 
@@ -358,7 +364,9 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{file.description}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {file.entry_count?.toLocaleString() ?? 0} entries will be backed up
+                    {file.status === 'missing'
+                      ? 'Stale integrity state will be cleared'
+                      : `${file.entry_count?.toLocaleString() ?? 0} entries will be backed up`}
                   </p>
                 </div>
               </div>

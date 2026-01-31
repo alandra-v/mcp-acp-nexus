@@ -225,7 +225,7 @@ describe('ProxyDetailPage', () => {
       pending: [],
       cached: [],
       cachedTtlSeconds: 0,
-      stats: null,
+      stats: {},
       connected: false,
       connectionStatus: 'reconnecting',
       approve: vi.fn(),
