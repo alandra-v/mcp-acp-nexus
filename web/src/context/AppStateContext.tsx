@@ -81,8 +81,8 @@ function showSystemToast(event: SSESystemEvent) {
       notifyError(message)
       break
     case 'critical':
-      // Critical events don't auto-dismiss and play error sound
-      toast.error(message, { duration: Infinity })
+      // Critical events stay longer than normal errors but still auto-dismiss
+      toast.error(message, { duration: 15_000 })
       playErrorSound()
       break
     case 'info':
@@ -224,11 +224,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           window.dispatchEvent(new CustomEvent('incidents-updated'))
           break
 
-        // Critical shutdown - show persistent toast but DON'T change connection status
+        // Critical shutdown - show long-lived toast but DON'T change connection status
         // The manager connection is still fine, only the proxy shut down
         case 'critical_shutdown':
           isShutdownRef.current = true
-          toast.error(event.message || 'Proxy shut down', { duration: Infinity })
+          toast.error(event.message || 'Proxy shut down', { duration: 15_000 })
           playErrorSound()
           break
 
