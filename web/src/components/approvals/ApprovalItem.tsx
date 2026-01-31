@@ -7,8 +7,8 @@ interface ApprovalItemProps {
   onApprove: () => void
   onApproveOnce: () => void
   onDeny: () => void
-  /** Show proxy ID badge (for global list) */
-  showProxyId?: boolean
+  /** Show proxy name badge (for global list) */
+  showProxy?: boolean
   /** Use compact horizontal layout */
   compact?: boolean
 }
@@ -84,7 +84,7 @@ export function ApprovalItem({
   onApprove,
   onApproveOnce,
   onDeny,
-  showProxyId = false,
+  showProxy = false,
   compact = false,
 }: ApprovalItemProps) {
   // Calculate TTL in minutes for button label
@@ -96,24 +96,29 @@ export function ApprovalItem({
 
   if (compact) {
     return (
-      <div className="flex items-center gap-4 p-4 card-gradient border border-[oklch(0.75_0.15_85_/_0.5)] rounded-lg shadow-[0_0_8px_var(--warning)]">
-        <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
-          {approval.tool_name}
-        </span>
-        <span className="flex-1 font-mono text-sm text-base-400 truncate">
-          {approval.path || '--'}
-        </span>
-        <span className={`text-xs tabular-nums ${isUrgent ? 'text-error' : 'text-base-500'}`}>
-          {formatCountdown(remaining)}
-        </span>
-        <ApprovalActions
-          canCache={approval.can_cache}
-          ttlMinutes={ttlMinutes}
-          onApprove={onApprove}
-          onApproveOnce={onApproveOnce}
-          onDeny={onDeny}
-          compact
-        />
+      <div className="p-4 card-gradient border border-[oklch(0.75_0.15_85_/_0.5)] rounded-lg shadow-[0_0_8px_var(--warning)]">
+        <div className="flex items-center gap-4">
+          <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
+            {approval.tool_name}
+          </span>
+          <span className="flex-1 font-mono text-sm text-base-400 truncate">
+            {approval.path || '--'}
+          </span>
+          <span className={`text-xs tabular-nums ${isUrgent ? 'text-error' : 'text-base-500'}`}>
+            {formatCountdown(remaining)}
+          </span>
+          <ApprovalActions
+            canCache={approval.can_cache}
+            ttlMinutes={ttlMinutes}
+            onApprove={onApprove}
+            onApproveOnce={onApproveOnce}
+            onDeny={onDeny}
+            compact
+          />
+        </div>
+        <div className="text-xs text-base-500 mt-2">
+          {approval.subject_id}
+        </div>
       </div>
     )
   }
@@ -122,9 +127,9 @@ export function ApprovalItem({
     <div className="p-4 card-gradient border border-[var(--border-subtle)] rounded-lg">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          {showProxyId && (
+          {showProxy && (
             <span className="text-xs text-base-500 bg-base-800 px-2 py-1 rounded">
-              {approval.proxy_id.split(':')[1] || approval.proxy_id}
+              {approval.proxy_name || approval.proxy_id}
             </span>
           )}
           <span className="font-mono text-sm text-base-300">
@@ -141,6 +146,10 @@ export function ApprovalItem({
           {approval.path}
         </div>
       )}
+
+      <div className="text-xs text-base-500 mb-3">
+        {approval.subject_id}
+      </div>
 
       <ApprovalActions
         canCache={approval.can_cache}

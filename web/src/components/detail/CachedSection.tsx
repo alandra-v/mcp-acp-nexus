@@ -62,23 +62,28 @@ function CachedItem({ item, onDelete }: CachedItemProps) {
   const isExpiring = remaining < 30
 
   return (
-    <div className="flex items-center gap-4 p-3 card-gradient-dark border border-[var(--border-subtle)] rounded-lg group">
-      <span className="font-mono text-sm text-base-300 bg-base-800 px-2 py-1 rounded">
-        {item.tool_name}
-      </span>
-      <span className="flex-1 font-mono text-xs text-base-500 truncate">
-        {item.path || '--'}
-      </span>
-      <span className={`text-xs tabular-nums ${isExpiring ? 'text-warning' : 'text-base-600'}`}>
-        {remaining > 0 ? `expires in ${formatCountdown(remaining)}` : 'expired'}
-      </span>
-      <button
-        onClick={() => onDelete(item.subject_id, item.tool_name, item.path)}
-        className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 hover:bg-base-700 rounded text-base-500 hover:text-base-300"
-        aria-label="Delete cached approval"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+    <div className="p-3 card-gradient-dark border border-[var(--border-subtle)] rounded-lg group">
+      <div className="flex items-center gap-4">
+        <span className="font-mono text-sm text-base-300 bg-base-800 px-2 py-1 rounded">
+          {item.tool_name}
+        </span>
+        <span className="flex-1 font-mono text-xs text-base-500 truncate">
+          {item.path || '--'}
+        </span>
+        <span className={`text-xs tabular-nums ${isExpiring ? 'text-warning' : 'text-base-600'}`}>
+          {remaining > 0 ? `expires in ${formatCountdown(remaining)}` : 'expired'}
+        </span>
+        <button
+          onClick={() => onDelete(item.subject_id, item.tool_name, item.path)}
+          className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 hover:bg-base-700 rounded text-base-500 hover:text-base-300"
+          aria-label="Delete cached approval"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="text-xs text-base-500 mt-1.5">
+        {item.subject_id}
+      </div>
     </div>
   )
 }

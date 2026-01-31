@@ -58,7 +58,7 @@ export function PendingDrawer({
                   onApprove={() => onApprove(approval.id)}
                   onApproveOnce={() => onApproveOnce(approval.id)}
                   onDeny={() => onDeny(approval.id)}
-                  showProxyId
+                  showProxy
                 />
               ))
             )}
