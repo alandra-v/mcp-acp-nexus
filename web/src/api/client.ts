@@ -35,13 +35,16 @@ async function ensureToken(): Promise<void> {
   // Token already available (from window injection, test, or previous fetch)
   if (API_TOKEN) return
 
+  // Production mode uses cookies - no token needed
+  if (!import.meta.env.DEV) return
+
   // Already fetching - wait for that
   if (tokenPromise) {
     await tokenPromise
     return
   }
 
-  // Try to fetch dev token (only works in dev mode)
+  // Fetch dev token (dev mode only - cross-origin needs Authorization header)
   tokenPromise = (async () => {
     try {
       const res = await fetch(`${API_BASE}/auth/dev-token`, {
@@ -51,10 +54,8 @@ async function ensureToken(): Promise<void> {
         const data = await res.json()
         API_TOKEN = data.token
       }
-      // 404 means production mode - that's fine, cookies will be used
     } catch {
-      // Network error or other issue - continue without token
-      // In production, cookies will handle auth
+      // Network error - continue without token
     }
   })()
 
