@@ -41,6 +41,28 @@ MANAGER_API_PREFIXES = ("/api/manager/", "/api/events", "/api/proxy/")
 # - /api/events: SSE keepalives (connection itself counts, not keepalives)
 IDLE_EXEMPT_PATHS = frozenset({"/api/manager/status", "/api/events"})
 
+# Headers stripped when forwarding to proxy UDS sockets.
+# Hop-by-hop headers (RFC 7230 §6.1) must not cross connection boundaries.
+# Auth headers belong to the manager session — the proxy UDS connection is
+# authenticated by OS file permissions, not by bearer tokens or cookies.
+_STRIP_HEADERS = frozenset(
+    (
+        # Hop-by-hop (RFC 7230)
+        "host",
+        "connection",
+        "keep-alive",
+        "transfer-encoding",
+        "te",
+        "trailer",
+        "upgrade",
+        "proxy-authenticate",
+        "proxy-authorization",
+        # Auth (manager-session scoped)
+        "authorization",
+        "cookie",
+    )
+)
+
 router = APIRouter(tags=["forwarding"])
 
 
@@ -74,12 +96,7 @@ async def _forward_request_to_proxy(
             # Read body for POST/PUT/PATCH
             body = await request.body() if request.method in ("POST", "PUT", "PATCH") else None
 
-            # Forward headers (filter out hop-by-hop headers)
-            forward_headers = {
-                k: v
-                for k, v in request.headers.items()
-                if k.lower() not in ("host", "connection", "transfer-encoding")
-            }
+            forward_headers = {k: v for k, v in request.headers.items() if k.lower() not in _STRIP_HEADERS}
 
             # Make request to proxy
             response = await client.request(
