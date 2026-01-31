@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button'
 import { ProxyGrid } from '@/components/proxies/ProxyGrid'
 import { ProxyGridSkeleton } from '@/components/proxies/ProxyCardSkeleton'
 import { useManagerProxies } from '@/hooks/useManagerProxies'
+import { useAppState } from '@/context/AppStateContext'
 import { getConfigSnippet } from '@/api/proxies'
 import { AddProxyModal } from '@/components/proxy/AddProxyModal'
 import { notifyError } from '@/hooks/useErrorSound'
@@ -45,7 +46,22 @@ function EmptyState({ onAddProxy }: { onAddProxy: () => void }) {
 }
 
 export function ProxyListPage() {
-  const { proxies, loading: proxiesLoading, refetch } = useManagerProxies()
+  const { proxies: rawProxies, loading: proxiesLoading, refetch } = useManagerProxies()
+  const { stats: sseStats } = useAppState()
+
+  // Merge SSE-maintained stats as fallback when API returns null stats.
+  // AppStateContext persists across SPA navigation and always has the latest
+  // stats from SSE events, covering the case where the backend UDS stats
+  // fetch times out or fails on the initial API call after navigation.
+  const proxies = useMemo(() =>
+    rawProxies.map(p => {
+      if (p.stats) return p
+      const fallback = sseStats[p.proxy_id]
+      return fallback ? { ...p, stats: fallback } : p
+    }),
+    [rawProxies, sseStats]
+  )
+
   const [filter, setFilter] = useState<FilterType>(() => {
     const stored = localStorage.getItem(FILTER_STORAGE_KEY)
     return stored === 'active' || stored === 'inactive' ? stored : 'all'
