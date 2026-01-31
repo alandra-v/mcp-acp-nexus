@@ -355,10 +355,10 @@ class ProxyState:
         """Emit current cached approvals to all SSE subscribers.
 
         Called after cache modifications to keep UI in sync.
+        Unlike stats events (high-frequency, self-correcting), cache changes
+        are rare and a dropped event leaves the UI stale until reload.
+        Always broadcast — _broadcast_event no-ops if nobody is listening.
         """
-        if not self.is_ui_connected:
-            return
-
         approvals = self.get_cached_approvals_for_sse()
         self._broadcast_event(
             {

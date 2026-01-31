@@ -1,5 +1,5 @@
-import { apiPost, apiDelete, createSSEConnection } from './client'
-import type { SSEEvent } from '@/types/api'
+import { apiGet, apiPost, apiDelete, createSSEConnection } from './client'
+import type { ApprovalCacheResponse, SSEEvent } from '@/types/api'
 
 // SSE subscription for real-time updates (pending approvals come via this)
 export async function subscribeToPendingApprovals(
@@ -21,7 +21,11 @@ export async function denyRequest(id: string): Promise<{ status: string; approva
   return apiPost(`/approvals/pending/${id}/deny`)
 }
 
-// Cached approvals (state now comes via SSE, these are action endpoints only)
+// Cached approvals
+export async function fetchCachedApprovals(): Promise<ApprovalCacheResponse> {
+  return apiGet('/approvals/cached')
+}
+
 export async function clearCachedApprovals(): Promise<{ cleared: number; status: string }> {
   return apiDelete('/approvals/cached')
 }
