@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__all__ = ["get_config_snippet"]
+__all__ = ["get_config_snippet", "get_executable_path"]
 
 import shutil
 import sys
@@ -17,7 +17,7 @@ from mcp_acp.manager.models import ConfigSnippetResponse
 from . import router
 
 
-def _get_executable_path() -> str:
+def get_executable_path() -> str:
     """Find absolute path to mcp-acp executable.
 
     Tries multiple methods to find the executable:
@@ -76,7 +76,7 @@ async def get_config_snippet(proxy: str | None = None) -> ConfigSnippetResponse:
         # All proxies
         proxies_to_include = proxies
 
-    executable = _get_executable_path()
+    executable = get_executable_path()
 
     mcp_servers: dict[str, dict[str, Any]] = {}
     for name in proxies_to_include:
