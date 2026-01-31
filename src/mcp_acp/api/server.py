@@ -111,6 +111,9 @@ def create_api_app(
         title="MCP-ACP Extended API",
         description="Management API for MCP-ACP Extended proxy",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
     # Store token for injection into index.html (HTTP only, not UDS)
