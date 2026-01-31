@@ -4,26 +4,26 @@
 
 The proxy is **CLI-first** — it runs fully standalone without any web interface, and all functionality is available through command-line tools. See [Usage](usage.md) for CLI commands.
 
-The web UI is an **optional add-on** for users who prefer a graphical interface for monitoring and approvals. It runs on localhost with multiple hardening layers: Host header validation, Origin checks, CSRF protection, token authentication, and Private Network Access headers. For minimal attack surface, you can disable the UI entirely.
+The web UI is an **optional add-on** for monitoring, approvals, policy editing, and configuration. It runs on localhost only, with token authentication and CSRF protection. For minimal attack surface, you can disable it entirely.
 
 ---
 
 ## Accessing the UI
 
-The UI is enabled by default and starts automatically with the proxy:
+The manager daemon serves the UI and starts automatically when a proxy launches:
 
 ```
 http://localhost:8765
 ```
 
-The UI is accessible without login for viewing. However, **approving HITL requests requires OIDC authentication** (see Features → HITL Approval Requirements).
-
----
+The UI is accessible without login for viewing. **Approving HITL requests requires OIDC authentication** — the approver must be the same user who initiated the MCP session (session binding).
 
 ## Disabling the UI
 
+Pass `--headless` to run without the manager or web UI:
+
 ```bash
-mcp-acp start --no-ui
+mcp-acp start --headless
 ```
 
 Or in Claude Desktop config:
@@ -33,155 +33,172 @@ Or in Claude Desktop config:
   "mcpServers": {
     "mcp-acp": {
       "command": "/path/to/mcp-acp",
-      "args": ["start", "--no-ui"]
+      "args": ["start", "--headless"]
     }
   }
 }
 ```
 
-When disabled:
-- No HTTP server runs (port 8765 not opened)
+When headless:
+- No manager daemon runs (port 8765 not opened)
 - HITL approvals use native system dialogs (osascript on macOS)
 - All functionality remains available via CLI
 
 ---
 
-## Security Model
+## Pages
 
-### Localhost-Only Binding
+The UI has four pages, accessible from the header navigation:
 
-The API server binds exclusively to `127.0.0.1`. Remote connections are not possible. Host header validation prevents DNS rebinding attacks.
+| Page | Path | Purpose |
+|------|------|---------|
+| Proxy List | `/` | All configured proxies at a glance |
+| Proxy Detail | `/proxy/:id` | Per-proxy monitoring, policy, config, logs |
+| Incidents | `/incidents` | Security events timeline |
+| Auth | `/auth` | Authentication status and login |
 
-### Authentication
+The header also contains:
+- **Pending** button — opens a side drawer with all pending HITL approvals (badge shows count)
+- **Incidents** link — badge shows unread count since last visit
+- **Auth dropdown** — current user and logout
 
-- **Production**: HttpOnly cookie (`api_token`) with `SameSite=Strict`, automatically set on page load
-- **Token generation**: 32 bytes of cryptographic randomness (64 hex characters)
-- **Token validation**: Constant-time comparison to prevent timing attacks
+### Proxy List
 
-### CSRF Protection
+The landing page. Shows a card for each configured proxy with:
+- Name, server name, status indicator (green = running)
+- Real-time stats: Total Requests, Denied, HITL
+- Click a card to open the proxy detail page
 
-Multiple layers:
-- **SameSite=Strict cookies**: Prevents cross-site cookie submission
-- **Origin header validation**: Required for all mutations (POST, PUT, DELETE)
-- **Host header validation**: Blocks DNS rebinding attacks
+Actions:
+- **Filter chips** (All / Running / Inactive) — persisted across sessions
+- **Add Proxy** — opens a creation form (name, server name, transport, command/args or URL, advanced options). On success shows a Claude Desktop config snippet to copy.
+- **Export All Client Configs** — copies the combined MCP client JSON for all proxies to the clipboard
 
-### Security Headers
+### Proxy Detail
 
-```
-X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
-Content-Security-Policy: default-src 'self'; ...
-Cache-Control: no-store
-Referrer-Policy: same-origin
-Permissions-Policy: camera=(), microphone=(), geolocation=()
-```
+Four tabs in a left sidebar:
 
-### Request Limits
+#### Overview
 
-Maximum request size: 1MB
+- **Transport Flow** — visual diagram: Client ↔ Proxy ↔ Backend, with connection status colors and mTLS indicator
+- **Session Statistics** — four live-updating stat boxes (Total, Allowed, Denied, HITL)
+- **Pending Approvals** — HITL requests waiting for a decision. Each shows tool name, resource path, subject ID, a live countdown timer (turns red below 10 seconds), and action buttons: Deny, Allow (with cache TTL), Allow once
+- **Cached Decisions** — previously approved decisions with expiration countdowns. Clear all or delete individually.
+- **Activity** — summary of recent proxy activity
 
-### CLI Access via Unix Domain Socket
+#### Audit
 
-CLI commands use a Unix Domain Socket for local communication. Authentication relies on OS file permissions (socket is owner-only, mode 0600), bypassing HTTP authentication while maintaining security.
+- **Log Viewer** — browse audit, system, and debug logs with filters:
+  - Folder selector (audit / system / debug)
+  - Log type (decisions, operations, auth, system, config_history, policy_history, wire logs)
+  - Time range (5m / 1h / 24h / all)
+  - Filters: decision, HITL outcome, log level, session ID, request ID, policy/config version
+  - Expandable rows to view full JSON entries
+  - "Load More" pagination
+- **Log Integrity** — audit log verification status. Red sidebar indicator when integrity issues are detected.
 
----
+Debug logs are only available when `log_level` is set to `DEBUG` in proxy config.
 
-## Features
+#### Policy
 
-### Dashboard
+Two editing modes, toggled at the top:
 
-- **Proxy status**: Uptime, backend connection, transport type
-- **Live statistics**: Request counts (allowed/denied/HITL)
-- **Pending approvals**: Real-time HITL requests with approve/deny buttons
-- **Cached approvals**: View and clear cached HITL decisions
-- **Activity log**: Recent operations with filtering
+- **Visual Editor** — shows policy version, rule count, and default action. Each rule displays its effect (allow/deny/hitl), conditions, and has edit/delete buttons. "Add Rule" opens a form dialog for description, effect, conditions, and cache side effects.
+- **JSON** — raw policy JSON editor with save button
 
-### Policy & Config
+Changes are saved to disk and automatically reloaded by the proxy without restart.
 
-- View current policy rules and configuration
-- Add/edit/delete policy rules (changes auto-reload)
-- JSON editor for advanced policy editing
+#### Config
+
+A form covering all proxy settings:
+
+- **Backend** — server name, transport (auto/stdio/streamable HTTP), command + args (stdio), URL + timeout (HTTP)
+- **Logging** — log level (INFO/DEBUG), include payloads toggle (debug only)
+- **HITL** — timeout (5–300s), approval cache TTL (300–900s)
+- **Authentication** — OIDC settings (issuer, client ID, audience, scopes), API key management (set/update/remove, stored in OS keychain), binary attestation (SLSA), mTLS certificate paths
+- **Save / Discard** — the form highlights with an orange border when there are unsaved changes. Config changes are saved to disk but require a proxy restart to take effect.
 
 ### Incidents
 
-- Security shutdown history
-- Bootstrap errors
-- Emergency audit entries
+A timeline of security events across all proxies:
 
-### Real-time Updates
+- Filter by proxy name and incident type (Shutdowns / Startup / Emergency Audit)
+- Incidents new since your last visit glow to stand out
+- "Load More" for pagination
 
-- SSE (Server-Sent Events) for live notifications
-- Audio chime when new HITL request arrives
-- Error sound for critical events (backend disconnect, auth failures)
-- Toast notifications for system events
+The header badge clears when you visit the page.
 
-### Background Tab Alerts
+### Auth
 
-When the UI is in a background tab:
-- Page title updates with pending count (e.g., "(2) MCP ACP")
-- Audio notifications still play
+Shows current authentication state:
 
-### HITL Approval Requirements
-
-**Important**: Approving or denying requests from the UI requires OIDC authentication. The approver must be the same user who initiated the MCP session (session binding).
-
-If not logged in, use native system dialogs instead (see Fallback Behavior).
-
-### Fallback Behavior
-
-If the UI is not open when a HITL approval is needed, the proxy falls back to native system dialogs (osascript on macOS). These steal focus and play a system sound.
-
-### Connection Status
-
-A banner displays when the backend disconnects, showing reconnection attempts.
+- Status (authenticated or not), email, name, subject ID, token expiration, refresh token status
+- **Login** — starts an OAuth device flow: shows a device code, opens the identity provider verification page, polls for completion
+- **Logout** — clears local credentials
+- **Logout (federated)** — also signs out from the identity provider
+- OIDC configuration details (issuer, client ID, audience, scopes) — read-only
 
 ---
 
-## Manager Daemon Lifecycle
+## Approvals
 
-The manager daemon serves the web UI and coordinates multiple proxies. It has intelligent lifecycle management to avoid running indefinitely when not needed.
+HITL approval requests appear in two places:
+
+1. **Header drawer** — click the "Pending" button to open a side sheet listing all pending approvals across all proxies. Each shows the proxy name, tool, path, subject, countdown, and action buttons.
+2. **Proxy Detail → Overview** — the same approvals scoped to that proxy.
+
+For each approval you can:
+- **Allow** — approve and cache the decision for the configured TTL (similar requests auto-approved)
+- **Allow once** — one-time approval, not cached
+- **Deny** — reject the request
+
+If no action is taken before the timeout, the request is automatically denied.
+
+### Notifications
+
+- Audio chime when a new approval arrives
+- Error sound for critical events (backend disconnect, auth failures)
+- Toast notifications for system events
+- Document title updates to `🔴 (N) MCP ACP` when approvals are pending in a background tab
+
+### Fallback
+
+If the UI is not open when a HITL approval is needed, the proxy falls back to native system dialogs (osascript on macOS).
+
+---
+
+## Connection Status
+
+A banner at the top of the page shows the SSE connection state:
+
+- **Connected** — hidden (normal operation)
+- **Reconnecting** — shown with spinner, auto-retries in background
+- **Disconnected** — shown after repeated failures, with a manual retry button
+
+---
+
+## Manager Lifecycle
+
+The manager daemon serves the web UI and coordinates multiple proxies.
 
 ### Auto-Start
 
 The manager starts automatically when:
-- A proxy starts and the UI is enabled (default behavior)
+- A proxy starts and `--headless` is not set (default)
 - You run `mcp-acp manager start` manually
 
 ### Idle Shutdown
 
-The manager automatically shuts down after **5 minutes of inactivity** to conserve resources. Activity is defined as:
+The manager shuts down after **5 minutes of inactivity** to conserve resources.
 
-- Proxy connections/disconnections
-- Browser tabs opening/closing (SSE connections)
-- API requests (except status checks)
-
-**Idle conditions** (all must be true for shutdown):
+**Idle conditions** (all must be true):
 - No proxies connected
-- No browser tabs with UI open
+- No browser tabs with the UI open
 - No API activity for 5 minutes
 
-**Grace period**: The manager waits 60 seconds after startup before checking for idle shutdown, giving you time to start proxies or open the UI.
+The manager waits 60 seconds after startup before checking, giving time to start proxies or open the UI.
 
-**What doesn't count as activity**:
-- CLI status checks (`mcp-acp manager status`)
-- SSE keepalive messages
-
-### Logs
-
-Idle shutdown is logged to `<log_dir>/mcp-acp/manager/system.jsonl`:
-
-```json
-{
-  "time": "2025-01-26T10:30:00.123Z",
-  "event": "idle_shutdown_triggered",
-  "message": "Manager idle for 300s, shutting down",
-  "details": {
-    "proxy_count": 0,
-    "sse_count": 0,
-    "seconds_idle": 300.5
-  }
-}
-```
+Status checks (`mcp-acp manager status`) and SSE keepalives do not count as activity.
 
 ---
 
