@@ -140,7 +140,7 @@ async def handle_proxy_connection(
             await token_service.send_token_to_proxy(writer)
 
         # Fetch initial state from proxy and broadcast to browsers
-        await _broadcast_proxy_snapshot(socket_path, registry)
+        await _broadcast_proxy_snapshot(socket_path, proxy_name, proxy_id, registry)
 
         # Now listen for events from proxy
         await _handle_proxy_events(reader, proxy_name, registry)
@@ -176,6 +176,8 @@ async def handle_proxy_connection(
 
 async def _broadcast_proxy_snapshot(
     socket_path: str,
+    proxy_name: str,
+    proxy_id: str,
     registry: ProxyRegistry,
 ) -> None:
     """Fetch proxy state and broadcast to all SSE subscribers.
@@ -184,6 +186,8 @@ async def _broadcast_proxy_snapshot(
 
     Args:
         socket_path: Path to proxy's UDS API socket.
+        proxy_name: Name of the proxy (for event correlation).
+        proxy_id: Stable proxy identifier (for event correlation).
         registry: Proxy registry for broadcasting events.
     """
     try:
@@ -198,7 +202,7 @@ async def _broadcast_proxy_snapshot(
                     pending = pending_resp.json()
                     await registry.broadcast_snapshot(
                         "snapshot",
-                        {"approvals": pending},
+                        {"approvals": pending, "proxy_name": proxy_name, "proxy_id": proxy_id},
                     )
             except (httpx.HTTPError, httpx.TimeoutException):
                 pass  # Expected during startup race
@@ -214,6 +218,8 @@ async def _broadcast_proxy_snapshot(
                             "approvals": cached.get("approvals", []),
                             "ttl_seconds": cached.get("ttl_seconds", DEFAULT_APPROVAL_TTL_SECONDS),
                             "count": cached.get("count", 0),
+                            "proxy_name": proxy_name,
+                            "proxy_id": proxy_id,
                         },
                     )
             except (httpx.HTTPError, httpx.TimeoutException):
@@ -229,7 +235,7 @@ async def _broadcast_proxy_snapshot(
                         if stats:
                             await registry.broadcast_snapshot(
                                 "stats_updated",
-                                {"stats": stats},
+                                {"stats": stats, "proxy_name": proxy_name, "proxy_id": proxy_id},
                             )
             except (httpx.HTTPError, httpx.TimeoutException):
                 pass  # Expected during startup race
