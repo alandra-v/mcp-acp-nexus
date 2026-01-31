@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mcp_acp.api.errors import APIError, ErrorCode
+from mcp_acp.manager.routes.proxies.snippet import _get_executable_path
 from mcp_acp.config import (
     BackendConfig,
     HITLConfig,
@@ -368,9 +369,10 @@ async def create_proxy(body: CreateProxyRequest) -> CreateProxyResponse:
         )
 
     # Build Claude Desktop snippet
+    executable_path = _get_executable_path()
     claude_snippet = {
         body.name: {
-            "command": "mcp-acp",
+            "command": executable_path,
             "args": ["start", "--proxy", body.name],
         }
     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -368,12 +369,16 @@ def proxy_add(
     # Get Claude Desktop config path
     claude_config_path = _get_claude_desktop_config_path()
 
+    # Resolve full path to mcp-acp executable (consistent with install mcp-json)
+    executable = shutil.which("mcp-acp")
+    executable_path = str(Path(executable).resolve()) if executable else "mcp-acp"
+
     # Show Claude Desktop config snippet
     click.echo(f"Add to Claude Desktop config ({claude_config_path}):")
     click.echo()
     click.echo(style_dim('  "mcpServers": {'))
     click.echo(style_dim(f'    "{name}": {{'))
-    click.echo(style_dim('      "command": "mcp-acp",'))
+    click.echo(style_dim(f'      "command": "{executable_path}",'))
     click.echo(style_dim(f'      "args": ["start", "--proxy", "{name}"]'))
     click.echo(style_dim("    }"))
     click.echo(style_dim("  }"))
