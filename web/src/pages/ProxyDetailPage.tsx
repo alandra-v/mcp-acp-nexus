@@ -35,7 +35,7 @@ export function ProxyDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { proxies: managerProxies, loading: managerLoading } = useManagerProxies()
-  const { approve, approveOnce, deny } = useAppState()
+  const { pending, approve, approveOnce, deny } = useAppState()
   const { clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const [loaded, setLoaded] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -204,8 +204,8 @@ export function ProxyDetailPage() {
   const isActive = managerProxy.status === 'running'
   const isRunning = proxyDetail?.status === 'running'
 
-  // Get pending approvals from detail response
-  const proxyPending = proxyDetail?.pending_approvals ?? []
+  // Use SSE-managed pending state filtered to this proxy (updates in real-time on approve/deny)
+  const proxyPending = pending.filter((p) => p.proxy_id === proxyId)
 
   // Get cached approvals from detail response
   const proxyCached = proxyDetail?.cached_approvals ?? []
