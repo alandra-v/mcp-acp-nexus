@@ -124,17 +124,23 @@ class AuditHealthMonitor:
                 if not self._running:
                     break
 
-                # Check all monitored paths
+                # Check all monitored paths, collecting all failures
+                failures: list[tuple[Path, str]] = []
                 for path in self.audit_paths:
                     failure_reason = self._check_integrity(path)
                     if failure_reason:
-                        await self.shutdown_coordinator.initiate_shutdown(
-                            failure_type=AuditFailure.failure_type,
-                            reason=failure_reason,
-                            exit_code=AuditFailure.exit_code,
-                            context={"source": "health_monitor", "path": str(path)},
-                        )
-                        return  # Stop monitoring after initiating shutdown
+                        failures.append((path, failure_reason))
+
+                if failures:
+                    paths = [str(p) for p, _ in failures]
+                    reasons = [r for _, r in failures]
+                    await self.shutdown_coordinator.initiate_shutdown(
+                        failure_type=AuditFailure.failure_type,
+                        reason="; ".join(reasons),
+                        exit_code=AuditFailure.exit_code,
+                        context={"source": "health_monitor", "paths": paths},
+                    )
+                    return  # Stop monitoring after initiating shutdown
         except asyncio.CancelledError:
             raise  # Normal shutdown, re-raise
         except Exception as e:
