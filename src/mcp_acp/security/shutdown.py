@@ -384,11 +384,13 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort
 
-        # 6. Show popup to user (best effort - macOS only)
-        try:
-            _show_shutdown_popup(failure_type, self.log_dir, self._proxy_name)
-        except Exception:
-            pass  # Best effort
+        # 6. Show popup to user (best effort - macOS only, skip if UI is connected)
+        ui_connected = self._proxy_state is not None and self._proxy_state.is_ui_connected
+        if not ui_connected:
+            try:
+                _show_shutdown_popup(failure_type, self.log_dir, self._proxy_name)
+            except Exception:
+                pass  # Best effort
 
         # 7. Emit SSE event to UI (best effort - may not arrive before exit)
         if self._proxy_state is not None:
