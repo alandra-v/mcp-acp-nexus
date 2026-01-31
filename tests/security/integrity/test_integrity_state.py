@@ -327,6 +327,9 @@ class TestIntegrityStateManagerVerification:
             log_path=log_path,
         )
 
+        # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
+        state_manager._states["audit/test.jsonl"].last_inode += 1
+
         # Replace file (creates new inode)
         log_path.unlink()
         log_path.write_text('{"replacement": 1}\n')
@@ -655,6 +658,9 @@ class TestIntegrityStateAutoRepairOnCrash:
             log_path=log_path,
         )
 
+        # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
+        state_manager._states["audit/test.jsonl"].last_inode += 1
+
         # Replace file (creates new inode) - simulating crash recovery
         log_path.unlink()
         log_path.write_text("")  # Empty file after crash
@@ -728,6 +734,9 @@ class TestIntegrityStateAutoRepairOnCrash:
             log_path=log_path,
         )
 
+        # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
+        state_manager._states["audit/test.jsonl"].last_inode += 1
+
         # Replace file (creates new inode)
         log_path.unlink()
         log_path.write_text("")
@@ -763,6 +772,9 @@ class TestIntegrityStateAutoRepairOnCrash:
             sequence=1,
             log_path=log_path,
         )
+
+        # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
+        state_manager._states["audit/test.jsonl"].last_inode += 1
 
         # Replace file (creates new inode)
         log_path.unlink()

@@ -1078,13 +1078,14 @@ class TestAuditHealthMonitorCheckIntegrity:
             shutdown_coord = ShutdownCoordinator(Path(tmpdir), get_system_logger())
             monitor = AuditHealthMonitor([audit_path], shutdown_coord)
 
-            # Record original identity
-            stat = audit_path.stat()
-            monitor._original_identities[audit_path] = (stat.st_dev, stat.st_ino)
-
             # Delete and recreate (new inode)
             audit_path.unlink()
             audit_path.write_text("replacement\n")
+
+            # Store an identity that doesn't match the new file's inode.
+            # Done after recreate so Linux tmpfs inode recycling can't cause a match.
+            new_stat = audit_path.stat()
+            monitor._original_identities[audit_path] = (new_stat.st_dev, new_stat.st_ino + 1)
 
             # Act
             result = monitor._check_integrity(audit_path)

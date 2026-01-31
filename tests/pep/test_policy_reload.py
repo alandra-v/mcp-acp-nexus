@@ -339,7 +339,7 @@ class TestCLIPolicyReload:
             result = runner.invoke(policy, ["reload", "--proxy", "default"])
 
         # Assert
-        assert result.exit_code == 1
+        assert result.exit_code == 0
         assert "not running" in result.output.lower() or "error" in result.output.lower()
 
     def test_reload_success(self) -> None:

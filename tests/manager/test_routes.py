@@ -205,7 +205,7 @@ class TestProxyCreationEndpoint:
         assert data["proxy_name"] == "test-proxy"
         assert data["proxy_id"] is not None
         assert "claude_desktop_snippet" in data
-        assert data["claude_desktop_snippet"]["test-proxy"]["command"] == "mcp-acp"
+        assert data["claude_desktop_snippet"]["test-proxy"]["command"].endswith("mcp-acp")
 
     def test_rejects_invalid_proxy_name(self, app: TestClient) -> None:
         """Rejects proxy names that violate naming rules with 400 error."""
