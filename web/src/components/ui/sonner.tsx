@@ -20,6 +20,7 @@ export const toast = {
     sonnerToast.warning(message, { duration: TOAST_DURATION.warning, ...options }),
   error: (message: string, options?: ExternalToast) =>
     sonnerToast.error(message, { duration: TOAST_DURATION.error, ...options }),
+  dismiss: sonnerToast.dismiss,
 }
 
 function Toaster({ ...props }: ToasterProps) {
