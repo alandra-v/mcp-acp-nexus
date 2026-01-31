@@ -190,9 +190,9 @@ def policy_reload(proxy_name: str) -> None:
             click.echo(style_error(f"Reload failed: {error}"), err=True)
             sys.exit(1)
 
-    except ProxyNotRunningError as e:
-        click.echo(style_error(f"Error: {e.format_message()}"), err=True)
-        sys.exit(1)
+    except ProxyNotRunningError:
+        click.echo(style_warning(f"Proxy '{proxy_name}' is not running — skipping hot reload."))
+        click.echo(style_dim("  Changes will be applied automatically on next startup."))
     except APIError as e:
         click.echo(style_error(f"Error: {e.message}"), err=True)
         sys.exit(1)
