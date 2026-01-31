@@ -33,7 +33,15 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from mcp_acp.api.errors import (
+    APIError,
+    api_error_handler,
+    http_exception_handler,
+    validation_error_handler,
+)
 from mcp_acp.manager.registry import ProxyRegistry, get_proxy_registry
 
 from .forwarding import IDLE_EXEMPT_PATHS, MANAGER_API_PREFIXES
@@ -81,6 +89,9 @@ def create_manager_api_app(
         title="MCP-ACP Manager",
         description="Manager daemon for MCP-ACP proxies",
         version="0.1.0",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
 
     # Store token, registry, and token service
@@ -88,8 +99,10 @@ def create_manager_api_app(
     app.state.registry = registry or get_proxy_registry()
     app.state.token_service = token_service
 
-    # Note: Manager API auth uses HttpOnly cookie (api_token) set on index.html load.
-    # This is adequate for localhost-only UI. No additional SecurityMiddleware needed.
+    # Exception handlers for structured error responses (matching proxy server)
+    app.add_exception_handler(APIError, api_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
     @app.middleware("http")
     async def track_activity(
