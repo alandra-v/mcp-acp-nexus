@@ -368,7 +368,7 @@ UI enhancements for multi-proxy observation (no lifecycle control).
 
 **Tests:**
 - [x] Backend: proxy list endpoint, proxy creation endpoint, incidents aggregation
-- [ ] Frontend: proxy list, detail routing, add modal flow, incidents filtering
+- [x] Frontend: proxy list page, detail routing, add modal (pre-existing), incidents filtering, useIncidents hook
 
 ---
 
@@ -543,16 +543,16 @@ Proxy deletion with audit trail preservation, unified archive, and recovery supp
 
 ## Phase 8: Stability & Polish
 
-**Status: Partially Complete**
+**Status: Complete**
 
-Toast notifications and crash handling.
+Toast notifications, crash handling, and integration tests.
 
 - [x] **Toast notification system**
   - Info (grey, 4s): Backend connected, proxy registered
   - Success (green, 3s): Reconnected, config saved, policy reloaded
   - Warning (orange, 6s): Reconnection timeout, certificate expiring
   - Error (red, 8s): Connection errors, TLS errors
-  - Critical (red, persistent): Security shutdowns use `duration: Infinity`
+  - Critical (red, 15s): Security shutdowns auto-dismiss after 15 seconds
   - Implementation: `web/src/components/ui/sonner.tsx` with automatic durations per type
 
 - [x] **Error boundary**
@@ -561,28 +561,48 @@ Toast notifications and crash handling.
   - Provides "Try Again" and "Reload Page" buttons
   - Implementation: `web/src/components/ErrorBoundary.tsx`
 
-- [ ] **Critical toast behavior** (partial - persistent toasts exist but no modal display)
-  - [x] Does not auto-dismiss (uses `duration: Infinity`)
-  - [ ] Modal-like center display
-  - [ ] Requires user acknowledgment
-  - [ ] Links to logs for investigation
+- [x] **Critical toast behavior**
+  - [x] Auto-dismisses after 15 seconds (previously persistent)
+  - [x] Plays error sound (triple beep 880Hz)
+  - Only triggered by security shutdowns — modal display not needed
 
-- [ ] **Proxy disconnect handling (UI survives)**
+- [x] **Proxy identification in osascript popups**
+  - HITL approval dialogs include proxy name for multi-proxy clarity
+  - Security shutdown popups include proxy name
+  - Implementation: `pep/hitl.py`, `security/shutdown.py`
+
+- [x] **Policy reload CLI hardening**
+  - Friendly warning when proxy is not running (instead of raw connection error)
+
+- [x] **Pending approvals SSE-managed state**
+  - Proxy detail page uses SSE-managed state for pending approvals (instead of REST polling)
+
+- [x] **Proxy add next-steps snippet**
+  - Resolves full executable path (consistent with `install mcp-json`)
+
+- [x] **Proxy disconnect handling (UI survives)**
   - [x] UI detects proxy deregistration/disconnect
-  - [ ] Read `.last_crash` breadcrumb for failure details
-  - [ ] Show crash reason in critical toast
   - [x] Update proxy status to "disconnected"
-  - [ ] Message: "Restart Claude Desktop to reconnect"
+  - [x] Manager enriches disconnect event with crash reason from `shutdowns.jsonl`
+    - `_read_recent_shutdown()` reads last entry, checks if within 30s
+    - `deregister()` includes `disconnect_reason` in SSE event payload
+    - Implementation: `src/mcp_acp/manager/registry.py`
+  - [x] UI shows contextual toast based on disconnect reason
+    - Crash: error toast with reason + error sound
+    - Normal: info toast with proxy name
+    - Implementation: `web/src/context/AppStateContext.tsx`
 
-- [ ] **Manager crash detection**
-  - [ ] Monitor for proxy disconnect events
-  - [ ] Detect unexpected exits via breadcrumb files
-  - [ ] Write to crashes.jsonl with proxy info
-  - [ ] Read faulthandler crash dump if available
-
-- [ ] **Tests**
-  - [ ] Toast display tests
-  - [ ] Crash detection tests
+- [x] **Tests**
+  - [x] Frontend: proxy list, detail routing, add modal flow, incidents filtering (Phase 5)
+  - [x] Frontend: disconnect enrichment toast mapping (Phase 8)
+    - tests: crash toast, normal toast, error sound, fallback message, window events
+    - Implementation: `web/src/__tests__/context/AppStateDisconnect.test.tsx`
+  - [x] Backend: disconnect enrichment (Phase 8)
+    - tests: `_read_last_line`, `_read_recent_shutdown` (recent/old/missing/malformed/empty), `deregister()` enrichment
+    - Implementation: `tests/manager/test_disconnect.py`
+  - [x] Integration: FastMCP Client end-to-end proxy tests
+    - 10 test scenarios covering: discovery, allow, deny, zero-trust default, deny-overrides, path-based deny, selective allow, audit operations, audit denials
+    - Implementation: `tests/integration/test_proxy_e2e.py`
 
 ---
 
@@ -627,8 +647,14 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
 
 - [ ] **Middleware updates**
   - Pass timing to `record_decision()` from each handler
-  - `proxy_latency`: Measure total time in ContextMiddleware (outermost)
+  - `proxy_latency`: Measure total time in ContextMiddleware via `set_proxy_state()`
+    - Established pattern: enforcement, shutdown_coordinator, identity_provider, policy_reloader all use it
+    - ProxyState created after middleware (chicken-and-egg) so setter injection is required
+    - Wire at proxy.py alongside existing `enforcement_middleware.set_proxy_state(proxy_state)`
+  - Rate limiter (outermost) is excluded from timing — adds ~0ms for non-throttled requests,
+    and throttle delay is intentional, not proxy overhead
   - Timing data already captured: `eval_duration_ms`, `hitl_result.response_time_ms`
+  - Only record latency for successful requests (backend errors/timeouts would skew median)
 
 ### Step 9.2: API and UI
 
@@ -649,12 +675,12 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
   ```
 
 - [ ] **UI display**
-  - Extend existing StatsSection with latency info
+  - Extend existing StatsSection with latency inf
   - Show: "~45ms response" (total proxy median)
   - Tooltip or expandable detail: policy eval ~2ms, HITL ~8.5s
   - Multi-proxy list view: show median on each proxy card
 
-### Step 9.3: Thesis Benchmark Script
+### Step 9.3: Thesis Benchmark Scripts
 
 Hybrid approach: log parsing for metrics already captured, live benchmark for proxy overhead comparison.
 
@@ -663,27 +689,30 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
   - Aggregate into median, std dev, sample count
   - Supports filtering by date range
   - **Why log parsing for these metrics:**
-    - Data already exists from real usage
+    - Data already exists from real usage (decisions.jsonl)
     - Reflects actual usage patterns, not synthetic tests
     - Historical analysis possible
     - No test infrastructure needed
 
 - [ ] **Live benchmark** (`scripts/benchmark_overhead.py`)
-  - Uses FastMCP Client (pytest fixtures) to send MCP requests programmatically
+  - Uses FastMCP `Client` with `StdioTransport` (subprocess-based, reflects real deployment)
   - Tests both STDIO and HTTP proxy↔backend transport modes
   - **Why live benchmark for proxy overhead:**
     - Requires direct vs proxied comparison (can't get "direct" from logs)
     - Controlled, reproducible test conditions
     - Can isolate proxy overhead specifically
 
-  - **Test setup**:
+  - **Test setup** (subprocess-based via `StdioTransport`):
     ```
-    Direct:   FastMCP Client ──STDIO/HTTP──▶ Backend
-    Proxied:  FastMCP Client ──STDIO──▶ Proxy ──STDIO/HTTP──▶ Backend
+    Direct:   FastMCP Client ──STDIO──▶ Backend (subprocess)
+    Proxied:  FastMCP Client ──STDIO──▶ Proxy (subprocess) ──STDIO/HTTP──▶ Backend
     ```
 
   - **Warmup**: Discard first N requests (cold caches, lazy imports, policy parsing)
-  - **Request mix**: Discovery (tools/list) + tool calls (representative workload)
+  - **Measure discovery and tool calls separately** (not combined):
+    - Discovery (`tools/list`): fast path, bypasses policy engine (`discovery_bypass`)
+    - Tool calls (`tools/call`): full policy evaluation, the main overhead path
+    - Combining them produces a "per-workload-pair" number that's harder to interpret
   - **Transport modes**: Test proxy↔backend over both STDIO and HTTP
 
   - **Proxy overhead methodology**:
@@ -694,7 +723,7 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
     Proxied: Client ──▶ Proxy ──▶ Backend
              median_proxied = 45ms
 
-    Proxy Overhead = median_proxied - median_direct = 15ms
+    Proxy Overhead (per tool call) = median_proxied - median_direct = 15ms
     ```
 
 - [ ] **Output report**:
@@ -710,28 +739,43 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
   Median: 8.5s
   Note: Human response time dominates
 
-  === Proxy Overhead - STDIO backend (live benchmark) ===
+  === Proxy Overhead - Discovery (tools/list) - STDIO backend ===
   Warmup: 10 requests (discarded)
-  Test requests: 100 x (tools/list + tool call)
+  Test requests: 100
+  Direct median: 12.1ms
+  Proxied median: 14.3ms
+  Overhead per discovery request: 2.2ms (+18.2%)
+
+  === Proxy Overhead - Tool Calls (tools/call) - STDIO backend ===
+  Test requests: 100
   Direct median: 30.2ms
   Proxied median: 45.4ms
-  Overhead: 15.2ms (+50.3%)
+  Overhead per tool call: 15.2ms (+50.3%)
   Std Dev (direct): 5.1ms
   Std Dev (proxied): 6.3ms
 
-  === Proxy Overhead - HTTP backend (live benchmark) ===
+  === Proxy Overhead - Tool Calls (tools/call) - HTTP backend ===
   Direct median: 28.1ms
   Proxied median: 42.8ms
-  Overhead: 14.7ms (+52.3%)
+  Overhead per tool call: 14.7ms (+52.3%)
 
   Note: Proxy overhead is a feasibility indicator only, not optimization data.
   ```
 
-- [ ] **Tests**
-  - LatencyTracker unit tests (buffer, median calculation, thread safety)
-  - API endpoint tests (extended stats response)
-  - Log parser tests (parsing, aggregation)
-  - Benchmark script smoke test
+- [ ] **Tests** (two tiers)
+  - **Unit tests** (CI, deterministic):
+    - LatencyTracker: buffer, median, edge cases (empty, single, wrapping)
+    - API endpoint: extended stats response schema
+    - Log parser: parsing, aggregation with synthetic decisions.jsonl
+  - **Integration smoke test** (`tests/integration/test_benchmark_smoke.py`, CI):
+    - Uses FastMCP `Client` with in-memory `FastMCPTransport` (no subprocess)
+    - Spins up backend + proxy in-process, sends ~5 requests
+    - Asserts benchmark produces valid output (no latency threshold assertions — flaky in CI)
+    - Pattern: `async with Client(transport=proxy_server) as client:`
+  - **Live benchmark** (`scripts/benchmark_overhead.py`, manual run):
+    - Uses `StdioTransport` for real subprocess-based measurement
+    - Run manually or in dedicated environment, not CI
+    - Produces thesis report numbers
 
 ---
 
@@ -747,8 +791,11 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
 - [x] UI updated for multi-proxy observation (Phase 5)
 - [x] Backend credential security via OS keychain (Phase 6)
 - [x] Proxy deletion with audit trail preservation (Phase 7)
-- [ ] Toast notifications for proxy events (Phase 8)
-- [ ] Crash detection with UI notification (Phase 8)
+- [x] Toast notifications for proxy events (Phase 8)
+- [x] Proxy disconnect crash reason in UI (Phase 8)
+- [x] Frontend test coverage: proxy list, detail, incidents, hooks (Phase 5)
+- [x] Disconnect enrichment test coverage: backend (16 tests) + frontend (7 tests) (Phase 8)
+- [x] Integration tests: FastMCP Client end-to-end proxy tests (Phase 8)
 - [ ] Basic performance metrics displayed in UI (Phase 9)
 
 ---
