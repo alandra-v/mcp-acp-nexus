@@ -196,14 +196,17 @@ export function AddProxyModal({
                   </div>
 
                   {/* Args */}
-                  <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
-                    <label htmlFor="proxy-args" className="text-sm">Arguments</label>
-                    <Input
-                      id="proxy-args"
-                      placeholder="e.g., @modelcontextprotocol/server-filesystem /path"
-                      value={formState.args?.join(' ') || ''}
-                      onChange={(e) => handleArgsChange(e.target.value)}
-                    />
+                  <div className="space-y-1">
+                    <div className="grid grid-cols-[100px_1fr] gap-2 items-center">
+                      <label htmlFor="proxy-args" className="text-sm">Arguments</label>
+                      <Input
+                        id="proxy-args"
+                        placeholder="e.g., -y @modelcontextprotocol/server-filesystem /path"
+                        value={formState.args?.join(' ') || ''}
+                        onChange={(e) => handleArgsChange(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground ml-[108px]">Space-separated, no commas. Each word becomes a separate argument.</p>
                   </div>
                 </div>
               )}

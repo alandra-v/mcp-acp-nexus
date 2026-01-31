@@ -318,8 +318,10 @@ export function useAddProxyForm(options: UseAddProxyFormOptions): UseAddProxyFor
 
   // Parse args input
   const handleArgsChange = useCallback((value: string) => {
-    // Split by spaces, respecting quoted strings
-    const args = value.trim() ? value.split(/\s+/) : []
+    // Split by commas or spaces, then strip leftover punctuation
+    const args = value.trim()
+      ? value.split(/[,\s]+/).filter(Boolean)
+      : []
     updateField('args', args)
   }, [updateField])
 
