@@ -398,7 +398,7 @@ class ShutdownCoordinator:
                 self._proxy_state.emit_system_event(
                     SSEEventType.CRITICAL_SHUTDOWN,
                     severity="critical",
-                    message=f"Proxy shutting down: {failure_type}",
+                    message=f"Proxy shutting down: {failure_type.replace('_', ' ')}",
                     details=reason,
                     failure_type=failure_type,
                     exit_code=exit_code,

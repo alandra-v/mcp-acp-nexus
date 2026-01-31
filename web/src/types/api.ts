@@ -321,11 +321,19 @@ export interface SSEProxyRegisteredEvent extends SSESystemEventBase {
   instance_id?: string
 }
 
+export interface DisconnectReason {
+  failure_type: string
+  reason: string
+  exit_code: number
+  time: string
+}
+
 export interface SSEProxyDisconnectedEvent extends SSESystemEventBase {
   type: 'proxy_disconnected'
   proxy_name?: string
   proxy_id?: string
   instance_id?: string
+  disconnect_reason?: DisconnectReason | null
 }
 
 export interface SSEProxyDeletedEvent extends SSESystemEventBase {

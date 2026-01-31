@@ -15,15 +15,81 @@ __all__ = [
 ]
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from mcp_acp.constants import APP_NAME
 
 _logger = logging.getLogger(f"{APP_NAME}.manager.registry")
+
+
+def _read_last_line(path: Path) -> str | None:
+    """Read the last non-empty line from a file.
+
+    Reads the entire file since shutdowns.jsonl is small (one line per crash).
+    Returns None on any error.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in reversed(lines):
+            stripped = line.strip()
+            if stripped:
+                return stripped
+        return None
+    except Exception:
+        return None
+
+
+def _read_recent_shutdown(
+    proxy_name: str,
+    max_age_seconds: float = 30.0,
+) -> dict[str, Any] | None:
+    """Read the most recent shutdown entry if written recently.
+
+    Checks shutdowns.jsonl for the given proxy. Returns the last entry
+    if it was written within ``max_age_seconds`` of now, allowing the
+    manager to enrich ``proxy_disconnected`` SSE events with crash reasons.
+
+    Returns None if the file is missing, empty, the last entry is too old,
+    JSON parsing fails, or any I/O error occurs.
+    """
+    try:
+        from mcp_acp.manager.config import get_proxy_log_dir
+
+        log_dir = get_proxy_log_dir(proxy_name)
+        shutdowns_path = log_dir / "shutdowns.jsonl"
+        if not shutdowns_path.exists():
+            return None
+
+        last_line = _read_last_line(shutdowns_path)
+        if not last_line:
+            return None
+
+        entry = json.loads(last_line)
+        entry_time = datetime.fromisoformat(entry["time"])
+        age = (datetime.now(timezone.utc) - entry_time).total_seconds()
+
+        if age > max_age_seconds:
+            return None
+
+        return {
+            "failure_type": entry.get("failure_type"),
+            "reason": entry.get("reason"),
+            "exit_code": entry.get("exit_code"),
+            "time": entry.get("time"),
+        }
+    except Exception:
+        _logger.debug(
+            "Failed to read recent shutdown for proxy %s",
+            proxy_name,
+            exc_info=True,
+        )
+        return None
 
 
 @dataclass(slots=True)
@@ -190,6 +256,10 @@ class ProxyRegistry:
     async def deregister(self, proxy_name: str) -> bool:
         """Deregister a proxy connection.
 
+        Reads shutdowns.jsonl for a recent crash entry and includes it
+        as ``disconnect_reason`` in the SSE event so the UI can show
+        why the proxy stopped.
+
         Args:
             proxy_name: Name of the proxy to deregister.
 
@@ -215,6 +285,18 @@ class ProxyRegistry:
                 }
             )
 
+        # Check for recent crash reason (best-effort file read)
+        disconnect_reason = _read_recent_shutdown(proxy_name)
+        if disconnect_reason:
+            _logger.warning(
+                {
+                    "event": "proxy_crash_detected",
+                    "message": f"Proxy '{proxy_name}' stopped: {disconnect_reason.get('reason', 'unknown')}",
+                    "proxy_name": proxy_name,
+                    "failure_type": disconnect_reason.get("failure_type"),
+                }
+            )
+
         # Broadcast disconnection event to browsers
         await self._broadcast_sse_event(
             "proxy_disconnected",
@@ -222,6 +304,7 @@ class ProxyRegistry:
                 "proxy_name": proxy_name,
                 "proxy_id": proxy_id,
                 "instance_id": instance_id,
+                "disconnect_reason": disconnect_reason,
             },
         )
 

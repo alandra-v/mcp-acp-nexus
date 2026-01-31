@@ -4,7 +4,7 @@ import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound, notifyError } from '@/hooks/useErrorSound'
 import { requestNotificationPermission, showApprovalNotification } from '@/lib/notifications'
-import { ApiError, type CachedApproval, type PendingApproval, type ProxyStats, type SSEEvent, type SSEEventType, type SSESystemEvent } from '@/types/api'
+import { ApiError, type CachedApproval, type PendingApproval, type ProxyStats, type SSEEvent, type SSEEventType, type SSEProxyDisconnectedEvent, type SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
 
@@ -200,9 +200,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         case 'proxy_registered':
           window.dispatchEvent(new CustomEvent('proxy-registered'))
           break
-        case 'proxy_disconnected':
-          window.dispatchEvent(new CustomEvent('proxy-registered')) // Same event triggers refetch
+        case 'proxy_disconnected': {
+          // Dispatch both events: proxy-registered for components that only
+          // listen to that, and proxy-disconnected for dedicated listeners
+          window.dispatchEvent(new CustomEvent('proxy-registered'))
+          window.dispatchEvent(new CustomEvent('proxy-disconnected'))
+          const disconnectEvent = event as SSEProxyDisconnectedEvent
+          if (disconnectEvent.disconnect_reason) {
+            const reason = disconnectEvent.disconnect_reason.reason || 'Unknown error'
+            toast.error(`Proxy '${disconnectEvent.proxy_name}' stopped: ${reason}`)
+            playErrorSound()
+          } else if (disconnectEvent.proxy_name) {
+            toast.info(`Proxy '${disconnectEvent.proxy_name}' disconnected`)
+          }
           break
+        }
         case 'proxy_deleted':
           window.dispatchEvent(new CustomEvent('proxy-deleted', { detail: event }))
           break
