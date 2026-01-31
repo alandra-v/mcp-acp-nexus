@@ -34,6 +34,7 @@ function makeApproval(overrides: Partial<PendingApproval> = {}): PendingApproval
   return {
     id: 'approval-1',
     proxy_id: 'proxy:my-proxy',
+    proxy_name: 'my-proxy',
     tool_name: 'read_file',
     path: '/data/config.json',
     subject_id: 'user-1',
@@ -86,7 +87,7 @@ describe('PendingDrawer', () => {
 
   it('shows proxy ID badge for each item', () => {
     render(<PendingDrawer {...defaultProps} />)
-    // PendingDrawer passes showProxyId=true; proxy_id is "proxy:my-proxy" → shows "my-proxy"
+    // PendingDrawer passes showProxy=true; proxy_name falls back to proxy_id
     expect(screen.getByText('my-proxy')).toBeInTheDocument()
   })
 
@@ -162,13 +163,13 @@ describe('ApprovalItem', () => {
     expect(screen.getByText('45s')).toBeInTheDocument()
   })
 
-  it('shows proxy ID badge when showProxyId=true', () => {
-    render(<ApprovalItem {...defaultProps} showProxyId />)
+  it('shows proxy name badge when showProxy=true', () => {
+    render(<ApprovalItem {...defaultProps} showProxy />)
     expect(screen.getByText('my-proxy')).toBeInTheDocument()
   })
 
-  it('does not show proxy ID badge when showProxyId=false', () => {
-    render(<ApprovalItem {...defaultProps} showProxyId={false} />)
+  it('does not show proxy name badge when showProxy=false', () => {
+    render(<ApprovalItem {...defaultProps} showProxy={false} />)
     expect(screen.queryByText('my-proxy')).not.toBeInTheDocument()
   })
 
