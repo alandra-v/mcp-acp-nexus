@@ -32,7 +32,7 @@ export function showApprovalNotification(approval: PendingApproval): void {
 
   try {
     const notification = new Notification('Pending Approval', {
-      body: `${approval.tool_name}: ${approval.path || 'No path'}`,
+      body: `${approval.proxy_name ? `[${approval.proxy_name}] ` : ''}${approval.tool_name}: ${approval.path || 'No path'}`,
       icon: '/favicon.ico',
       tag: approval.id, // Prevents duplicate notifications for same approval
       requireInteraction: true, // Don't auto-dismiss

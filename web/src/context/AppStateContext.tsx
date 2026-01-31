@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
-import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest, fetchCachedApprovals, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
+import { subscribeToPendingApprovals, approveProxyRequest, approveOnceProxyRequest, denyProxyRequest, clearProxyCachedApprovals, deleteProxyCachedApproval } from '@/api/approvals'
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound, notifyError } from '@/hooks/useErrorSound'
@@ -103,14 +103,14 @@ interface AppStateContextValue {
   pending: PendingApproval[]
   cached: CachedApproval[]
   cachedTtlSeconds: number
-  stats: ProxyStats | null
+  stats: Record<string, ProxyStats>
   connected: boolean
   connectionStatus: ConnectionStatus
   approve: (id: string) => Promise<void>
   approveOnce: (id: string) => Promise<void>
   deny: (id: string) => Promise<void>
-  clearCached: () => Promise<void>
-  deleteCached: (subjectId: string, toolName: string, path: string | null) => Promise<void>
+  clearCached: (proxyName?: string, proxyId?: string) => Promise<void>
+  deleteCached: (subjectId: string, toolName: string, path: string | null, proxyName?: string, proxyId?: string) => Promise<void>
 }
 
 const AppStateContext = createContext<AppStateContextValue | null>(null)
@@ -122,7 +122,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingApproval[]>([])
   const [cached, setCached] = useState<CachedApproval[]>([])
   const [cachedTtlSeconds, setCachedTtlSeconds] = useState(0)
-  const [stats, setStats] = useState<ProxyStats | null>(null)
+  const [stats, setStats] = useState<Record<string, ProxyStats>>({})
   const [connected, setConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
 
@@ -130,6 +130,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const errorCountRef = useRef(0)
   const isShutdownRef = useRef(false)
   const eventSourceRef = useRef<EventSource | null>(null)
+
+  // Keep a ref to pending so approval callbacks can resolve proxy_name without stale closures
+  const pendingRef = useRef<PendingApproval[]>([])
+  pendingRef.current = pending
+
+  /** Look up proxy_name for an approval. Returns the name, or undefined with a toast on failure. */
+  const resolveProxyName = (approvalId: string): string | undefined => {
+    const approval = pendingRef.current.find((p) => p.id === approvalId)
+    if (!approval) {
+      // Approval already resolved/timed-out — SSE pending_not_found will toast separately
+      return undefined
+    }
+    if (!approval.proxy_name) {
+      notifyError('Cannot resolve proxy for this approval')
+      return undefined
+    }
+    return approval.proxy_name
+  }
 
   // Update document title when pending count changes
   useEffect(() => {
@@ -145,10 +163,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       switch (event.type) {
         // HITL-specific events
         case 'snapshot': {
+          const eventProxyId = event.proxy_id
           const snapshotApprovals = (event.approvals || []).map((a) =>
             event.proxy_name ? { ...a, proxy_name: event.proxy_name } : a
           )
-          setPending(snapshotApprovals)
+          if (eventProxyId) {
+            // Merge: replace this proxy's entries, keep others
+            setPending((prev) => [
+              ...prev.filter((p) => p.proxy_id !== eventProxyId),
+              ...snapshotApprovals,
+            ])
+          } else {
+            setPending(snapshotApprovals)
+          }
           setConnected(true)
           setConnectionStatus('connected')
           // Reset error count on successful reconnect
@@ -207,15 +234,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         }
 
         // Live stats update
-        case 'stats_updated':
-          if (event.stats) {
-            setStats(event.stats)
+        case 'stats_updated': {
+          const statsProxyId = event.proxy_id
+          if (event.stats && statsProxyId) {
+            setStats((prev) => ({ ...prev, [statsProxyId]: event.stats }))
             // Dispatch event for proxy list to update individual proxy stats
             window.dispatchEvent(new CustomEvent('stats-updated', {
-              detail: { proxy_id: event.proxy_id, stats: event.stats }
+              detail: { proxy_id: statsProxyId, stats: event.stats }
             }))
           }
           break
+        }
 
         // New log entries available - dispatch event for log viewers
         case 'new_log_entries':
@@ -318,28 +347,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Refetch cached approvals from the REST API.
-  // Used after actions that modify the cache to guarantee the UI updates
-  // even if the SSE cached_snapshot event doesn't arrive.
-  const refetchCached = useCallback(async () => {
-    try {
-      const res = await fetchCachedApprovals()
-      setCached(res.approvals)
-      if (res.ttl_seconds !== undefined) {
-        setCachedTtlSeconds(res.ttl_seconds)
-      }
-    } catch {
-      // Non-critical — SSE may still deliver the update
-    }
-  }, [])
-
   const approve = useCallback(async (id: string) => {
+    const proxyName = resolveProxyName(id)
+    if (!proxyName) return
     try {
-      await approveRequest(id)
+      await approveProxyRequest(proxyName, id)
       toast.success('Request approved')
-      // Approval may have been cached — refetch after a short delay to let
-      // the middleware store the approval before we query for it
-      void setTimeout(() => void refetchCached(), 500)
     } catch (e) {
       // 404 errors emit SSE pending_not_found event with toast
       // 401/403 show specific authentication/authorization messages
@@ -355,11 +368,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         notifyError('Failed to approve request')
       }
     }
-  }, [refetchCached])
+  }, [])
 
   const approveOnce = useCallback(async (id: string) => {
+    const proxyName = resolveProxyName(id)
+    if (!proxyName) return
     try {
-      await approveOnceRequest(id)
+      await approveOnceProxyRequest(proxyName, id)
       toast.success('Request approved (once)')
     } catch (e) {
       // 404 errors emit SSE pending_not_found event with toast
@@ -379,8 +394,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const deny = useCallback(async (id: string) => {
+    const proxyName = resolveProxyName(id)
+    if (!proxyName) return
     try {
-      await denyRequest(id)
+      await denyProxyRequest(proxyName, id)
       toast.success('Request denied')
     } catch (e) {
       // 404 errors emit SSE pending_not_found event with toast
@@ -399,20 +416,26 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const clearCached = useCallback(async () => {
+  const clearCached = useCallback(async (proxyName?: string, proxyId?: string) => {
+    if (!proxyName) return
     try {
-      await clearCachedApprovals()
-      setCached([])
+      await clearProxyCachedApprovals(proxyName)
+      // Only update local state after successful API call
+      if (proxyId) {
+        setCached((prev) => prev.filter((c) => c.proxy_id !== proxyId))
+      }
     } catch {
       notifyError('Failed to clear cache')
     }
   }, [])
 
-  const deleteCached = useCallback(async (subjectId: string, toolName: string, path: string | null) => {
+  const deleteCached = useCallback(async (subjectId: string, toolName: string, path: string | null, proxyName?: string, proxyId?: string) => {
+    if (!proxyName) return
     try {
-      await deleteCachedApproval(subjectId, toolName, path)
+      await deleteProxyCachedApproval(proxyName, subjectId, toolName, path)
+      // Only update local state after successful API call
       setCached((prev) => prev.filter(
-        (c) => !(c.subject_id === subjectId && c.tool_name === toolName && c.path === path)
+        (c) => !(c.subject_id === subjectId && c.tool_name === toolName && c.path === path && (!proxyId || c.proxy_id === proxyId))
       ))
     } catch {
       notifyError('Failed to delete cached approval')

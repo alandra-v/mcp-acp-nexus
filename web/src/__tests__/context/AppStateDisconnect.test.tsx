@@ -33,11 +33,11 @@ const {
 
 vi.mock('@/api/approvals', () => ({
   subscribeToPendingApprovals: mockSubscribe,
-  approveRequest: vi.fn(),
-  approveOnceRequest: vi.fn(),
-  denyRequest: vi.fn(),
-  clearCachedApprovals: vi.fn(),
-  deleteCachedApproval: vi.fn(),
+  approveProxyRequest: vi.fn(),
+  approveOnceProxyRequest: vi.fn(),
+  denyProxyRequest: vi.fn(),
+  clearProxyCachedApprovals: vi.fn(),
+  deleteProxyCachedApproval: vi.fn(),
 }))
 
 vi.mock('@/components/ui/sonner', () => ({

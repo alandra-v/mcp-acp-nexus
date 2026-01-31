@@ -5,8 +5,8 @@ interface UseCachedApprovalsReturn {
   cached: CachedApproval[]
   ttlSeconds: number
   loading: boolean
-  clear: () => Promise<void>
-  deleteEntry: (subjectId: string, toolName: string, path: string | null) => Promise<void>
+  clear: (proxyName?: string, proxyId?: string) => Promise<void>
+  deleteEntry: (subjectId: string, toolName: string, path: string | null, proxyName?: string, proxyId?: string) => Promise<void>
 }
 
 /**

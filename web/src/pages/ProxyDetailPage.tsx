@@ -150,6 +150,30 @@ export function ProxyDetailPage() {
     }
   }, [proxyId, managerProxy?.proxy_name, navigate])
 
+  // Use SSE-managed state filtered to this proxy (updates in real-time)
+  // These hooks must be above early returns to satisfy Rules of Hooks.
+  const proxyPending = useMemo(
+    () => pending.filter((p) => p.proxy_id === proxyId),
+    [pending, proxyId]
+  )
+  const proxyFiltered = useMemo(
+    () => proxyCached.filter((c) => c.proxy_id === proxyId),
+    [proxyCached, proxyId]
+  )
+
+  const proxyName = managerProxy?.proxy_name
+
+  const handleClearCached = useCallback(
+    () => clearCached(proxyName, proxyId),
+    [clearCached, proxyName, proxyId]
+  )
+
+  const handleDeleteCached = useCallback(
+    (subjectId: string, toolName: string, path: string | null) =>
+      deleteCached(subjectId, toolName, path, proxyName, proxyId),
+    [deleteCached, proxyName, proxyId]
+  )
+
   if (managerLoading) {
     return (
       <Layout>
@@ -203,13 +227,6 @@ export function ProxyDetailPage() {
 
   const isActive = managerProxy.status === 'running'
   const isRunning = proxyDetail?.status === 'running'
-
-  // Use SSE-managed state filtered to this proxy (updates in real-time)
-  const proxyPending = pending.filter((p) => p.proxy_id === proxyId)
-  const proxyFiltered = useMemo(
-    () => proxyCached.filter((c) => !c.proxy_id || c.proxy_id === proxyId),
-    [proxyCached, proxyId]
-  )
 
   return (
     <Layout showFooter={false}>
@@ -281,7 +298,7 @@ export function ProxyDetailPage() {
                 loaded={loaded}
                 inactive={!isRunning}
               />
-              <StatsSection loaded={loaded} />
+              <StatsSection proxyId={proxyId} loaded={loaded} />
               <ApprovalsSection
                 approvals={proxyPending}
                 onApprove={approve}
@@ -292,8 +309,8 @@ export function ProxyDetailPage() {
               <CachedSection
                 cached={proxyFiltered}
                 loading={cachedLoading}
-                onClear={clearCached}
-                onDelete={deleteCached}
+                onClear={handleClearCached}
+                onDelete={handleDeleteCached}
                 loaded={loaded}
               />
               <ActivitySection loaded={loaded} proxyId={proxyId} />
