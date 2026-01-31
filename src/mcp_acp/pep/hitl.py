@@ -345,9 +345,7 @@ class HITLHandler:
 
         # Target path if present
         if path:
-            # Truncate long paths for readability
-            display_path = path if len(path) <= 60 else "..." + path[-57:]
-            message_parts.append(f"Path: {display_path}")
+            message_parts.append(f"Path: {path}")
 
         # Side effects (security-relevant info)
         if tool and tool.side_effects:
