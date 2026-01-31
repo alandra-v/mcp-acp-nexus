@@ -334,7 +334,7 @@ def create_proxy(
     # Create backend transport (handles detection, validation, health checks)
     # Pass mTLS config for client certificate authentication to HTTP backends
     # Note: mTLS is per-proxy config, not in manager's AuthConfig
-    mtls_config = getattr(config.auth, "mtls", None) if config.auth else None
+    mtls_config = config.mtls
     transport, transport_type = create_backend_transport(config.backend, mtls_config)
 
     # Determine if debug wire logging is enabled
