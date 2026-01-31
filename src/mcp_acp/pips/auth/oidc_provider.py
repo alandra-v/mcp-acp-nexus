@@ -135,8 +135,9 @@ class OIDCIdentityProvider:
             manager_client: ManagerClient instance for token updates.
         """
         self._manager_client = manager_client
-        # Register callback to receive token updates
+        # Register callbacks for token updates and clears (logout)
         manager_client.set_token_callback(self._on_manager_token)
+        manager_client.set_token_clear_callback(self._on_manager_token_cleared)
 
         # Check if manager already has a token
         if manager_client.manager_token is not None:
@@ -173,6 +174,21 @@ class OIDCIdentityProvider:
                 severity="success",
                 message="Token updated from manager",
             )
+
+    def _on_manager_token_cleared(self) -> None:
+        """Handle token cleared (logout) from manager.
+
+        Called by ManagerClient when the manager broadcasts token_cleared.
+        Triggers a full logout to clear all in-memory state and prevent
+        stale tokens from being used for HITL approvals.
+        """
+        self._system_logger.info(
+            {
+                "event": "manager_token_cleared",
+                "message": "Token cleared by manager (logout)",
+            }
+        )
+        self.logout()
 
     async def get_identity(self) -> SubjectIdentity:
         """Get the current user's identity.
@@ -569,6 +585,7 @@ class OIDCIdentityProvider:
         self._storage.delete()
         self._cache = None
         self._current_token = None
+        self._manager_token = None
         self._expiry_warned = False  # Reset for next login
 
         if self._proxy_state is None:

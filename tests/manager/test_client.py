@@ -449,3 +449,52 @@ class TestIsManagerAvailable:
             await server.wait_closed()
             # Allow asyncio to clean up transports
             await asyncio.sleep(0)
+
+
+class TestTokenClearCallback:
+    """Tests for token clear callback on logout notification."""
+
+    def test_set_token_clear_callback_stores_callback(self, client: ManagerClient) -> None:
+        """set_token_clear_callback() stores the callback."""
+        callback = lambda: None  # noqa: E731
+        client.set_token_clear_callback(callback)
+        assert client._token_clear_callback is callback
+
+    async def test_token_cleared_message_invokes_callback(self, client: ManagerClient) -> None:
+        """token_cleared message invokes the clear callback."""
+        called = False
+
+        def on_clear() -> None:
+            nonlocal called
+            called = True
+
+        client.set_token_clear_callback(on_clear)
+        await client._handle_manager_message({"type": "token_cleared"})
+
+        assert called is True
+        assert client._manager_token is None
+
+    async def test_token_cleared_without_callback_does_not_raise(self, client: ManagerClient) -> None:
+        """token_cleared message without callback doesn't raise."""
+        # No callback set - should not raise
+        await client._handle_manager_message({"type": "token_cleared"})
+        assert client._manager_token is None
+
+    async def test_token_cleared_clears_manager_token(self, client: ManagerClient) -> None:
+        """token_cleared message clears _manager_token even if it was set."""
+        from datetime import datetime, timezone
+
+        from mcp_acp.security.auth.token_storage import StoredToken
+
+        # Simulate a prior token_update
+        token = StoredToken(
+            access_token="test-access-token",
+            refresh_token=None,
+            id_token=None,
+            expires_at=datetime.now(timezone.utc),
+            issued_at=datetime.now(timezone.utc),
+        )
+        client._manager_token = token
+
+        await client._handle_manager_message({"type": "token_cleared"})
+        assert client._manager_token is None

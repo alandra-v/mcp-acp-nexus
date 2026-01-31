@@ -126,6 +126,8 @@ class ManagerClient:
 
         # Token callback for manager-distributed tokens
         self._token_callback: "Callable[[StoredToken], None] | None" = None
+        # Token clear callback for logout notifications
+        self._token_clear_callback: "Callable[[], None] | None" = None
         # Last token received from manager
         self._manager_token: "StoredToken | None" = None
 
@@ -170,6 +172,17 @@ class ManagerClient:
             callback: Function to call with new StoredToken.
         """
         self._token_callback = callback
+
+    def set_token_clear_callback(self, callback: "Callable[[], None]") -> None:
+        """Set callback for token clear (logout) from manager.
+
+        Called by OIDC provider to handle logout notifications.
+        The callback is invoked when the manager broadcasts token_cleared.
+
+        Args:
+            callback: Function to call on token clear.
+        """
+        self._token_clear_callback = callback
 
     @property
     def manager_token(self) -> "StoredToken | None":
@@ -594,6 +607,9 @@ class ManagerClient:
                     "proxy_name": self._proxy_name,
                 }
             )
+            # Notify OIDC provider to clear its state (prevents stale token use)
+            if self._token_clear_callback is not None:
+                self._token_clear_callback()
 
         else:
             # Unknown message type - ignore (forward compatibility)
