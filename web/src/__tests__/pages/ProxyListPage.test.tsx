@@ -27,6 +27,10 @@ vi.mock('@/hooks/useErrorSound', () => ({
   notifyError: vi.fn(),
 }))
 
+vi.mock('@/context/AppStateContext', () => ({
+  useAppState: vi.fn(),
+}))
+
 // Mock child components to isolate page logic
 vi.mock('@/components/proxies/ProxyGrid', () => ({
   ProxyGrid: ({ proxies }: { proxies: Proxy[] }) => (
@@ -64,8 +68,10 @@ vi.mock('@/components/layout/Layout', () => ({
 }))
 
 import { useManagerProxies } from '@/hooks/useManagerProxies'
+import { useAppState } from '@/context/AppStateContext'
 
 const mockUseManagerProxies = vi.mocked(useManagerProxies)
+const mockUseAppState = vi.mocked(useAppState)
 
 const mockProxies: Proxy[] = [
   {
@@ -119,6 +125,21 @@ describe('ProxyListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+
+    // Re-establish useAppState mock after clearAllMocks
+    mockUseAppState.mockReturnValue({
+      pending: [],
+      cached: [],
+      cachedTtlSeconds: 0,
+      stats: {},
+      connected: false,
+      connectionStatus: 'reconnecting',
+      approve: vi.fn(),
+      approveOnce: vi.fn(),
+      deny: vi.fn(),
+      clearCached: vi.fn(),
+      deleteCached: vi.fn(),
+    } as ReturnType<typeof useAppState>)
 
     // Re-establish clipboard mock after clearAllMocks
     clipboardWriteText = vi.fn().mockResolvedValue(undefined)

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AddProxyModal } from '@/components/proxy/AddProxyModal'
 import * as proxiesApi from '@/api/proxies'
@@ -384,7 +384,10 @@ describe('AddProxyModal', () => {
       await user.type(screen.getByLabelText(/^Name/), 'test-proxy')
       await user.type(screen.getByLabelText(/Server Name/), 'Test Server')
       await user.type(screen.getByLabelText(/Command/), 'npx')
-      await user.type(screen.getByLabelText(/Arguments/), '-y @test/server')
+      // Use fireEvent.change to set the full value at once, because the
+      // controlled input rebuilds args on every keystroke (join/split),
+      // which drops intermediate spaces typed character-by-character.
+      fireEvent.change(screen.getByLabelText(/Arguments/), { target: { value: '-y @test/server' } })
 
       // Submit
       const submitButton = screen.getByRole('button', { name: /Create Proxy/i })
