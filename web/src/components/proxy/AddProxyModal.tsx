@@ -398,7 +398,7 @@ export function AddProxyModal({
 
               {/* Snippet */}
               <div className="relative">
-                <pre className="p-4 bg-base-900 rounded-lg text-sm font-mono overflow-x-auto">
+                <pre className="p-4 bg-base-900 rounded-lg text-sm font-mono whitespace-pre-wrap break-all">
                   {JSON.stringify({ mcpServers: result?.claude_desktop_snippet }, null, 2)}
                 </pre>
                 <Button

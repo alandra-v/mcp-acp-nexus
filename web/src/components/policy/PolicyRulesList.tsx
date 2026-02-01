@@ -295,17 +295,12 @@ export function PolicyRulesList({
                 </div>
               )}
 
-              {/* HITL cache_side_effects */}
+              {/* HITL approval caching indicator */}
               {isExpanded && rule.effect === 'hitl' && rule.cache_side_effects && rule.cache_side_effects.length > 0 && (
                 <div className="px-4 pb-3 pl-11">
-                  <div className="flex items-start gap-2 text-sm">
-                    <span className="text-yellow-400 font-mono text-xs min-w-[120px]">
-                      cache_side_effects:
-                    </span>
-                    <span className="font-mono text-xs break-all">
-                      {rule.cache_side_effects.join(', ')}
-                    </span>
-                  </div>
+                  <span className="text-yellow-400 text-xs font-medium">
+                    Approval caching: On
+                  </span>
                 </div>
               )}
             </div>
