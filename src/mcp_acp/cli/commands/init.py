@@ -147,8 +147,8 @@ def _run_interactive_init() -> AuthConfig:
         AuthConfig with user-provided values.
     """
     click.echo("\nWelcome to mcp-acp!\n")
-    click.echo("This wizard configures authentication for all proxies.")
-    click.echo("After init, use 'mcp-acp proxy add' to configure backends.\n")
+    click.echo("This wizard sets up the manager config and OIDC identity provider.")
+    click.echo("After init, add your first proxy with 'mcp-acp proxy add'.\n")
 
     config_path = get_manager_config_path()
     click.echo(f"Config will be saved to: {config_path}\n")
