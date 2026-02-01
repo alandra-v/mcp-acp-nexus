@@ -204,10 +204,9 @@ def _display_next_steps() -> None:
     click.echo("1. Authenticate with your identity provider:")
     click.echo(style_dim("   mcp-acp auth login"))
     click.echo()
-    click.echo("2. Add a proxy configuration:")
+    click.echo("2. Add your first proxy or start the manager:")
     click.echo(style_dim("   mcp-acp proxy add"))
-    click.echo()
-    click.echo("The proxy add command will guide you through backend setup.")
+    click.echo(style_dim("   mcp-acp manager start"))
 
 
 # =============================================================================

@@ -1,6 +1,6 @@
 """Start command for mcp-acp CLI.
 
-Starts the proxy server for manual testing.
+Start a specific proxy via STDIO (for manual testing or MCP client use).
 """
 
 from __future__ import annotations
@@ -125,7 +125,7 @@ def _handle_startup_error(
 @click.option("--headless", is_flag=True, help="Run fully standalone (no manager, no UI, HITL via osascript)")
 @click.option("--proxy", "-p", "proxy_name", help="Proxy name to start (required for multi-proxy mode)")
 def start(headless: bool, proxy_name: str | None) -> None:
-    """Start the proxy server manually (for testing).
+    """Start a specific proxy via STDIO (for testing or MCP client use).
 
     Loads configuration from the OS-appropriate location.
     No runtime overrides - all settings come from config file.

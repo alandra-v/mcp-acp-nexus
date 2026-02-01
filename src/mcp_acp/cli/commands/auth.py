@@ -196,7 +196,9 @@ def login(no_browser: bool) -> None:
             click.echo("  Running proxies updated with new credentials.")
         else:
             click.echo()
-            click.echo("You can now start the proxy with 'mcp-acp start'")
+            click.echo("You can now start the manager or add your first proxy.")
+            click.echo(f"  Start manager:  {click.style('mcp-acp manager start', dim=True)}")
+            click.echo(f"  Add a proxy:    {click.style('mcp-acp proxy add', dim=True)}")
 
     except DeviceFlowExpiredError:
         click.echo()

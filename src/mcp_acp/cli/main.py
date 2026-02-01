@@ -13,7 +13,7 @@ Commands:
     manager   - Manager daemon commands (start, stop, status)
     policy    - Policy management (show, path, edit, add, validate, reload)
     proxy     - Proxy management (add, auth set-key, auth delete-key)
-    start     - Start the proxy server manually
+    start     - Start a specific proxy via STDIO
     status    - Show proxy runtime status
 
 Subcommand help:
@@ -54,7 +54,7 @@ class ReorderedGroup(click.Group):
 Quick Start (Interactive):
   mcp-acp init                     Configure OIDC authentication
   mcp-acp proxy add                Add a proxy with backend config
-  mcp-acp start --proxy <name>     Test the proxy manually
+  mcp-acp start --proxy <name>     Start a proxy via STDIO (for testing)
 
 Non-Interactive Setup:
   # Step 1: Configure OIDC authentication
