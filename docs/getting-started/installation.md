@@ -9,9 +9,9 @@
 
 ## Platform Requirements
 
-### macOS (Full Support)
+### macOS
 
-The proxy requires the following security features enabled:
+macOS is the only tested platform. The proxy requires the following security features enabled:
 
 | Requirement | Check Command | How to Enable |
 |-------------|---------------|---------------|
@@ -20,9 +20,7 @@ The proxy requires the following security features enabled:
 
 Both checks are **hard gates** - the proxy will not start if either is disabled.
 
-### Linux/Windows (Experimental)
-
-The proxy can run on Linux and Windows, but device health checks (FileVault/SIP) are automatically skipped since these are macOS-specific features. This reduces Zero Trust compliance but allows basic operation.
+Linux and Windows are not tested. See [Compatibility](../../README.md#compatibility) in the README.
 
 ---
 

@@ -232,6 +232,100 @@ Available conditions:
 
 **Why deferred**: Current transparent caching reduces dialog fatigue. Exposing approval state to policies adds complexity and requires careful design to avoid security pitfalls (e.g., attackers triggering approvals then changing context).
 
+### 2.7 Policy Dry-Run / What-If Simulation
+
+Test policy changes against historical audit data before applying. The user provides a candidate policy, and the system replays recent decisions from `decisions.jsonl`, reporting which outcomes would change.
+
+**Example output**:
+```
+Dry-run against last 500 decisions:
+  3 requests: ALLOW → DENY  (tools: bash, exec_command)
+  1 request:  DENY  → HITL  (tool: filesystem:write_file)
+  496 decisions unchanged
+```
+
+**API endpoint**: `POST /api/policy/dry-run` with candidate policy in request body. Returns per-rule diff with affected tool names and counts.
+
+**UI integration**: "Test Changes" button in the policy editor. Shows a diff-style summary before the user commits the new policy.
+
+**Benefits**:
+- Reduces risk of policy misconfiguration (e.g., accidentally denying critical tools)
+- Builds confidence before deploying restrictive policies
+- Enables iterative policy refinement with immediate feedback
+
+**Why deferred**: Requires audit log parsing and offline policy evaluation replay. Core policy enforcement works without simulation.
+
+### 2.8 Auto-Suggest Policy Rules from HITL Patterns
+
+Detect repeated HITL approvals for the same tool/resource pattern and suggest explicit allow rules to the user.
+
+**Trigger**: After N approvals (configurable, default 5) for the same `(tool_name, path_pattern)` combination within a session, the UI displays a suggestion:
+
+> "You've approved `filesystem:read_file` 12 times. Create an allow rule?"
+
+**Suggestion includes**:
+- Pre-filled rule with matched conditions
+- One-click "Add Rule" button in the UI
+- Option to scope the rule (e.g., add path constraint)
+
+**Implementation**:
+- Track approval frequency per `(tool_name, path_pattern)` in `ProxyState`
+- Emit `rule_suggestion` SSE event when threshold is exceeded
+- UI renders suggestion banner with pre-filled `RuleFormDialog`
+
+```json
+{
+  "type": "rule_suggestion",
+  "tool_name": "filesystem:read_file",
+  "approval_count": 12,
+  "suggested_rule": {
+    "name": "auto-allow-filesystem-read",
+    "conditions": {"tool_name": "filesystem:read_file"},
+    "effect": "allow"
+  }
+}
+```
+
+**Benefits**:
+- Turns HITL approval flow into a guided policy-building tool
+- Reduces approval fatigue over time as policies mature
+- Natural extension of existing approval caching mechanism
+
+**Why deferred**: Requires frequency tracking infrastructure and suggestion UX. Current approval caching handles immediate fatigue.
+
+### 2.9 Policy Templates / Presets
+
+Ship built-in policy templates for common security postures, selectable during `proxy add` (CLI and UI).
+
+| Template | Effect | Description |
+|----------|--------|-------------|
+| `strict` | HITL for all | Every non-discovery request requires human approval |
+| `read-only` | Allow reads, deny writes | Allow `fs_read`, deny `fs_write`/`code_exec`/`network_egress` |
+| `permissive` | Allow all, log all | No enforcement, full audit trail (audit-only mode) |
+| `custom` | Empty rules | Start from scratch (current default) |
+
+**CLI integration**:
+```
+$ mcp-acp proxy add
+  ...
+  Policy template:
+  > strict (HITL for all non-discovery)
+    read-only (allow reads, deny writes)
+    permissive (allow all, log all)
+    custom (start from scratch)
+```
+
+**UI integration**: Template selector in `AddProxyModal` with preview of generated rules.
+
+**Storage**: Templates stored as JSON in `mcp_acp/policy/templates/` and written to per-proxy `policy.json` on selection.
+
+**Benefits**:
+- Lowers barrier to entry for new users
+- Demonstrates flexibility of the ABAC policy engine with concrete examples
+- Provides secure defaults (`strict` template) for first-time setup
+
+**Why deferred**: Per-proxy policy files work. Templates are a UX convenience that doesn't change the security model.
+
 ---
 
 ## 3. Content Inspection
@@ -362,6 +456,67 @@ Continuous health checks for backend MCP servers (beyond startup validation).
 
 **Why deferred**: For single-user local deployment, error handling on tool calls already tells you something's wrong. Health monitoring adds complexity without significant benefit in this context.
 
+### 4.6 Policy Rule Hit Counters
+
+Track and display how many times each policy rule has been triggered, broken down by decision outcome (allow/deny/hitl).
+
+**Data source**: `decisions.jsonl` already logs `matched_rules` and `final_rule` per evaluation. Aggregation can be performed:
+- **Live**: Counter in `ProxyState` incremented on each `record_decision()` call
+- **Historical**: Parse `decisions.jsonl` on demand for cumulative counts
+
+**API endpoint**: `GET /api/policy/stats` returns per-rule statistics:
+
+```json
+{
+  "rules": [
+    {
+      "rule_id": "allow-reads",
+      "hit_count": 347,
+      "last_hit": "2025-01-28T14:30:00Z",
+      "as_final_rule": 340,
+      "outcomes": {"allow": 340, "deny": 0, "hitl": 7}
+    }
+  ],
+  "unmatched_count": 12
+}
+```
+
+**UI integration**: Display hit counts as badges next to each rule in `PolicyRulesList`. Highlight rules with zero hits (potential dead policy). Show `unmatched_count` as a warning if non-zero (requests falling through to default deny).
+
+**Benefits**:
+- Identify unused rules (dead policy that can be cleaned up)
+- Understand which rules are most active for tuning
+- Detect unmatched requests hitting default deny (policy gaps)
+
+**Why deferred**: Audit logs already capture the underlying data. Aggregation and display are presentation features.
+
+### 4.7 Export Audit Summary Report
+
+Generate a downloadable summary of audit activity for a proxy over a configurable time range.
+
+**Report contents**:
+- Time range and proxy identification
+- Total requests with decision breakdown (allow/deny/hitl)
+- Top 10 triggered rules with hit counts
+- Authentication events (logins, logouts, token refreshes)
+- Integrity incidents (hash chain breaks, emergency events)
+- Policy change history within the period
+
+**Format options**:
+- JSON (machine-readable, suitable for further analysis)
+- Markdown (human-readable, suitable for stakeholder reports)
+
+**API endpoint**: `GET /api/audit/report?from=2025-01-01&to=2025-01-31&format=markdown`
+
+**CLI integration**: `mcp-acp audit report --proxy <name> [--from DATE] [--to DATE] [--format json|markdown]`
+
+**Benefits**:
+- Demonstrates compliance value of the audit trail
+- Useful for periodic security reviews
+- Makes audit data accessible to non-technical stakeholders
+
+**Why deferred**: Raw audit logs and the log viewer provide access to the underlying data. Export is a presentation feature.
+
 ---
 
 ## 5. HTTP Client Support
@@ -464,9 +619,9 @@ Requires behavioral baselines and statistical analysis.
 | Category | Features |
 |----------|----------|
 | Tool Registry | External registry, confidence tracking, sandbox verification |
-| Policy Engine | Confidence policies, provenance, arguments, regex, resource groups, approval-aware |
+| Policy Engine | Confidence policies, provenance, arguments, regex, resource groups, approval-aware, dry-run simulation, auto-suggest rules, policy templates |
 | Content Inspection | Request/response inspection, discovery filtering |
-| Operations & Architecture | Heuristic HITL triggers, policy inheritance/sync, third-party engines, health monitoring |
+| Operations & Architecture | Heuristic HITL triggers, policy inheritance/sync, third-party engines, health monitoring, rule hit counters, audit summary export |
 | HTTP Client Support | Manager reverse proxy, OIDC/mTLS auth, lazy spawn, idle shutdown |
 | Authentication Enhancements | OIDC confidential clients, mTLS key passphrases, audit HMAC protection |
 
