@@ -5,6 +5,7 @@ export interface ProxyStats {
   requests_allowed: number
   requests_denied: number
   requests_hitl: number
+  proxy_latency_ms: number | null
 }
 
 /** Transport type for proxy configuration */

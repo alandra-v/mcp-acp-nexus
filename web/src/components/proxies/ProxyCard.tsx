@@ -14,6 +14,12 @@ import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import type { Proxy } from '@/types/api'
 
+function formatLatency(ms: number | null | undefined): string {
+  if (ms == null) return '\u2013'
+  if (ms >= 1000) return `~${(ms / 1000).toFixed(1)}s`
+  return `~${ms.toFixed(0)}ms`
+}
+
 interface ProxyCardProps {
   proxy: Proxy
   /** Whether proxy has issues (incidents or audit problems) */
@@ -77,12 +83,8 @@ export function ProxyCard({ proxy, hasIssues = false }: ProxyCardProps) {
                 <span className="proxy-stat-label">Requests</span>
               </div>
               <div className="proxy-stat">
-                <span className="proxy-stat-value">{stats?.requests_hitl ?? '-'}</span>
-                <span className="proxy-stat-label">HITL</span>
-              </div>
-              <div className="proxy-stat">
-                <span className="proxy-stat-value">{stats?.requests_denied ?? '-'}</span>
-                <span className="proxy-stat-label">Denied</span>
+                <span className="proxy-stat-value">{formatLatency(stats?.proxy_latency_ms)}</span>
+                <span className="proxy-stat-label">Latency</span>
               </div>
             </>
           ) : (

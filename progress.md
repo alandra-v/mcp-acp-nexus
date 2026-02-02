@@ -444,7 +444,7 @@ Additional features implemented after Phase 5 completion.
 ### Live Stats on Proxy Cards
 
 - [x] **Real-time stats updates**
-  - Proxy cards display live stats: requests total, HITL, denied
+  - Proxy cards display live stats: requests total, proxy latency
   - SSE events include `proxy_id` for stable identification
   - Stats updated via `stats_updated` event
 
@@ -608,31 +608,31 @@ Toast notifications, crash handling, and integration tests.
 
 ## Phase 9: Performance Metrics (POC)
 
-**Status: Not Started**
+**Status: Complete**
 
-Latency measurement for UI display and thesis evaluation. Tracks three metrics:
+Feasibility measurement for UI display and thesis evaluation. Tracks three metrics:
 1. **Policy decision latency** - Time added by per-request policy evaluation
 2. **HITL overhead** - Additional delay when human approval is required
 3. **Total proxy overhead** - End-to-end time through proxy (feasibility indicator)
 
 ### Step 9.1: LatencyTracker Implementation
 
-- [ ] **LatencyTracker class** (in `manager/state.py` or separate file)
+- [x] **LatencyTracker class** (`manager/latency.py`)
   - Circular buffer for recent N samples (`LATENCY_BUFFER_SIZE = 1000` in constants.py)
-  - Compute median on read (O(n) sort acceptable for small N)
+  - Compute median on read (O(n log n) sort acceptable for small N and low MCP request rates)
   - Thread-safe for async context (cooperative asyncio model)
   - Three tracker instances:
     - `proxy_latency`: Total request time through proxy (includes backend)
     - `policy_eval`: Policy evaluation time only
     - `hitl_wait`: HITL wait time only
 
-- [ ] **Integration in ProxyState**
+- [x] **Integration in ProxyState**
   - Add `LatencyTrackers` as field in `ProxyState.__init__()`
   - Keeps all stats together (request counts + latency)
   - API reads from single source
   - SSE emission handled consistently
 
-- [ ] **Extend `record_decision()` signature**
+- [x] **Extend `record_decision()` signature**
   ```python
   def record_decision(
       self,
@@ -645,7 +645,7 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
   - `eval_ms`: Policy evaluation time (always provided for policy-evaluated requests)
   - `hitl_ms`: HITL wait time (only for HITL decisions)
 
-- [ ] **Middleware updates**
+- [x] **Middleware updates**
   - Pass timing to `record_decision()` from each handler
   - `proxy_latency`: Measure total time in ContextMiddleware via `set_proxy_state()`
     - Established pattern: enforcement, shutdown_coordinator, identity_provider, policy_reloader all use it
@@ -654,11 +654,34 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
   - Rate limiter (outermost) is excluded from timing — adds ~0ms for non-throttled requests,
     and throttle delay is intentional, not proxy overhead
   - Timing data already captured: `eval_duration_ms`, `hitl_result.response_time_ms`
-  - Only record latency for successful requests (backend errors/timeouts would skew median)
+
+- [x] **Latency filtering decisions** (what gets recorded):
+  - **Exclude denied requests** from `proxy_latency`: denials never reach the backend,
+    so their timing doesn't represent "overhead added to a proxied request." Including
+    them would lower the median with fast-path denials that don't reflect real overhead.
+    Policy eval time for denials is still recorded in `policy_eval` tracker.
+  - **Exclude discovery requests** from `proxy_latency`: discovery (`tools/list`) bypasses
+    the policy engine entirely, so it has a fundamentally different overhead profile.
+    The benchmark script measures discovery overhead separately.
+  - **Exclude backend errors/timeouts**: skew median with values unrelated to proxy overhead.
+  - **Exclude HITL-approved requests** from `proxy_latency`: human wait time (seconds) would
+    dominate the metric. HITL wait is tracked separately in `hitl_wait`. Uses ContextVar flag
+    (`_hitl_resolved_var`) set by enforcement middleware, read by ContextMiddleware.
+
+- [x] **Create `/api/stats` endpoint** (fixes existing bug)
+  - Manager's `listing.py:82` already calls `GET /api/stats` on each proxy via UDS,
+    but no such route exists — the call 404s silently and stats show as `-` on proxy cards.
+  - Create lightweight endpoint returning stats + latency data.
+
+- [x] **Log parser** (`scripts/parse_latency_logs.py`)
+  - Parse audit logs for `policy_eval_ms`, `policy_hitl_ms`, `policy_total_ms`
+  - Aggregate into median, std dev, min, max, sample count
+  - Supports filtering by date prefix (`--date 2025-01-15`)
+  - JSON output (`--output results.json`)
 
 ### Step 9.2: API and UI
 
-- [ ] **Expanded `/api/stats` endpoint**
+- [x] **`/api/stats` response schema**
   ```json
   {
     "requests_total": 1234,
@@ -666,116 +689,62 @@ Latency measurement for UI display and thesis evaluation. Tracks three metrics:
     "requests_denied": 50,
     "requests_hitl": 84,
     "latency": {
-      "proxy_median_ms": 45.2,
-      "policy_eval_median_ms": 2.1,
-      "hitl_wait_median_ms": 8500.0,
-      "sample_count": 1000
+      "proxy_latency_ms": 45.2,
+      "policy_eval_ms": 2.1,
+      "hitl_wait_ms": 8500.0
     }
   }
   ```
 
-- [ ] **UI display**
-  - Extend existing StatsSection with latency inf
-  - Show: "~45ms response" (total proxy median)
-  - Tooltip or expandable detail: policy eval ~2ms, HITL ~8.5s
-  - Multi-proxy list view: show median on each proxy card
+- [x] **UI display**
+  - Proxy list cards show median proxy latency ("~14ms" or "–" when no samples)
+  - Proxy cards streamlined to 2 stats: Requests count + Latency
+  - `proxy_latency_ms` field added to `ProxyStats` model (backend + TypeScript)
+  - Manager forwards latency from proxy `/api/stats` via `_parse_proxy_stats()` helper (DRY)
+  - `StatsResponse` schema updated to include `proxy_latency_ms` (fixes SSE snapshot path)
+  - `get_stats()` uses `LatencyTracker.median()` directly (not `to_dict()["median_ms"]`)
 
-### Step 9.3: Thesis Benchmark Scripts
+### Step 9.3: Thesis Measurement Scripts
 
-Hybrid approach: log parsing for metrics already captured, live benchmark for proxy overhead comparison.
+Standalone measurement script for proxy overhead comparison.
+This is **feasibility measurement**, not performance benchmarking — proving the proxy doesn't add unacceptable latency.
 
-- [ ] **Log parser** (`scripts/parse_latency_logs.py`)
-  - Parse audit logs for `policy_eval_ms` and `policy_hitl_ms`
-  - Aggregate into median, std dev, sample count
-  - Supports filtering by date range
-  - **Why log parsing for these metrics:**
-    - Data already exists from real usage (decisions.jsonl)
-    - Reflects actual usage patterns, not synthetic tests
-    - Historical analysis possible
-    - No test infrastructure needed
+- [x] **Echo backend** (`scripts/echo_server.py`)
+  - Minimal FastMCP server with single echo tool
+  - Supports STDIO (default) and HTTP mode (`--http --port 8765`)
 
-- [ ] **Live benchmark** (`scripts/benchmark_overhead.py`)
+- [x] **Measurement script** (`scripts/measure_overhead.py`)
+  - Completely standalone — not part of proxy, not in test suite
   - Uses FastMCP `Client` with `StdioTransport` (subprocess-based, reflects real deployment)
-  - Tests both STDIO and HTTP proxy↔backend transport modes
-  - **Why live benchmark for proxy overhead:**
-    - Requires direct vs proxied comparison (can't get "direct" from logs)
-    - Controlled, reproducible test conditions
-    - Can isolate proxy overhead specifically
+  - Supports both STDIO (`--backend-cmd`) and HTTP (`--backend-url`) backend scenarios
+  - Measures discovery and tool calls separately (different code paths)
+  - External client-side stopwatch: `time.perf_counter()` around `call_tool()` / `list_tools()`
+  - Warmup phase (default: 10 requests), configurable runs (default: 100)
+  - JSON output (`--output results.json`)
+  - Full measurement plan: `docs/performance/performance-measurement-plan.md`
 
-  - **Test setup** (subprocess-based via `StdioTransport`):
-    ```
-    Direct:   FastMCP Client ──STDIO──▶ Backend (subprocess)
-    Proxied:  FastMCP Client ──STDIO──▶ Proxy (subprocess) ──STDIO/HTTP──▶ Backend
-    ```
+- [x] **Standalone measurement results** (6 tests, documented in `docs/performance/`)
+  - Echo STDIO (allow-all): ~15ms tool call overhead
+  - Echo HTTP (allow-all): ~111ms tool call overhead
+  - Filesystem STDIO (allow-all): ~12ms tool call overhead
+  - Filesystem STDIO (4-rule restrictive): ~16ms tool call overhead
+  - Filesystem HTTP (allow-all): ~138ms tool call overhead
+  - Filesystem HTTP (4-rule restrictive): ~127ms tool call overhead
+  - Filesystem STDIO (50-rule mixed): ~11ms tool call overhead (policy scaling test)
+  - Results: `scripts/results/results_*.json`
+  - Documentation: `docs/performance/measurement-results.md`, `docs/performance/performance-documentation.md`
+  - Limitation documented: only allowed paths measured; denied/HITL paths are future work
 
-  - **Warmup**: Discard first N requests (cold caches, lazy imports, policy parsing)
-  - **Measure discovery and tool calls separately** (not combined):
-    - Discovery (`tools/list`): fast path, bypasses policy engine (`discovery_bypass`)
-    - Tool calls (`tools/call`): full policy evaluation, the main overhead path
-    - Combining them produces a "per-workload-pair" number that's harder to interpret
-  - **Transport modes**: Test proxy↔backend over both STDIO and HTTP
-
-  - **Proxy overhead methodology**:
-    ```
-    Direct:  Client ──────────────────────▶ Backend
-             median_direct = 30ms
-
-    Proxied: Client ──▶ Proxy ──▶ Backend
-             median_proxied = 45ms
-
-    Proxy Overhead (per tool call) = median_proxied - median_direct = 15ms
-    ```
-
-- [ ] **Output report**:
-  ```
-  === Policy Decision Latency (from audit logs) ===
-  Log file: ~/.mcp-acp/logs/audit/decisions.jsonl
-  Samples: 1000
-  Median: 2.1ms
-  Std Dev: 0.8ms
-
-  === HITL Overhead (from audit logs) ===
-  Samples: 84 (HITL decisions only)
-  Median: 8.5s
-  Note: Human response time dominates
-
-  === Proxy Overhead - Discovery (tools/list) - STDIO backend ===
-  Warmup: 10 requests (discarded)
-  Test requests: 100
-  Direct median: 12.1ms
-  Proxied median: 14.3ms
-  Overhead per discovery request: 2.2ms (+18.2%)
-
-  === Proxy Overhead - Tool Calls (tools/call) - STDIO backend ===
-  Test requests: 100
-  Direct median: 30.2ms
-  Proxied median: 45.4ms
-  Overhead per tool call: 15.2ms (+50.3%)
-  Std Dev (direct): 5.1ms
-  Std Dev (proxied): 6.3ms
-
-  === Proxy Overhead - Tool Calls (tools/call) - HTTP backend ===
-  Direct median: 28.1ms
-  Proxied median: 42.8ms
-  Overhead per tool call: 14.7ms (+52.3%)
-
-  Note: Proxy overhead is a feasibility indicator only, not optimization data.
-  ```
-
-- [ ] **Tests** (two tiers)
+- [x] **Tests** (unit + API)
   - **Unit tests** (CI, deterministic):
-    - LatencyTracker: buffer, median, edge cases (empty, single, wrapping)
-    - API endpoint: extended stats response schema
-    - Log parser: parsing, aggregation with synthetic decisions.jsonl
-  - **Integration smoke test** (`tests/integration/test_benchmark_smoke.py`, CI):
-    - Uses FastMCP `Client` with in-memory `FastMCPTransport` (no subprocess)
-    - Spins up backend + proxy in-process, sends ~5 requests
-    - Asserts benchmark produces valid output (no latency threshold assertions — flaky in CI)
-    - Pattern: `async with Client(transport=proxy_server) as client:`
-  - **Live benchmark** (`scripts/benchmark_overhead.py`, manual run):
+    - `tests/manager/test_latency.py`: 14 LatencyTracker tests — buffer, median, edge cases (empty, single, wrapping), min/max, to_dict serialization
+    - `tests/manager/test_stats.py`: 8 ProxyState latency integration tests — record_decision with eval_ms/hitl_ms, record_proxy_latency, get_latency response shape
+  - **API tests** (CI, deterministic):
+    - `tests/api/test_stats.py`: 6 endpoint tests — 200 OK, counter fields, latency fields, null latency when no samples, response shape, 503 when ProxyState unavailable
+  - **Measurement script** (`scripts/measure_overhead.py`, manual run):
     - Uses `StdioTransport` for real subprocess-based measurement
-    - Run manually or in dedicated environment, not CI
-    - Produces thesis report numbers
+    - Run manually, not CI
+    - Produces thesis feasibility numbers
 
 ---
 
@@ -796,7 +765,7 @@ Hybrid approach: log parsing for metrics already captured, live benchmark for pr
 - [x] Frontend test coverage: proxy list, detail, incidents, hooks (Phase 5)
 - [x] Disconnect enrichment test coverage: backend (16 tests) + frontend (7 tests) (Phase 8)
 - [x] Integration tests: FastMCP Client end-to-end proxy tests (Phase 8)
-- [ ] Basic performance metrics displayed in UI (Phase 9)
+- [x] Basic performance metrics displayed in UI (Phase 9)
 
 ---
 

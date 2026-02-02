@@ -42,6 +42,7 @@ describe('useManagerProxies', () => {
         requests_allowed: 90,
         requests_denied: 5,
         requests_hitl: 5,
+        proxy_latency_ms: null,
       },
     },
     {
@@ -190,6 +191,7 @@ describe('useManagerProxies', () => {
         requests_allowed: 140,
         requests_denied: 5,
         requests_hitl: 5,
+        proxy_latency_ms: null,
       }
 
       act(() => {
@@ -229,7 +231,7 @@ describe('useManagerProxies', () => {
           new CustomEvent(SSE_EVENTS.STATS_UPDATED, {
             detail: {
               proxy_id: 'unknown-proxy',
-              stats: { requests_total: 999, requests_allowed: 999, requests_denied: 0, requests_hitl: 0 },
+              stats: { requests_total: 999, requests_allowed: 999, requests_denied: 0, requests_hitl: 0, proxy_latency_ms: null },
             },
           })
         )

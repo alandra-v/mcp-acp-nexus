@@ -41,6 +41,7 @@ describe('useProxyDetail', () => {
       requests_allowed: 90,
       requests_denied: 5,
       requests_hitl: 5,
+      proxy_latency_ms: null,
     },
     client_id: 'claude-ai',
     pending_approvals: [],

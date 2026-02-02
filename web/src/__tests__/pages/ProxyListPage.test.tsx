@@ -92,6 +92,7 @@ const mockProxies: Proxy[] = [
       requests_allowed: 90,
       requests_denied: 5,
       requests_hitl: 5,
+      proxy_latency_ms: null,
     },
   },
   {
