@@ -135,6 +135,8 @@ export interface CachedApproval {
   age_seconds: number
   ttl_seconds: number
   expires_in_seconds: number
+  /** Absolute expiry timestamp (computed client-side from expires_in_seconds at snapshot receipt). */
+  expires_at?: string
 }
 
 /** Response from GET /api/approvals/cached */

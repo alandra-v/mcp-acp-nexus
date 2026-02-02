@@ -215,9 +215,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // Cached approvals snapshot (full state from SSE, per-proxy)
         case 'cached_snapshot': {
           const eventProxyId = event.proxy_id
-          const tagged = (event.approvals || []).map((a) =>
-            eventProxyId ? { ...a, proxy_id: eventProxyId } : a
-          )
+          const now = Date.now()
+          const tagged = (event.approvals || []).map((a) => ({
+            ...a,
+            ...(eventProxyId ? { proxy_id: eventProxyId } : {}),
+            // Convert relative expires_in_seconds to absolute timestamp so the
+            // countdown survives component unmount/remount during navigation.
+            expires_at: new Date(now + (a.expires_in_seconds ?? 0) * 1000).toISOString(),
+          }))
           if (eventProxyId) {
             // Merge: replace this proxy's entries, keep others
             setCached((prev) => [

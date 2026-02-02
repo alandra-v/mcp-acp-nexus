@@ -57,8 +57,8 @@ interface CachedItemProps {
 }
 
 function CachedItem({ item, onDelete }: CachedItemProps) {
-  // Live countdown - expires_in_seconds is relative to when data was fetched
-  const remaining = useCountdown(undefined, item.expires_in_seconds)
+  // Live countdown using absolute timestamp (survives component remount on navigation)
+  const remaining = useCountdown(item.expires_at)
   const isExpiring = remaining < 30
 
   return (
