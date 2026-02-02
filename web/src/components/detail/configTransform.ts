@@ -2,7 +2,7 @@
  * Pure data transforms between ConfigResponse and the flat form state
  * used by ConfigSection for editing.
  */
-import type { ConfigResponse, ConfigUpdateRequest, TransportType, OIDCConfigUpdate, MTLSConfigUpdate } from '@/api/config'
+import type { ConfigResponse, ConfigUpdateRequest, TransportType, OIDCConfigUpdate, MTLSConfigUpdate, StdioAttestationUpdate } from '@/api/config'
 
 /** Common OAuth scopes shown as checkboxes. */
 export const COMMON_SCOPES = [
@@ -137,17 +137,24 @@ export function formStateToUpdateRequest(
       .map((a) => a.trim())
       .filter(Boolean)
 
-    // Build attestation update if any attestation field has a value
+    // Build attestation update: send null to clear, object to set
     const hasAttestation = form.attestation_slsa_owner || form.attestation_sha256 || form.attestation_require_signature
-    const attestationUpdate = hasAttestation ? {
-      slsa_owner: form.attestation_slsa_owner || undefined,
-      expected_sha256: form.attestation_sha256 || undefined,
-      require_code_signature: form.attestation_require_signature || undefined,
-    } : undefined
+    const hadAttestation = original.backend.stdio?.attestation != null
+    let attestationUpdate: StdioAttestationUpdate | null | undefined
+    if (hasAttestation) {
+      attestationUpdate = {
+        slsa_owner: form.attestation_slsa_owner || null,
+        expected_sha256: form.attestation_sha256 || null,
+        require_code_signature: form.attestation_require_signature,
+      }
+    } else if (hadAttestation) {
+      // All attestation fields cleared — send null to remove the object
+      attestationUpdate = null
+    }
 
     backendUpdates.stdio = {
       command: form.stdio_command || undefined,
-      args: args.length > 0 ? args : undefined,
+      args,
       attestation: attestationUpdate,
     }
   }
@@ -205,7 +212,11 @@ export function formStateToUpdateRequest(
 
   // Auth - mTLS (handle both updates and new configuration)
   const formHasMtls = form.mtls_client_cert_path || form.mtls_client_key_path || form.mtls_ca_bundle_path
-  if (original.auth?.mtls || formHasMtls) {
+  const hadMtls = original.auth?.mtls != null
+  if (hadMtls && !formHasMtls) {
+    // All mTLS fields cleared — send null to remove the entire mTLS config
+    updates.auth = { ...updates.auth, mtls: null }
+  } else if (formHasMtls) {
     const originalCert = original.auth?.mtls?.client_cert_path || ''
     const originalKey = original.auth?.mtls?.client_key_path || ''
     const originalCa = original.auth?.mtls?.ca_bundle_path || ''

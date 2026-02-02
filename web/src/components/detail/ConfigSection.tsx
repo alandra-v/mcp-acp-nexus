@@ -30,7 +30,7 @@ interface ConfigSectionProps {
 }
 
 export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
-  const { config, loading, saving, save, refresh, pendingChanges, hasPendingChanges } = useConfig({ proxyId })
+  const { config, loading, saving, save, refresh, setConfig, pendingChanges, hasPendingChanges } = useConfig({ proxyId })
   const { status: authStatus } = useAuth()
   const [form, setForm] = useState<FormState | null>(null)
 
@@ -118,7 +118,16 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
         toast.success(result.message)
         setShowApiKeyDialog(false)
         setApiKeyInput('')
-        refresh() // Refresh config to show updated credential_key
+        // Update credential_key locally — avoids full refresh which would lose dirty form edits
+        if (config?.backend.http) {
+          setConfig({
+            ...config,
+            backend: {
+              ...config.backend,
+              http: { ...config.backend.http, credential_key: result.credential_key },
+            },
+          })
+        }
       } else {
         notifyError(result.message)
       }
@@ -131,7 +140,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
     } finally {
       setSavingApiKey(false)
     }
-  }, [proxyId, apiKeyInput, authStatus, refresh])
+  }, [proxyId, apiKeyInput, authStatus, config, setConfig])
 
   // Delete API Key
   const handleDeleteApiKey = useCallback(async () => {
@@ -148,7 +157,16 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
       if (result.success) {
         toast.success(result.message)
         setShowDeleteConfirm(false)
-        refresh() // Refresh config to show updated state
+        // Update credential_key locally — avoids full refresh which would lose dirty form edits
+        if (config?.backend.http) {
+          setConfig({
+            ...config,
+            backend: {
+              ...config.backend,
+              http: { ...config.backend.http, credential_key: null },
+            },
+          })
+        }
       } else {
         notifyError(result.message)
       }
@@ -161,7 +179,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
     } finally {
       setSavingApiKey(false)
     }
-  }, [proxyId, authStatus, refresh])
+  }, [proxyId, authStatus, config, setConfig])
 
   if (loading) {
     return (

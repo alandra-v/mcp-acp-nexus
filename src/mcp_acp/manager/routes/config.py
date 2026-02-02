@@ -4,9 +4,11 @@ from __future__ import annotations
 
 __all__ = ["router"]
 
+import json
 from typing import Any
 
-from fastapi import APIRouter
+import httpx
+from fastapi import APIRouter, Request
 
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas.config import (
@@ -14,6 +16,7 @@ from mcp_acp.api.schemas.config import (
     ApiKeySetRequest,
     AuthConfigResponse,
     BackendConfigResponse,
+    ConfigComparisonResponse,
     ConfigResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
@@ -28,9 +31,11 @@ from mcp_acp.api.schemas.config import (
 from mcp_acp.security.credential_storage import BackendCredentialStorage
 from mcp_acp.config import PerProxyConfig, load_proxy_config, save_proxy_config
 from mcp_acp.manager.config import get_proxy_config_path, get_proxy_log_dir
+from mcp_acp.manager.registry import ProxyRegistry
 from pydantic import ValidationError as PydanticValidationError
 
-from .deps import find_proxy_by_id
+from .deps import find_proxy_by_id, get_proxy_socket
+from .helpers import PROXY_SNAPSHOT_TIMEOUT_SECONDS, create_uds_client
 
 router = APIRouter(prefix="/api/manager/proxies", tags=["config"])
 
@@ -147,21 +152,30 @@ def _deep_merge(base: dict, update_vals: dict) -> dict:
     return result
 
 
+def _normalize_attestation_keys(update_dict: dict) -> dict:
+    """Rename API field names to internal model field names for attestation."""
+    if "stdio" in update_dict and isinstance(update_dict["stdio"], dict):
+        att = update_dict["stdio"].get("attestation")
+        if isinstance(att, dict) and "require_code_signature" in att:
+            att["require_signature"] = att.pop("require_code_signature")
+    return update_dict
+
+
 # ==========================================================================
 # Config Endpoints
 # ==========================================================================
 
 
 @router.get("/{proxy_id}/config", response_model=ConfigResponse)
-async def get_proxy_config(proxy_id: str) -> ConfigResponse:
-    """Get configuration for a specific proxy (reads from disk).
+async def get_proxy_config(proxy_id: str, request: Request) -> ConfigResponse:
+    """Get configuration for a specific proxy.
 
-    Works regardless of whether the proxy is running.
-    Note: Config comparison is not available at manager level
-    (requires running proxy's in-memory state).
+    When the proxy is running, returns the in-memory (running) config via UDS.
+    Falls back to reading from disk if the proxy is not running or unreachable.
 
     Args:
         proxy_id: Stable proxy identifier.
+        request: FastAPI request (for registry access).
 
     Returns:
         ConfigResponse with all configuration details.
@@ -176,6 +190,20 @@ async def get_proxy_config(proxy_id: str) -> ConfigResponse:
         )
 
     proxy_name, config = result
+
+    # Try to get the running (in-memory) config from the proxy via UDS
+    reg: ProxyRegistry = request.app.state.registry
+    socket_path = await get_proxy_socket(proxy_name, reg)
+    if socket_path:
+        try:
+            async with create_uds_client(socket_path, timeout=PROXY_SNAPSHOT_TIMEOUT_SECONDS) as client:
+                resp = await client.get("/api/config")
+                if resp.status_code == 200:
+                    return ConfigResponse.model_validate(resp.json())
+        except (httpx.ConnectError, httpx.TimeoutException, OSError, json.JSONDecodeError):
+            pass  # Fall through to disk config
+
+    # Proxy not running or unreachable — return config from disk
     return _build_config_response_from_proxy(config, proxy_name)
 
 
@@ -226,7 +254,7 @@ async def update_proxy_config(proxy_id: str, updates: ConfigUpdateRequest) -> Co
     update_dict = current_config.model_dump()
 
     if updates.logging:
-        logging_updates = updates.logging.model_dump(exclude_none=True)
+        logging_updates = updates.logging.model_dump(exclude_unset=True)
         # PerProxyConfig has log_level and include_payloads at root level, not nested
         if "log_level" in logging_updates:
             update_dict["log_level"] = logging_updates["log_level"]
@@ -234,12 +262,19 @@ async def update_proxy_config(proxy_id: str, updates: ConfigUpdateRequest) -> Co
             update_dict["include_payloads"] = logging_updates["include_payloads"]
 
     if updates.backend:
-        backend_updates = updates.backend.model_dump(exclude_none=True)
+        backend_updates = updates.backend.model_dump(exclude_unset=True)
         if backend_updates:
+            backend_updates = _normalize_attestation_keys(backend_updates)
             update_dict["backend"] = _deep_merge(update_dict["backend"], backend_updates)
 
+    if updates.auth:
+        auth_updates = updates.auth.model_dump(exclude_unset=True)
+        # mTLS is stored at PerProxyConfig root level, not nested under auth
+        if "mtls" in auth_updates:
+            update_dict["mtls"] = auth_updates["mtls"]
+
     if updates.hitl:
-        hitl_updates = updates.hitl.model_dump(exclude_none=True)
+        hitl_updates = updates.hitl.model_dump(exclude_unset=True)
         if hitl_updates:
             update_dict["hitl"] = _deep_merge(update_dict["hitl"], hitl_updates)
 
@@ -267,6 +302,61 @@ async def update_proxy_config(proxy_id: str, updates: ConfigUpdateRequest) -> Co
     return ConfigUpdateResponse(
         config=_build_config_response_from_proxy(new_config, proxy_name),
         message="Configuration saved. Restart the proxy to apply changes.",
+    )
+
+
+@router.get("/{proxy_id}/config/compare", response_model=ConfigComparisonResponse)
+async def compare_proxy_config(proxy_id: str, request: Request) -> ConfigComparisonResponse:
+    """Compare running (in-memory) config with saved (file) config for a proxy.
+
+    If the proxy is running, forwards to its /api/config/compare endpoint.
+    If not running, returns has_changes=False with an informational message.
+
+    Args:
+        proxy_id: Stable proxy identifier.
+
+    Returns:
+        ConfigComparisonResponse with changes between running and saved config.
+    """
+    result = find_proxy_by_id(proxy_id)
+    if result is None:
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.PROXY_NOT_FOUND,
+            message=f"Proxy with ID '{proxy_id}' not found",
+            details={"proxy_id": proxy_id},
+        )
+
+    proxy_name, config = result
+    saved_response = _build_config_response_from_proxy(config, proxy_name)
+
+    # Try to reach the running proxy via UDS
+    reg: ProxyRegistry = request.app.state.registry
+    socket_path = await get_proxy_socket(proxy_name, reg)
+
+    if not socket_path:
+        return ConfigComparisonResponse(
+            running_config=saved_response,
+            saved_config=saved_response,
+            has_changes=False,
+            changes=[],
+            message="Proxy is not running. No comparison available.",
+        )
+
+    try:
+        async with create_uds_client(socket_path, timeout=PROXY_SNAPSHOT_TIMEOUT_SECONDS) as client:
+            resp = await client.get("/api/config/compare")
+            if resp.status_code == 200:
+                return ConfigComparisonResponse.model_validate(resp.json())
+    except (httpx.ConnectError, httpx.TimeoutException, OSError, json.JSONDecodeError):
+        pass
+
+    return ConfigComparisonResponse(
+        running_config=saved_response,
+        saved_config=saved_response,
+        has_changes=False,
+        changes=[],
+        message="Could not reach running proxy for comparison.",
     )
 
 

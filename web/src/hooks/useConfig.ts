@@ -3,6 +3,7 @@ import {
   getConfig,
   updateConfig,
   compareConfig,
+  compareProxyConfig,
   getProxyConfig,
   updateProxyConfig,
   ConfigResponse,
@@ -23,6 +24,8 @@ export interface UseConfigResult {
   hasPendingChanges: boolean
   save: (updates: ConfigUpdateRequest) => Promise<boolean>
   refresh: () => Promise<void>
+  /** Update config state locally without a server round-trip */
+  setConfig: React.Dispatch<React.SetStateAction<ConfigResponse | null>>
 }
 
 /** Options for useConfig hook */
@@ -32,8 +35,8 @@ export interface UseConfigOptions {
    * regardless of whether the proxy is running.
    * When undefined, uses the default proxy-level endpoints.
    *
-   * Note: Config comparison is NOT available at manager level
-   * (requires running proxy's in-memory state).
+   * When the proxy is running, the manager returns the in-memory
+   * (running) config and comparison is available via UDS forwarding.
    */
   proxyId?: string
 }
@@ -63,6 +66,24 @@ export function useConfig(options?: UseConfigOptions): UseConfigResult {
   const [hasPendingChanges, setHasPendingChanges] = useState(false)
   const mountedRef = useRef(true)
 
+  const fetchComparison = useCallback(async () => {
+    try {
+      const comparison = proxyId
+        ? await compareProxyConfig(proxyId)
+        : await compareConfig()
+      if (mountedRef.current) {
+        setPendingChanges(comparison.changes)
+        setHasPendingChanges(comparison.has_changes)
+      }
+    } catch {
+      // Comparison failed - that's OK, just don't show pending changes
+      if (mountedRef.current) {
+        setPendingChanges([])
+        setHasPendingChanges(false)
+      }
+    }
+  }, [proxyId])
+
   const fetchConfig = useCallback(async () => {
     try {
       setLoading(true)
@@ -75,30 +96,6 @@ export function useConfig(options?: UseConfigOptions): UseConfigResult {
       if (mountedRef.current) {
         setConfig(configData)
       }
-
-      // Only fetch comparison for default proxy (not available at manager level)
-      // Config comparison requires running proxy's in-memory state
-      if (!proxyId) {
-        try {
-          const comparison = await compareConfig()
-          if (mountedRef.current) {
-            setPendingChanges(comparison.changes)
-            setHasPendingChanges(comparison.has_changes)
-          }
-        } catch {
-          // Comparison failed - that's OK, just don't show pending changes
-          if (mountedRef.current) {
-            setPendingChanges([])
-            setHasPendingChanges(false)
-          }
-        }
-      } else {
-        // Manager-level access: comparison not available
-        if (mountedRef.current) {
-          setPendingChanges([])
-          setHasPendingChanges(false)
-        }
-      }
     } catch (e) {
       if (mountedRef.current) {
         const msg = e instanceof Error ? e.message : 'Failed to load config'
@@ -110,7 +107,10 @@ export function useConfig(options?: UseConfigOptions): UseConfigResult {
         setLoading(false)
       }
     }
-  }, [proxyId])
+
+    // Fetch comparison non-blocking (after loading is done)
+    fetchComparison()
+  }, [proxyId, fetchComparison])
 
   const save = useCallback(async (updates: ConfigUpdateRequest): Promise<boolean> => {
     setSaving(true)
@@ -121,6 +121,8 @@ export function useConfig(options?: UseConfigOptions): UseConfigResult {
       if (mountedRef.current) {
         setConfig(result.config)
         toast.success(result.message)
+        // Re-fetch comparison after save so pending changes table updates
+        fetchComparison()
       }
       return true
     } catch (e) {
@@ -139,7 +141,7 @@ export function useConfig(options?: UseConfigOptions): UseConfigResult {
         setSaving(false)
       }
     }
-  }, [proxyId])
+  }, [proxyId, fetchComparison])
 
   useEffect(() => {
     mountedRef.current = true
@@ -158,5 +160,6 @@ export function useConfig(options?: UseConfigOptions): UseConfigResult {
     hasPendingChanges,
     save,
     refresh: fetchConfig,
+    setConfig,
   }
 }

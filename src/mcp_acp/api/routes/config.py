@@ -35,7 +35,13 @@ from mcp_acp.api.schemas import (
     StdioAttestationResponse,
     StdioTransportResponse,
 )
-from mcp_acp.config import AppConfig
+from mcp_acp.config import (
+    AppConfig,
+    PerProxyConfig,
+    build_app_config_from_per_proxy,
+    load_proxy_config,
+    save_proxy_config,
+)
 from mcp_acp.manager.config import get_proxy_config_path
 
 router = APIRouter()
@@ -50,7 +56,6 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
     """Deep merge updates into base dict, handling nested dicts.
 
     Recursively merges nested dictionaries while overwriting scalar values.
-    None values in updates should be filtered before calling (use exclude_none=True).
 
     Args:
         base: Base dictionary to merge into.
@@ -66,6 +71,15 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
         else:
             result[key] = value
     return result
+
+
+def _normalize_attestation_keys(update_dict: dict[str, Any]) -> dict[str, Any]:
+    """Rename API field names to internal model field names for attestation."""
+    if "stdio" in update_dict and isinstance(update_dict["stdio"], dict):
+        att = update_dict["stdio"].get("attestation")
+        if isinstance(att, dict) and "require_code_signature" in att:
+            att["require_signature"] = att.pop("require_code_signature")
+    return update_dict
 
 
 def _compare_configs(running: dict[str, Any], saved: dict[str, Any], prefix: str = "") -> list[ConfigChange]:
@@ -225,9 +239,15 @@ async def update_config(config: ConfigDep, updates: ConfigUpdateRequest) -> Conf
     """
     config_path = get_proxy_config_path(config.proxy.name)
 
-    # Load current config from file (not memory, to get latest)
+    # Load current config from file (stored as PerProxyConfig, convert to AppConfig)
     try:
-        current_config = AppConfig.load_from_files(config_path)
+        per_proxy = load_proxy_config(config.proxy.name)
+        current_config = build_app_config_from_per_proxy(
+            proxy_name=config.proxy.name,
+            per_proxy=per_proxy,
+            oidc=config.auth.oidc if config.auth else None,
+            log_dir=config.logging.log_dir,
+        )
     except FileNotFoundError:
         raise APIError(
             status_code=404,
@@ -246,30 +266,35 @@ async def update_config(config: ConfigDep, updates: ConfigUpdateRequest) -> Conf
     update_dict = current_config.model_dump()
 
     if updates.logging:
-        logging_updates = updates.logging.model_dump(exclude_none=True)
+        logging_updates = updates.logging.model_dump(exclude_unset=True)
         if logging_updates:
             update_dict["logging"] = _deep_merge(update_dict["logging"], logging_updates)
 
     if updates.backend:
-        backend_updates = updates.backend.model_dump(exclude_none=True)
+        backend_updates = updates.backend.model_dump(exclude_unset=True)
         if backend_updates:
+            backend_updates = _normalize_attestation_keys(backend_updates)
             update_dict["backend"] = _deep_merge(update_dict["backend"], backend_updates)
 
     if updates.proxy:
-        proxy_updates = updates.proxy.model_dump(exclude_none=True)
+        proxy_updates = updates.proxy.model_dump(exclude_unset=True)
         if proxy_updates:
             update_dict["proxy"] = _deep_merge(update_dict["proxy"], proxy_updates)
 
     if updates.auth:
-        auth_updates = updates.auth.model_dump(exclude_none=True)
+        auth_updates = updates.auth.model_dump(exclude_unset=True)
         if auth_updates:
-            # Ensure auth dict exists
-            if update_dict.get("auth") is None:
-                update_dict["auth"] = {}
-            update_dict["auth"] = _deep_merge(update_dict["auth"], auth_updates)
+            # mTLS is stored at config.mtls, not config.auth.mtls
+            if "mtls" in auth_updates:
+                update_dict["mtls"] = auth_updates.pop("mtls")
+            if auth_updates:
+                # Ensure auth dict exists
+                if update_dict.get("auth") is None:
+                    update_dict["auth"] = {}
+                update_dict["auth"] = _deep_merge(update_dict["auth"], auth_updates)
 
     if updates.hitl:
-        hitl_updates = updates.hitl.model_dump(exclude_none=True)
+        hitl_updates = updates.hitl.model_dump(exclude_unset=True)
         if hitl_updates:
             update_dict["hitl"] = _deep_merge(update_dict["hitl"], hitl_updates)
 
@@ -288,9 +313,18 @@ async def update_config(config: ConfigDep, updates: ConfigUpdateRequest) -> Conf
             validation_errors=validation_errors,
         )
 
-    # Save to file
+    # Save back as PerProxyConfig (preserve proxy_id and created_at)
+    updated_per_proxy = PerProxyConfig(
+        proxy_id=per_proxy.proxy_id,
+        created_at=per_proxy.created_at,
+        backend=new_config.backend,
+        hitl=new_config.hitl,
+        mtls=new_config.mtls,
+        log_level=new_config.logging.log_level,
+        include_payloads=new_config.logging.include_payloads,
+    )
     try:
-        new_config.save_to_file(config_path)
+        save_proxy_config(config.proxy.name, updated_per_proxy)
     except Exception as e:
         raise APIError(
             status_code=500,
@@ -316,9 +350,15 @@ async def compare_config(config: ConfigDep) -> ConfigComparisonResponse:
     # Build running config response
     running_response = _build_config_response(config)
 
-    # Load saved config from file
+    # Load saved config from file (stored as PerProxyConfig, convert to AppConfig)
     try:
-        saved_config = AppConfig.load_from_files(config_path)
+        per_proxy = load_proxy_config(config.proxy.name)
+        saved_config = build_app_config_from_per_proxy(
+            proxy_name=config.proxy.name,
+            per_proxy=per_proxy,
+            oidc=config.auth.oidc if config.auth else None,
+            log_dir=config.logging.log_dir,
+        )
         saved_response = _build_config_response(saved_config)
     except FileNotFoundError:
         raise APIError(

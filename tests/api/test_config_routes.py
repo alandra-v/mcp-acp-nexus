@@ -229,18 +229,22 @@ class TestUpdateConfig:
         new_config.save_to_file = MagicMock()
 
         config_path = tmp_path / "config.json"
+        mock_per_proxy = MagicMock()
 
-        with patch("mcp_acp.config.AppConfig.load_from_files", return_value=mock_config):
-            with patch("mcp_acp.config.AppConfig.model_validate", return_value=new_config):
-                with patch(
-                    "mcp_acp.api.routes.config.get_proxy_config_path",
-                    return_value=config_path,
-                ):
-                    # Act
-                    response = client.put(
-                        "/api/config",
-                        json={"logging": {"log_level": "DEBUG", "include_payloads": True}},
-                    )
+        with patch("mcp_acp.api.routes.config.load_proxy_config", return_value=mock_per_proxy):
+            with patch("mcp_acp.api.routes.config.build_app_config_from_per_proxy", return_value=mock_config):
+                with patch("mcp_acp.config.AppConfig.model_validate", return_value=new_config):
+                    with patch("mcp_acp.api.routes.config.PerProxyConfig", return_value=MagicMock()):
+                        with patch("mcp_acp.api.routes.config.save_proxy_config"):
+                            with patch(
+                                "mcp_acp.api.routes.config.get_proxy_config_path",
+                                return_value=config_path,
+                            ):
+                                # Act
+                                response = client.put(
+                                    "/api/config",
+                                    json={"logging": {"log_level": "DEBUG", "include_payloads": True}},
+                                )
 
         # Assert
         assert response.status_code == 200
@@ -251,7 +255,7 @@ class TestUpdateConfig:
         """Given missing config file, returns 404."""
         # Arrange
         with patch(
-            "mcp_acp.config.AppConfig.load_from_files",
+            "mcp_acp.api.routes.config.load_proxy_config",
             side_effect=FileNotFoundError,
         ):
             with patch(
@@ -298,14 +302,19 @@ class TestUpdateConfig:
         mock_config.hitl.approval_ttl_seconds = 600
         # Note: cache_side_effects has moved to per-rule policy configuration
 
-        with patch("mcp_acp.config.AppConfig.load_from_files", return_value=mock_config):
-            with patch("mcp_acp.config.AppConfig.model_validate", return_value=mock_config):
-                with patch(
-                    "mcp_acp.api.routes.config.get_proxy_config_path",
-                    return_value=tmp_path / "config.json",
-                ):
-                    # Act
-                    response = client.put("/api/config", json={})
+        mock_per_proxy = MagicMock()
+
+        with patch("mcp_acp.api.routes.config.load_proxy_config", return_value=mock_per_proxy):
+            with patch("mcp_acp.api.routes.config.build_app_config_from_per_proxy", return_value=mock_config):
+                with patch("mcp_acp.config.AppConfig.model_validate", return_value=mock_config):
+                    with patch("mcp_acp.api.routes.config.PerProxyConfig", return_value=MagicMock()):
+                        with patch("mcp_acp.api.routes.config.save_proxy_config"):
+                            with patch(
+                                "mcp_acp.api.routes.config.get_proxy_config_path",
+                                return_value=tmp_path / "config.json",
+                            ):
+                                # Act
+                                response = client.put("/api/config", json={})
 
         # Assert
         assert response.status_code == 200

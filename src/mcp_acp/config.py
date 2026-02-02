@@ -540,7 +540,9 @@ def build_app_config_from_per_proxy(
     return AppConfig(
         auth=auth,
         mtls=per_proxy.mtls,  # mTLS is per-proxy
-        logging=LoggingConfig(log_dir=log_dir, log_level=per_proxy.log_level),
+        logging=LoggingConfig(
+            log_dir=log_dir, log_level=per_proxy.log_level, include_payloads=per_proxy.include_payloads
+        ),
         backend=per_proxy.backend,
         proxy=ProxyConfig(name=proxy_name, proxy_id=per_proxy.proxy_id),
         hitl=per_proxy.hitl,

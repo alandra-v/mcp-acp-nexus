@@ -105,15 +105,15 @@ export interface ConfigComparisonResponse {
 // =============================================================================
 
 export interface StdioAttestationUpdate {
-  slsa_owner?: string
-  expected_sha256?: string
+  slsa_owner?: string | null
+  expected_sha256?: string | null
   require_code_signature?: boolean
 }
 
 export interface StdioTransportUpdate {
   command?: string
   args?: string[]
-  attestation?: StdioAttestationUpdate
+  attestation?: StdioAttestationUpdate | null
 }
 
 export interface HttpTransportUpdate {
@@ -149,7 +149,7 @@ export interface MTLSConfigUpdate {
 
 export interface AuthConfigUpdate {
   oidc?: OIDCConfigUpdate
-  mtls?: MTLSConfigUpdate
+  mtls?: MTLSConfigUpdate | null
 }
 
 export interface ProxyConfigUpdate {
@@ -198,6 +198,15 @@ export async function updateConfig(
  */
 export async function compareConfig(): Promise<ConfigComparisonResponse> {
   return apiGet<ConfigComparisonResponse>('/config/compare')
+}
+
+/**
+ * Compare running (in-memory) config with saved (file) config for a proxy
+ * via the manager endpoint. Works by forwarding to the running proxy's
+ * compare endpoint; returns has_changes=false if the proxy is offline.
+ */
+export async function compareProxyConfig(proxyId: string): Promise<ConfigComparisonResponse> {
+  return apiGet<ConfigComparisonResponse>(`/manager/proxies/${encodeURIComponent(proxyId)}/config/compare`)
 }
 
 // =============================================================================
