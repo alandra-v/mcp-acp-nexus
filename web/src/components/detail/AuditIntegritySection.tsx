@@ -363,7 +363,7 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
                 <ShieldAlert className="w-4 h-4 text-error flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{file.description}</p>
-                  <p className="text-xs text-muted-foreground truncate">
+                  <p className="text-xs text-muted-foreground break-words">
                     {file.status === 'missing'
                       ? 'Stale integrity state will be cleared'
                       : `${file.entry_count?.toLocaleString() ?? 0} entries will be backed up`}

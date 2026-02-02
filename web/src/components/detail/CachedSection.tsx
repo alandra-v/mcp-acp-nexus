@@ -67,7 +67,7 @@ function CachedItem({ item, onDelete }: CachedItemProps) {
         <span className="font-mono text-sm text-base-300 bg-base-800 px-2 py-1 rounded">
           {item.tool_name}
         </span>
-        <span className="flex-1 font-mono text-xs text-base-500 truncate">
+        <span className="flex-1 font-mono text-xs text-base-500 break-words">
           {item.path || '--'}
         </span>
         <span className={`text-xs tabular-nums ${isExpiring ? 'text-warning' : 'text-base-600'}`}>

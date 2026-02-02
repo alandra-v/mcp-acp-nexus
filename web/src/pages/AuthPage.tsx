@@ -104,13 +104,13 @@ export function AuthPage() {
                   <>
                     <div>
                       <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Subject ID</div>
-                      <div className="font-mono text-sm text-base-300 truncate">
+                      <div className="font-mono text-sm text-base-300 break-all">
                         {status.subject_id || '--'}
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Email</div>
-                      <div className="font-mono text-sm text-base-300 truncate">
+                      <div className="font-mono text-sm text-base-300 break-words">
                         {status.email || '--'}
                       </div>
                     </div>
@@ -183,19 +183,19 @@ export function AuthPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Issuer</div>
-                  <div className="font-mono text-sm text-base-300 break-all">
+                  <div className="font-mono text-sm text-base-300 break-words">
                     {status.provider || '--'}
                   </div>
                 </div>
                 <div className="col-span-2">
                   <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Client ID</div>
-                  <div className="font-mono text-sm text-base-300 truncate">
+                  <div className="font-mono text-sm text-base-300 break-all">
                     {status.client_id || '--'}
                   </div>
                 </div>
                 <div className="col-span-2">
                   <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Audience</div>
-                  <div className="font-mono text-sm text-base-300 truncate">
+                  <div className="font-mono text-sm text-base-300 break-words">
                     {status.audience || '--'}
                   </div>
                 </div>
@@ -238,7 +238,7 @@ export function AuthPage() {
                 href={popupBlockedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-accent-blue hover:underline break-all text-xs"
+                className="text-accent-blue hover:underline break-words text-xs"
               >
                 {popupBlockedUrl}
               </a>

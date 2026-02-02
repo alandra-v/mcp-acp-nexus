@@ -101,7 +101,7 @@ export function ApprovalItem({
           <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
             {approval.tool_name}
           </span>
-          <span className="flex-1 font-mono text-sm text-base-400 truncate">
+          <span className="flex-1 font-mono text-sm text-base-400 break-words">
             {approval.path || '--'}
           </span>
           <span className={`text-xs tabular-nums ${isUrgent ? 'text-error' : 'text-base-500'}`}>
@@ -142,7 +142,7 @@ export function ApprovalItem({
       </div>
 
       {approval.path && (
-        <div className="font-mono text-xs text-base-400 mb-3 break-all">
+        <div className="font-mono text-xs text-base-400 mb-3 break-words">
           {approval.path}
         </div>
       )}

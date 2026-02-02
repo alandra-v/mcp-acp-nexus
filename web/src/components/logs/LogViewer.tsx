@@ -417,7 +417,7 @@ export function LogViewer({
 
       {/* Log file path (when viewing single file) */}
       {logFile && (
-        <div className="text-xs text-base-600 font-mono truncate" title={logFile}>
+        <div className="text-xs text-base-600 font-mono break-words" title={logFile}>
           {logFile}
         </div>
       )}

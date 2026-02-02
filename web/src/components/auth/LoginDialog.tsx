@@ -94,7 +94,7 @@ export function LoginDialog({ open, onOpenChange, onSuccess }: LoginDialogProps)
                   href={state.verificationUriComplete || state.verificationUri}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-accent-blue hover:underline break-all"
+                  className="text-accent-blue hover:underline break-words"
                 >
                   {state.verificationUriComplete || state.verificationUri}
                 </a>

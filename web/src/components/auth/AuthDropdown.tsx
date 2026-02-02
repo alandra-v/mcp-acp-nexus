@@ -124,7 +124,7 @@ export function AuthDropdown() {
                 href={popupBlockedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-accent-blue hover:underline break-all text-xs"
+                className="text-accent-blue hover:underline break-words text-xs"
               >
                 {popupBlockedUrl}
               </a>
