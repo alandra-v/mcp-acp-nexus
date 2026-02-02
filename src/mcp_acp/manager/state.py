@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
 from mcp_acp.manager.events import EventSeverity, SSEEventType
+from mcp_acp.manager.latency import LatencyTracker
 from mcp_acp.manager.models import (
     CachedApprovalSummary,
     PendingApprovalInfo,
@@ -137,6 +138,11 @@ class ProxyState:
         # Backend connection state tracking (for reconnect detection)
         self._backend_disconnected = False
 
+        # Latency trackers (rolling circular buffers)
+        self._latency_proxy = LatencyTracker()
+        self._latency_policy_eval = LatencyTracker()
+        self._latency_hitl_wait = LatencyTracker()
+
         # Manager client for event forwarding (set after connection)
         self._manager_client: "ManagerClient | None" = None
 
@@ -228,7 +234,12 @@ class ProxyState:
             # Notify about new log entries (for ActivitySection live updates)
             self.emit_system_event(SSEEventType.NEW_LOG_ENTRIES, count=1)
 
-    def record_decision(self, decision: "Decision") -> None:
+    def record_decision(
+        self,
+        decision: "Decision",
+        eval_ms: float | None = None,
+        hitl_ms: float | None = None,
+    ) -> None:
         """Record a policy decision for stats tracking.
 
         Called by middleware after policy-evaluated requests.
@@ -237,6 +248,8 @@ class ProxyState:
 
         Args:
             decision: The policy decision (ALLOW, DENY, or HITL).
+            eval_ms: Policy evaluation latency in milliseconds.
+            hitl_ms: HITL wait latency in milliseconds.
         """
         from mcp_acp.pdp import Decision
 
@@ -246,6 +259,12 @@ class ProxyState:
             self._requests_denied += 1
         elif decision == Decision.HITL:
             self._requests_hitl += 1
+
+        # Record latency samples (if provided)
+        if eval_ms is not None:
+            self._latency_policy_eval.record(eval_ms)
+        if hitl_ms is not None:
+            self._latency_hitl_wait.record(hitl_ms)
 
         # Emit live updates to connected UI clients
         if self.is_ui_connected:
@@ -268,6 +287,30 @@ class ProxyState:
             requests_denied=self._requests_denied,
             requests_hitl=self._requests_hitl,
         )
+
+    def record_proxy_latency(self, ms: float) -> None:
+        """Record end-to-end proxy latency for a successful request.
+
+        Called by ContextMiddleware after non-discovery requests that
+        complete without error (denials raise and are excluded).
+
+        Args:
+            ms: Total proxy latency in milliseconds.
+        """
+        self._latency_proxy.record(ms)
+
+    def get_latency(self) -> dict[str, dict[str, Any]]:
+        """Get rolling latency statistics for all tracked metrics.
+
+        Returns:
+            Dict keyed by metric name, each containing median_ms,
+            count, min_ms, max_ms (or None values when empty).
+        """
+        return {
+            "proxy_latency": self._latency_proxy.to_dict(),
+            "policy_eval": self._latency_policy_eval.to_dict(),
+            "hitl_wait": self._latency_hitl_wait.to_dict(),
+        }
 
     # =========================================================================
     # Backend Connection State (for reconnect detection)

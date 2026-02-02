@@ -47,7 +47,7 @@ from mcp_acp.security.tool_sanitizer import ToolListSanitizer
 from mcp_acp.utils.logging.extractors import extract_client_info
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 from mcp_acp.telemetry.audit.decision_logger import create_decision_logger, DecisionEventLogger
-from mcp_acp.utils.logging.logging_context import get_request_id, get_session_id
+from mcp_acp.utils.logging.logging_context import get_request_id, get_session_id, mark_hitl_resolved
 
 if TYPE_CHECKING:
     from mcp_acp.config import HITLConfig
@@ -416,7 +416,7 @@ class PolicyEnforcementMiddleware(Middleware):
             else:
                 # Policy-evaluated requests track both total and decision
                 self._hitl_handler.proxy_state.record_request()
-                self._hitl_handler.proxy_state.record_decision(Decision.ALLOW)
+                self._hitl_handler.proxy_state.record_decision(Decision.ALLOW, eval_ms=eval_duration_ms)
 
         # Execute backend call with error detection for SSE events
         # NOTE: Connection errors during get_tools() (before middleware runs) are caught
@@ -568,7 +568,7 @@ class PolicyEnforcementMiddleware(Middleware):
         # Record stats for live UI updates (DENY is always policy-evaluated, never discovery)
         if self._hitl_handler.proxy_state is not None:
             self._hitl_handler.proxy_state.record_request()
-            self._hitl_handler.proxy_state.record_decision(Decision.DENY)
+            self._hitl_handler.proxy_state.record_decision(Decision.DENY, eval_ms=eval_duration_ms)
 
         tool_name = decision_context.resource.tool.name if decision_context.resource.tool else None
         path = decision_context.resource.resource.path if decision_context.resource.resource else None
@@ -612,10 +612,9 @@ class PolicyEnforcementMiddleware(Middleware):
         Raises:
             PermissionDeniedError: If user denies or times out.
         """
-        # Record stats for live UI updates (HITL is always policy-evaluated, never discovery)
+        # Record total request count early (decision recorded per-branch below)
         if self._hitl_handler.proxy_state is not None:
             self._hitl_handler.proxy_state.record_request()
-            self._hitl_handler.proxy_state.record_decision(Decision.HITL)
 
         # Extract context for caching
         tool = decision_context.resource.tool
@@ -658,6 +657,11 @@ class PolicyEnforcementMiddleware(Middleware):
                 policy_eval_ms=eval_duration_ms,
                 policy_hitl_ms=0.0,  # No wait time - used cache
             )
+            if self._hitl_handler.proxy_state is not None:
+                self._hitl_handler.proxy_state.record_decision(
+                    Decision.HITL, eval_ms=eval_duration_ms, hitl_ms=0.0
+                )
+            mark_hitl_resolved()
             return await call_next(context)
 
         # No cached approval - show dialog
@@ -692,6 +696,13 @@ class PolicyEnforcementMiddleware(Middleware):
                 policy_hitl_ms=hitl_result.response_time_ms,
                 hitl_approver_id=hitl_result.approver_id,
             )
+            if self._hitl_handler.proxy_state is not None:
+                self._hitl_handler.proxy_state.record_decision(
+                    Decision.HITL,
+                    eval_ms=eval_duration_ms,
+                    hitl_ms=hitl_result.response_time_ms,
+                )
+            mark_hitl_resolved()
             return await call_next(context)
 
         # User denied or timeout - log and deny
@@ -706,6 +717,12 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_hitl_ms=hitl_result.response_time_ms,
             hitl_approver_id=hitl_result.approver_id,
         )
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_decision(
+                Decision.HITL,
+                eval_ms=eval_duration_ms,
+                hitl_ms=hitl_result.response_time_ms,
+            )
 
         reason = "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
         raise PermissionDeniedError(

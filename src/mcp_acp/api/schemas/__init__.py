@@ -78,8 +78,10 @@ from mcp_acp.api.schemas.pending import (
 
 # Proxies schemas
 from mcp_acp.api.schemas.proxies import (
+    LatencyResponse,
     ProxyResponse,
     StatsResponse,
+    StatsWithLatencyResponse,
 )
 
 # Sessions schemas
@@ -170,8 +172,10 @@ __all__ = [
     "ApprovalActionResponse",
     "PendingApprovalResponse",
     # Proxies
+    "LatencyResponse",
     "ProxyResponse",
     "StatsResponse",
+    "StatsWithLatencyResponse",
     # Sessions
     "AuthSessionResponse",
     # Logs

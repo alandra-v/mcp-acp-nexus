@@ -51,3 +51,5 @@ config_version — optional, version string from loaded config
 ## Duration
 duration — DurationInfo object (required):
   - duration_ms: total operation duration in milliseconds (float)
+
+Measured in `AuditLoggingMiddleware` (second in the middleware chain) from request receipt to response ready. Includes all operations (allowed, denied, discovery, HITL). This differs from the live `proxy_latency` metric exposed via `GET /api/stats`, which is measured in `ContextMiddleware` (outermost) and only includes allowed, non-discovery, non-HITL requests. See [Performance Metrics](../../../security/logging.md#performance-metrics) for the live metric definitions.

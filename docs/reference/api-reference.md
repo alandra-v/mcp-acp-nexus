@@ -24,7 +24,7 @@ The system exposes two HTTP APIs: a **Per-Proxy API** running inside each proxy 
 │  /api/auth/*       /api/config/*     │
 │  /api/logs/*       /api/control/*    │
 │  /api/proxies/*    /api/incidents/*  │
-│  /api/auth-sessions                  │
+│  /api/stats        /api/auth-sessions│
 └──────────────────────────────────────┘
 ```
 
@@ -58,6 +58,38 @@ These endpoints run inside each proxy process. When accessed through the Manager
 |--------|------|-------------|
 | `GET` | `/api/proxies` | List all running proxies (includes stats) |
 | `GET` | `/api/proxies/{proxy_id}` | Get proxy details (includes stats) |
+
+### Stats
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/stats` | Request counters and rolling latency medians |
+
+Returns `503` if the proxy is still starting (ProxyState not yet initialized).
+
+**Response:**
+
+```json
+{
+  "requests_total": 100,
+  "requests_allowed": 80,
+  "requests_denied": 15,
+  "requests_hitl": 5,
+  "latency": {
+    "proxy_latency_ms": 14.2,
+    "policy_eval_ms": 3.1,
+    "hitl_wait_ms": 1200.0
+  }
+}
+```
+
+**Latency fields** are rolling medians over the last 1000 samples. Values are `null` when no samples have been recorded for that metric.
+
+| Field | Description |
+|-------|-------------|
+| `proxy_latency_ms` | End-to-end time through proxy (allowed, non-discovery, non-HITL requests only) |
+| `policy_eval_ms` | Policy engine evaluation time (all policy-evaluated requests) |
+| `hitl_wait_ms` | Human-in-the-loop wait time (all HITL outcomes: cache hits, approved, denied, timeout) |
 
 ### Sessions
 

@@ -75,6 +75,8 @@ __all__ = [
     "INITIAL_VERSION",
     # Crash recovery
     "CRASH_BREADCRUMB_FILENAME",
+    # Latency tracking
+    "LATENCY_BUFFER_SIZE",
 ]
 
 from pathlib import Path
@@ -441,3 +443,11 @@ INITIAL_VERSION = "v1"
 # - UI incidents page: show crash history to user
 # - Startup popup: alert user to recent crash
 CRASH_BREADCRUMB_FILENAME = ".last_crash"
+
+# ============================================================================
+# Latency Tracking
+# ============================================================================
+
+# Maximum number of recent latency samples to keep per metric.
+# Used by LatencyTracker's circular buffer for computing rolling medians.
+LATENCY_BUFFER_SIZE: int = 1000

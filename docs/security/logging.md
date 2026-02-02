@@ -81,13 +81,13 @@ Security audit trail - **ALWAYS enabled, cannot be disabled**.
 
 MCP operation audit trail following the **Kipling method (5W1H)**: Who (subject), What (method, tool), When (timestamp), Where (backend, path), Why (policy decision), How (arguments, transport).
 
-**See**: [logging_specs/audit/operations.md](../reference/logging_specs/audit/operations.md) for full schema.
+**See**: [logging-specs/audit/operations.md](../reference/logging-specs/audit/operations.md) for full schema.
 
 ### decisions.jsonl
 
 Every policy evaluation decision, including HITL outcomes. Captures matched rules, final decision, performance metrics, and approval details.
 
-**See**: [logging_specs/audit/decisions.md](../reference/logging_specs/audit/decisions.md) for full schema.
+**See**: [logging-specs/audit/decisions.md](../reference/logging-specs/audit/decisions.md) for full schema.
 
 ### auth.jsonl
 
@@ -95,7 +95,7 @@ Authentication events for Zero Trust compliance. Based on OCSF Authentication (3
 
 **Note**: Success events for per-request token validation and device health checks are not logged to reduce noise. Only failures and session lifecycle events are logged.
 
-**See**: [logging_specs/audit/auth.md](../reference/logging_specs/audit/auth.md) for full schema.
+**See**: [logging-specs/audit/auth.md](../reference/logging-specs/audit/auth.md) for full schema.
 
 ---
 
@@ -105,19 +105,19 @@ Authentication events for Zero Trust compliance. Based on OCSF Authentication (3
 
 Operational issues and errors (backend disconnections, path normalization failures, etc.). **Only WARNING, ERROR, CRITICAL levels are logged to file.**
 
-**See**: [logging_specs/system/system.md](../reference/logging_specs/system/system.md) for full schema.
+**See**: [logging-specs/system/system.md](../reference/logging-specs/system/system.md) for full schema.
 
 ### config_history.jsonl
 
 Configuration change audit trail with versioning and checksums.
 
-**See**: [logging_specs/system/config_history.md](../reference/logging_specs/system/config_history.md) for full schema.
+**See**: [logging-specs/system/config-history.md](../reference/logging-specs/system/config-history.md) for full schema.
 
 ### policy_history.jsonl
 
 Policy change audit trail with versioning and checksums.
 
-**See**: [logging_specs/system/policy_history.md](../reference/logging_specs/system/policy_history.md) for full schema.
+**See**: [logging-specs/system/policy-history.md](../reference/logging-specs/system/policy-history.md) for full schema.
 
 ---
 
@@ -150,7 +150,7 @@ Manager operational logs including:
 
 Not hash-chain protected (uses standard Python logging format).
 
-**See**: [logging_specs/manager/system.md](../reference/logging_specs/manager/system.md) for full schema.
+**See**: [logging-specs/manager/system.md](../reference/logging-specs/manager/system.md) for full schema.
 
 ---
 
@@ -193,6 +193,24 @@ Simple text breadcrumb for crash popup display (overwritten each shutdown).
 - **JSONL**: One JSON object per line
 - **ISO 8601 timestamps**: Milliseconds precision, UTC (e.g., `2025-12-03T10:30:45.123Z`)
 - **Correlation IDs**: `request_id` (per request), `session_id` (per connection)
+
+---
+
+## Performance Metrics
+
+The proxy tracks three latency metrics at runtime using rolling circular buffers (last 1000 samples per metric). These are populated from the same timing data logged in `decisions.jsonl` performance fields, plus end-to-end timing measured by the outermost middleware.
+
+| Metric | Source | What it measures |
+|--------|--------|------------------|
+| `proxy_latency` | ContextMiddleware timer | End-to-end time through proxy (allowed, non-discovery, non-HITL requests only) |
+| `policy_eval` | `policy_eval_ms` from decisions.jsonl | Policy engine evaluation time |
+| `hitl_wait` | `policy_hitl_ms` from decisions.jsonl | Human-in-the-loop wait time (all HITL outcomes) |
+
+**Filtering**: `proxy_latency` excludes denied requests (fast-path, no backend), discovery requests (bypass policy engine), and HITL-resolved requests (human wait time would dominate the median). `hitl_wait` records all HITL outcomes (cache hits at 0ms, user approved, user denied, timeout).
+
+Rolling medians are exposed via `GET /api/stats` (see [API Reference](../reference/api-reference.md#stats)).
+
+**Note**: `proxy_latency` is not the same as `duration_ms` in `operations.jsonl`. The operation log duration is measured in `AuditLoggingMiddleware` (second in the middleware chain) and records all operations including denials and discovery. See [operations.md](../reference/logging-specs/audit/operations.md#duration) for details.
 
 ---
 
@@ -253,7 +271,7 @@ Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https:/
 | `config_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
 | `policy_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
 
-**Full schemas**: See `docs/reference/logging_specs/` for detailed field documentation.
+**Full schemas**: See `docs/reference/logging-specs/` for detailed field documentation.
 
 ---
 
@@ -283,4 +301,4 @@ See [Security](security.md#audit-and-logging-security) for complete details incl
 
 - [Security](security.md) for audit log integrity and fail-closed behavior
 - [Configuration](../getting-started/configuration.md) for log directory settings
-- [logging_specs/](../reference/logging_specs/) for detailed field schemas
+- [logging-specs/](../reference/logging-specs/) for detailed field schemas

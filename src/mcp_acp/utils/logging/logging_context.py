@@ -21,6 +21,8 @@ __all__ = [
     "get_session_id",
     "get_tool_arguments",
     "get_tool_name",
+    "is_hitl_resolved",
+    "mark_hitl_resolved",
     "request_id_var",
     "session_id_var",
     "set_bound_user_id",
@@ -58,6 +60,12 @@ session_id_var: ContextVar[str | None] = ContextVar("session_id", default=None)
 # This is the user_id from the initial session creation - used to detect identity changes
 bound_user_id_var: ContextVar[str | None] = ContextVar("bound_user_id", default=None)
 """User ID from session creation for identity binding validation."""
+
+# HITL resolution flag - set by enforcement middleware, read by context middleware.
+# When True, the request went through an HITL dialog (including cache hits).
+# Used to exclude HITL wait time from proxy_latency tracking.
+_hitl_resolved_var: ContextVar[bool] = ContextVar("hitl_resolved", default=False)
+"""Whether the current request was resolved via HITL (dialog or cache hit)."""
 
 # Tool call metadata - set by LoggingProxyClient.call_tool_mcp(), read by audit middleware
 # These provide tool info that's hard to extract from MiddlewareContext
@@ -115,6 +123,25 @@ def set_bound_user_id(user_id: str) -> None:
         user_id: User ID from validated identity (e.g., "auth0|123").
     """
     bound_user_id_var.set(user_id)
+
+
+def mark_hitl_resolved() -> None:
+    """Mark the current request as resolved via HITL.
+
+    Called by enforcement middleware after an HITL dialog (including cache
+    hits).  Read by context middleware to exclude HITL wait time from the
+    ``proxy_latency`` tracker.
+    """
+    _hitl_resolved_var.set(True)
+
+
+def is_hitl_resolved() -> bool:
+    """Check whether the current request was resolved via HITL.
+
+    Returns:
+        True if ``mark_hitl_resolved()`` was called for this request.
+    """
+    return _hitl_resolved_var.get()
 
 
 def set_request_id(request_id: str) -> None:
@@ -273,13 +300,15 @@ def clear_tool_context(request_id: str | None = None) -> None:
 def clear_context() -> None:
     """Clear request and session context variables.
 
-    Clears request_id and session_id context vars. Does NOT clear tool context
-    (tool_name, tool_arguments) - use clear_tool_context() for that.
+    Clears request_id, session_id, and hitl_resolved context vars.
+    Does NOT clear tool context (tool_name, tool_arguments) - use
+    clear_tool_context() for that.
 
     Useful for cleanup in tests or when explicitly ending a request context.
     """
     request_id_var.set(None)
     session_id_var.set(None)
+    _hitl_resolved_var.set(False)
 
 
 def clear_all_context(request_id: str | None = None) -> None:

@@ -4,6 +4,7 @@ This middleware is the outermost in the chain and responsible for:
 1. Setting up request context (request_id, session_id) from FastMCP context
 2. Extracting tool context (tool_name, arguments) for tools/call requests
 3. Cleaning up all context in the finally block
+4. Recording end-to-end proxy_latency for successful non-discovery requests
 
 Middleware order: Context (outer) -> Audit -> ClientLogger -> Enforcement (inner)
 
@@ -20,18 +21,24 @@ __all__ = [
     "create_context_middleware",
 ]
 
-from typing import Any
+import time
+from typing import TYPE_CHECKING, Any
 
 from fastmcp.server.middleware import Middleware
 from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 
+from mcp_acp.constants import DISCOVERY_METHODS
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 from mcp_acp.utils.logging.logging_context import (
     clear_all_context,
+    is_hitl_resolved,
     set_request_id,
     set_session_id,
     set_tool_context,
 )
+
+if TYPE_CHECKING:
+    from mcp_acp.manager.state import ProxyState
 
 _system_logger = get_system_logger()
 
@@ -45,6 +52,18 @@ class ContextMiddleware(Middleware):
     For tools/call requests, also extracts and sets tool context so that
     audit logging has access to tool_name and arguments even for denied requests.
     """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._proxy_state: "ProxyState | None" = None
+
+    def set_proxy_state(self, proxy_state: "ProxyState") -> None:
+        """Set ProxyState for proxy_latency recording.
+
+        Args:
+            proxy_state: ProxyState instance.
+        """
+        self._proxy_state = proxy_state
 
     async def on_message(
         self,
@@ -86,8 +105,24 @@ class ContextMiddleware(Middleware):
             if context.method == "tools/call":
                 self._set_tool_context(context, request_id)
 
-            # Process request through the chain
-            return await call_next(context)
+            # Process request through the chain with timing.
+            # If call_next raises (denial, backend error), the recording
+            # code below is skipped and the exception propagates to finally.
+            start = time.perf_counter()
+            result = await call_next(context)
+
+            # Record proxy_latency for allowed, non-discovery, non-HITL requests.
+            # HITL-approved requests are excluded because the human wait time
+            # (seconds) would dominate the metric; hitl_wait tracks that separately.
+            if (
+                self._proxy_state is not None
+                and context.method not in DISCOVERY_METHODS
+                and not is_hitl_resolved()
+            ):
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                self._proxy_state.record_proxy_latency(elapsed_ms)
+
+            return result
 
         finally:
             # Clean up all context to prevent memory leaks

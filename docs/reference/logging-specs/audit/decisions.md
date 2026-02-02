@@ -44,6 +44,8 @@ policy_eval_ms — policy rule evaluation time in milliseconds (float)
 policy_hitl_ms — optional, HITL wait time in milliseconds (float, only when decision == "hitl")
 policy_total_ms — total evaluation time in milliseconds (float, eval + HITL, excludes context building)
 
+These values also feed into the runtime `LatencyTracker` (rolling medians over last 1000 samples), exposed via `GET /api/stats`.
+
 ## Correlation
 request_id — JSON-RPC request ID (every decision has a request)
 session_id — optional, MCP session ID (may not exist during initialize)

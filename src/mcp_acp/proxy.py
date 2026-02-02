@@ -1030,6 +1030,9 @@ def create_proxy(
     # This allows HITL to check is_ui_connected and use web approvals
     enforcement_middleware.set_proxy_state(proxy_state)
 
+    # Wire proxy state to context middleware for proxy_latency recording
+    context_middleware.set_proxy_state(proxy_state)
+
     # Wire proxy state to shutdown coordinator for critical_shutdown SSE event
     shutdown_coordinator.set_proxy_state(proxy_state)
 

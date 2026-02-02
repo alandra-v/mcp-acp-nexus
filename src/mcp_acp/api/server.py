@@ -66,6 +66,7 @@ from .routes import (
     policy,
     proxies,
     sessions,
+    stats,
 )
 from .security import VITE_DEV_PORT, SecurityMiddleware, is_valid_token_format
 
@@ -165,6 +166,7 @@ def create_api_app(
     app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
     app.include_router(incidents.router, prefix="/api/incidents", tags=["incidents"])
     app.include_router(debug.router, prefix="/api/debug", tags=["debug"])
+    app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 
     # Serve static files (built React app)
     # Note: We use dynamic file serving instead of StaticFiles mount so that

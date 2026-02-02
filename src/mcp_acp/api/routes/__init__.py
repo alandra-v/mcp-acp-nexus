@@ -11,10 +11,24 @@ Route organization:
 - config: Configuration management (read, update)
 - logs: Log viewer (decisions, operations, auth, system)
 - incidents: Security shutdowns, bootstrap errors, emergency audit logs
+- stats: Request statistics with latency data
 - debug: Debug endpoints for testing
 """
 
-from . import approvals, auth, config, control, debug, incidents, logs, pending, policy, proxies, sessions
+from . import (
+    approvals,
+    auth,
+    config,
+    control,
+    debug,
+    incidents,
+    logs,
+    pending,
+    policy,
+    proxies,
+    sessions,
+    stats,
+)
 
 __all__ = [
     "approvals",
@@ -28,4 +42,5 @@ __all__ = [
     "policy",
     "proxies",
     "sessions",
+    "stats",
 ]

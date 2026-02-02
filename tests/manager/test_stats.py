@@ -371,3 +371,76 @@ class TestInitialState:
         assert stats.requests_allowed == 0
         assert stats.requests_denied == 0
         assert stats.requests_hitl == 0
+
+
+class TestRecordDecisionLatency:
+    """Tests for eval_ms and hitl_ms latency recording via record_decision()."""
+
+    def test_eval_ms_recorded(self, proxy_state: ProxyState) -> None:
+        """record_decision with eval_ms records to policy_eval tracker."""
+        proxy_state.record_decision(Decision.ALLOW, eval_ms=5.0)
+        latency = proxy_state.get_latency()
+        assert latency["policy_eval"]["median_ms"] == 5.0
+        assert latency["policy_eval"]["count"] == 1
+
+    def test_hitl_ms_recorded(self, proxy_state: ProxyState) -> None:
+        """record_decision with hitl_ms records to hitl_wait tracker."""
+        proxy_state.record_decision(Decision.HITL, hitl_ms=1200.0)
+        latency = proxy_state.get_latency()
+        assert latency["hitl_wait"]["median_ms"] == 1200.0
+        assert latency["hitl_wait"]["count"] == 1
+
+    def test_both_ms_recorded(self, proxy_state: ProxyState) -> None:
+        """record_decision with both eval_ms and hitl_ms records to both trackers."""
+        proxy_state.record_decision(Decision.HITL, eval_ms=2.0, hitl_ms=500.0)
+        latency = proxy_state.get_latency()
+        assert latency["policy_eval"]["median_ms"] == 2.0
+        assert latency["hitl_wait"]["median_ms"] == 500.0
+
+    def test_none_ms_not_recorded(self, proxy_state: ProxyState) -> None:
+        """record_decision with None latencies does not record samples."""
+        proxy_state.record_decision(Decision.ALLOW)
+        latency = proxy_state.get_latency()
+        assert latency["policy_eval"]["count"] == 0
+        assert latency["hitl_wait"]["count"] == 0
+
+
+class TestRecordProxyLatency:
+    """Tests for record_proxy_latency()."""
+
+    def test_records_to_proxy_tracker(self, proxy_state: ProxyState) -> None:
+        """record_proxy_latency records to the proxy_latency tracker."""
+        proxy_state.record_proxy_latency(25.0)
+        proxy_state.record_proxy_latency(35.0)
+        latency = proxy_state.get_latency()
+        assert latency["proxy_latency"]["count"] == 2
+        assert latency["proxy_latency"]["median_ms"] == 30.0
+
+
+class TestGetLatency:
+    """Tests for get_latency()."""
+
+    def test_initial_latency_all_empty(self, proxy_state: ProxyState) -> None:
+        """get_latency returns empty metrics initially."""
+        latency = proxy_state.get_latency()
+        assert latency["proxy_latency"]["median_ms"] is None
+        assert latency["policy_eval"]["median_ms"] is None
+        assert latency["hitl_wait"]["median_ms"] is None
+
+    def test_returns_all_three_keys(self, proxy_state: ProxyState) -> None:
+        """get_latency returns all three metric keys."""
+        latency = proxy_state.get_latency()
+        assert set(latency.keys()) == {"proxy_latency", "policy_eval", "hitl_wait"}
+
+    def test_medians_correct_after_multiple_samples(self, proxy_state: ProxyState) -> None:
+        """get_latency returns correct medians after recording samples."""
+        for v in [10.0, 20.0, 30.0]:
+            proxy_state.record_proxy_latency(v)
+        for v in [1.0, 2.0, 3.0]:
+            proxy_state.record_decision(Decision.ALLOW, eval_ms=v)
+        proxy_state.record_decision(Decision.HITL, hitl_ms=500.0)
+
+        latency = proxy_state.get_latency()
+        assert latency["proxy_latency"]["median_ms"] == 20.0
+        assert latency["policy_eval"]["median_ms"] == 2.0
+        assert latency["hitl_wait"]["median_ms"] == 500.0
