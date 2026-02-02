@@ -57,6 +57,18 @@ class TestProxyStats:
         assert stats.requests_allowed == 6
         assert stats.requests_denied == 3
         assert stats.requests_hitl == 1
+        assert stats.proxy_latency_ms is None
+
+    def test_stats_model_with_latency(self) -> None:
+        """Stats model accepts proxy_latency_ms field."""
+        stats = ProxyStats(
+            requests_total=10,
+            requests_allowed=6,
+            requests_denied=3,
+            requests_hitl=1,
+            proxy_latency_ms=14.2,
+        )
+        assert stats.proxy_latency_ms == 14.2
 
     def test_stats_to_dict(self) -> None:
         """Stats can be converted to dict for SSE/API."""
@@ -72,6 +84,7 @@ class TestProxyStats:
             "requests_allowed": 6,
             "requests_denied": 3,
             "requests_hitl": 1,
+            "proxy_latency_ms": None,
         }
 
     def test_stats_is_frozen(self) -> None:

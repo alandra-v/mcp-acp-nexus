@@ -279,13 +279,15 @@ class ProxyState:
         """Get current request statistics.
 
         Returns:
-            ProxyStats with current counters.
+            ProxyStats with current counters and latency median.
         """
+        median = self._latency_proxy.median()
         return ProxyStats(
             requests_total=self._requests_total,
             requests_allowed=self._requests_allowed,
             requests_denied=self._requests_denied,
             requests_hitl=self._requests_hitl,
+            proxy_latency_ms=round(median, 2) if median is not None else None,
         )
 
     def record_proxy_latency(self, ms: float) -> None:

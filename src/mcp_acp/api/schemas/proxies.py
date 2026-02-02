@@ -21,6 +21,7 @@ class StatsResponse(BaseModel):
     requests_allowed: int
     requests_denied: int
     requests_hitl: int
+    proxy_latency_ms: float | None = None
 
 
 class LatencyResponse(BaseModel):

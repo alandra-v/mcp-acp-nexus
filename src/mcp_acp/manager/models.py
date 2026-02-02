@@ -402,6 +402,8 @@ class ProxyStats(FrozenModel):
         requests_allowed: Policy-evaluated requests allowed by policy.
         requests_denied: Policy-evaluated requests denied by policy.
         requests_hitl: Policy-evaluated requests that triggered HITL approval.
+        proxy_latency_ms: Median end-to-end proxy latency in milliseconds
+            over the rolling sample window, or None when no samples exist.
 
     Note: requests_total >= requests_allowed + requests_denied + requests_hitl
     because total includes discovery requests which bypass policy evaluation.
@@ -411,6 +413,7 @@ class ProxyStats(FrozenModel):
     requests_allowed: int
     requests_denied: int
     requests_hitl: int
+    proxy_latency_ms: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict for SSE/API."""

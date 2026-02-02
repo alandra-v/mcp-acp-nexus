@@ -41,6 +41,7 @@ def _build_proxy_response(info: ProxyRuntimeInfo, stats: ProxyStats) -> ProxyRes
             requests_allowed=stats.requests_allowed,
             requests_denied=stats.requests_denied,
             requests_hitl=stats.requests_hitl,
+            proxy_latency_ms=stats.proxy_latency_ms,
         ),
     )
 

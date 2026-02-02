@@ -29,6 +29,25 @@ from ..helpers import (
 _logger = logging.getLogger(f"{APP_NAME}.manager.routes.proxies")
 
 
+def _parse_proxy_stats(stats_data: dict[str, object]) -> ProxyStats:
+    """Build ProxyStats from a proxy /api/stats JSON response.
+
+    Args:
+        stats_data: Parsed JSON from the proxy's /api/stats endpoint.
+
+    Returns:
+        ProxyStats with counters and latency median.
+    """
+    latency = stats_data.get("latency") or {}
+    return ProxyStats(
+        requests_total=stats_data.get("requests_total", 0),
+        requests_allowed=stats_data.get("requests_allowed", 0),
+        requests_denied=stats_data.get("requests_denied", 0),
+        requests_hitl=stats_data.get("requests_hitl", 0),
+        proxy_latency_ms=latency.get("proxy_latency_ms") if isinstance(latency, dict) else None,
+    )
+
+
 @router.get("/proxies", response_model=list[Proxy])
 async def list_proxies_enhanced(request: Request) -> list[Proxy]:
     """List all configured proxies with config and runtime data.
@@ -81,13 +100,7 @@ async def list_proxies_enhanced(request: Request) -> list[Proxy]:
             ) as client:
                 resp = await client.get("/api/stats")
                 if resp.status_code == 200:
-                    stats_data = resp.json()
-                    return ProxyStats(
-                        requests_total=stats_data.get("requests_total", 0),
-                        requests_allowed=stats_data.get("requests_allowed", 0),
-                        requests_denied=stats_data.get("requests_denied", 0),
-                        requests_hitl=stats_data.get("requests_hitl", 0),
-                    )
+                    return _parse_proxy_stats(resp.json())
         except (httpx.ConnectError, OSError, httpx.TimeoutException, json.JSONDecodeError):
             pass  # Failed to fetch stats
         return None
@@ -213,12 +226,7 @@ async def get_proxy_detail(proxy_id: str, request: Request) -> ProxyDetailRespon
 
                 # Extract stats
                 if snapshots["stats"]:
-                    stats = ProxyStats(
-                        requests_total=snapshots["stats"].get("requests_total", 0),
-                        requests_allowed=snapshots["stats"].get("requests_allowed", 0),
-                        requests_denied=snapshots["stats"].get("requests_denied", 0),
-                        requests_hitl=snapshots["stats"].get("requests_hitl", 0),
-                    )
+                    stats = _parse_proxy_stats(snapshots["stats"])
 
                 # Extract client_id
                 client_id = snapshots.get("client_id")
