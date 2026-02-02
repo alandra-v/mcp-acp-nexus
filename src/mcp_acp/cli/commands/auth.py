@@ -20,11 +20,13 @@ import click
 
 from mcp_acp.cli.api_client import api_request
 from mcp_acp.constants import CLI_NOTIFICATION_TIMEOUT_SECONDS
-from mcp_acp.exceptions import AuthenticationError
-from mcp_acp.security.auth.device_flow import (
+from mcp_acp.exceptions import (
+    AuthenticationError,
     DeviceFlowDeniedError,
     DeviceFlowError,
     DeviceFlowExpiredError,
+)
+from mcp_acp.security.auth.device_flow import (
     run_device_flow,
 )
 from mcp_acp.security.auth.token_storage import (

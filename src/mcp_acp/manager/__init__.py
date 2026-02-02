@@ -24,7 +24,6 @@ from __future__ import annotations
 # Client (proxy side)
 from .client import (
     ManagerClient,
-    ManagerConnectionError,
 )
 
 # Lifecycle (manager auto-start)
@@ -92,7 +91,6 @@ from .state import (
 __all__ = [
     # Client
     "ManagerClient",
-    "ManagerConnectionError",
     # Lifecycle
     "ensure_manager_running",
     "is_manager_available",

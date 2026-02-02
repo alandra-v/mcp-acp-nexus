@@ -20,13 +20,12 @@ from mcp_acp.api.schemas.auth import (
 )
 from mcp_acp.api.security import VITE_DEV_PORT
 from mcp_acp.constants import APP_NAME
-from mcp_acp.exceptions import AuthenticationError
+from mcp_acp.exceptions import AuthenticationError, DeviceFlowError
 from mcp_acp.manager.config import load_manager_config
 from mcp_acp.manager.models import AuthActionResponse, AuthStatusResponse
 from mcp_acp.security.auth.device_flow import (
     DeviceCodeResponse,
     DeviceFlow,
-    DeviceFlowError,
 )
 from mcp_acp.security.auth.jwt_validator import JWTValidator
 from mcp_acp.security.auth.token_storage import (

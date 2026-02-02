@@ -15,7 +15,7 @@ directly instead of using this module.
 from __future__ import annotations
 
 __all__ = [
-    "APIError",
+    "ProxyAPIError",
     "ProxyNotRunningError",
     "api_request",
 ]
@@ -40,7 +40,7 @@ class ProxyNotRunningError(click.ClickException):
         self.proxy_name = proxy_name
 
 
-class APIError(click.ClickException):
+class ProxyAPIError(click.ClickException):
     """Raised when API request fails."""
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
@@ -113,7 +113,7 @@ def api_request(
 
     Raises:
         ProxyNotRunningError: If proxy is not running (no socket or connection refused).
-        APIError: If request fails or returns error status.
+        ProxyAPIError: If request fails or returns error status.
     """
     last_error: Exception | None = None
 
@@ -152,11 +152,11 @@ def api_request(
                 detail = e.response.json().get("detail", str(e))
             except (json.JSONDecodeError, KeyError):
                 detail = str(e)
-            raise APIError(detail, e.response.status_code) from e
+            raise ProxyAPIError(detail, e.response.status_code) from e
 
         except httpx.HTTPError as e:
             # Other HTTP errors - don't retry
-            raise APIError(str(e)) from e
+            raise ProxyAPIError(str(e)) from e
 
     # All retries exhausted
     raise ProxyNotRunningError(proxy_name) from last_error

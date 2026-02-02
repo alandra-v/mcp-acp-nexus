@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from mcp_acp.cli import cli
-from mcp_acp.cli.api_client import APIError, ProxyNotRunningError
+from mcp_acp.cli.api_client import ProxyAPIError, ProxyNotRunningError
 
 
 @pytest.fixture
@@ -160,7 +160,7 @@ class TestSessionsListCommand:
             ),
             patch(
                 "mcp_acp.cli.commands.auth.api_request",
-                side_effect=APIError("Unauthorized", status_code=401),
+                side_effect=ProxyAPIError("Unauthorized", status_code=401),
             ),
         ):
             # Act

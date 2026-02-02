@@ -12,7 +12,7 @@ from typing import Any
 
 import click
 
-from mcp_acp.cli.api_client import APIError, api_request
+from mcp_acp.cli.api_client import ProxyAPIError, api_request
 from mcp_acp.manager.config import list_configured_proxies
 from mcp_acp.utils.cli import check_proxy_running
 
@@ -58,7 +58,7 @@ def _show_single_proxy_status(proxy_name: str, as_json: bool) -> None:
     try:
         sessions_response = api_request("GET", "/api/auth-sessions", proxy_name=proxy_name)
         session_count = len(sessions_response) if isinstance(sessions_response, list) else 0
-    except APIError:
+    except ProxyAPIError:
         session_count = 0
 
     # Build result

@@ -28,11 +28,10 @@ from typing import TYPE_CHECKING
 # Warn user when token expires within this many seconds (15 minutes)
 SESSION_EXPIRY_WARNING_SECONDS = 900
 
-from mcp_acp.exceptions import AuthenticationError
+from mcp_acp.exceptions import AuthenticationError, TokenRefreshExpiredError
 from mcp_acp.security.auth import (
     JWTValidator,
     StoredToken,
-    TokenRefreshExpiredError,
     TokenStorage,
     ValidatedToken,
     create_token_storage,

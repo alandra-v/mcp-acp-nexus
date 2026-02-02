@@ -11,25 +11,14 @@ This module provides:
 Note: Security exceptions are defined in mcp_acp.exceptions
 """
 
-from mcp_acp.exceptions import (
-    AuditFailure,
-    CriticalSecurityFailure,
-    IdentityVerificationFailure,
-    PolicyEnforcementFailure,
-)
 from mcp_acp.security.auth import (
     DeviceCodeResponse,
     DeviceFlow,
-    DeviceFlowDeniedError,
-    DeviceFlowError,
-    DeviceFlowExpiredError,
     DeviceFlowResult,
     EncryptedFileStorage,
     JWTValidator,
     KeychainStorage,
     StoredToken,
-    TokenRefreshError,
-    TokenRefreshExpiredError,
     TokenStorage,
     ValidatedToken,
     create_token_storage,
@@ -72,7 +61,6 @@ from mcp_acp.security.tool_sanitizer import ToolListSanitizer
 from mcp_acp.security.binary_attestation import (
     BinaryAttestationConfig,
     BinaryAttestationResult,
-    ProcessVerificationError,
     verify_backend_binary,
     verify_spawned_process,
     verify_spawned_process_async,
@@ -91,13 +79,8 @@ __all__ = [
     "DeviceFlow",
     "DeviceCodeResponse",
     "DeviceFlowResult",
-    "DeviceFlowError",
-    "DeviceFlowExpiredError",
-    "DeviceFlowDeniedError",
     "run_device_flow",
     "refresh_tokens",
-    "TokenRefreshError",
-    "TokenRefreshExpiredError",
     # Identity
     "IdentityProvider",
     "LocalIdentityProvider",
@@ -128,13 +111,7 @@ __all__ = [
     # Binary attestation
     "BinaryAttestationConfig",
     "BinaryAttestationResult",
-    "ProcessVerificationError",
     "verify_backend_binary",
     "verify_spawned_process",
     "verify_spawned_process_async",
-    # Exceptions (re-exported from mcp_acp.exceptions)
-    "CriticalSecurityFailure",
-    "AuditFailure",
-    "PolicyEnforcementFailure",
-    "IdentityVerificationFailure",
 ]

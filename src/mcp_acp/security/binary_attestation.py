@@ -23,7 +23,7 @@ Usage:
     # Pre-spawn verification (integrated into transport.py)
     result = verify_backend_binary("/path/to/backend", config)
     if not result.verified:
-        raise BinaryAttestationError(result.error)
+        raise ProcessVerificationError(result.error)
 
     # Post-spawn verification (available but NOT integrated)
     verify_spawned_process(process.pid, expected_path="/path/to/backend")
@@ -69,7 +69,6 @@ from __future__ import annotations
 __all__ = [
     "BinaryAttestationConfig",
     "BinaryAttestationResult",
-    "ProcessVerificationError",
     "verify_backend_binary",
     "verify_spawned_process",
     "verify_spawned_process_async",
@@ -86,6 +85,8 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import TypedDict
+
+from mcp_acp.exceptions import ProcessVerificationError
 
 logger = logging.getLogger(__name__)
 
@@ -118,17 +119,6 @@ class _CodesignVerificationResult(TypedDict):
 
     valid: bool
     error: str | None
-
-
-# =============================================================================
-# Exceptions
-# =============================================================================
-
-
-class ProcessVerificationError(Exception):
-    """Raised when process verification fails after spawn."""
-
-    pass
 
 
 @dataclass

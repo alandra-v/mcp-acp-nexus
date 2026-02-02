@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from mcp_acp.cli.api_client import (
-    APIError,
+    ProxyAPIError,
     ProxyNotRunningError,
     api_request,
 )
@@ -44,25 +44,25 @@ class TestProxyNotRunningError:
         assert error.proxy_name == "myproxy"
 
 
-class TestAPIError:
-    """Tests for APIError exception."""
+class TestProxyAPIError:
+    """Tests for ProxyAPIError exception."""
 
     def test_includes_status_code_in_message(self) -> None:
         """Error message includes status code."""
-        error = APIError("Not found", status_code=404)
+        error = ProxyAPIError("Not found", status_code=404)
 
         assert "404" in str(error)
         assert "Not found" in str(error)
 
     def test_stores_status_code(self) -> None:
         """Status code is accessible as attribute."""
-        error = APIError("Error", status_code=500)
+        error = ProxyAPIError("Error", status_code=500)
 
         assert error.status_code == 500
 
     def test_without_status_code(self) -> None:
         """Works without status code."""
-        error = APIError("Connection failed")
+        error = ProxyAPIError("Connection failed")
 
         assert error.status_code is None
         assert "Connection failed" in str(error)
@@ -71,7 +71,7 @@ class TestAPIError:
         """Exception inherits from ClickException."""
         import click
 
-        error = APIError("test")
+        error = ProxyAPIError("test")
 
         assert isinstance(error, click.ClickException)
 
@@ -156,7 +156,7 @@ class TestApiRequest:
                     api_request("GET", "/api/test", proxy_name="testproxy")
 
     def test_raises_api_error_on_http_error(self, mock_socket_exists: Path, mock_uds_client: dict) -> None:
-        """Given HTTP error status, raises APIError with status code."""
+        """Given HTTP error status, raises ProxyAPIError with status code."""
         mock_uds_client["response"].status_code = 404
         mock_uds_client["response"].json.return_value = {"detail": "Resource not found"}
 
@@ -167,7 +167,7 @@ class TestApiRequest:
         )
         mock_uds_client["response"].raise_for_status.side_effect = error
 
-        with pytest.raises(APIError) as exc_info:
+        with pytest.raises(ProxyAPIError) as exc_info:
             api_request("GET", "/api/missing", proxy_name="testproxy")
 
         assert exc_info.value.status_code == 404
@@ -224,7 +224,7 @@ class TestApiRequest:
         )
         mock_uds_client["response"].raise_for_status.side_effect = error
 
-        with pytest.raises(APIError) as exc_info:
+        with pytest.raises(ProxyAPIError) as exc_info:
             api_request("POST", "/api/data", proxy_name="testproxy", json_data={})
 
         assert "Invalid input data" in str(exc_info.value)
@@ -241,7 +241,7 @@ class TestApiRequest:
         )
         mock_uds_client["response"].raise_for_status.side_effect = error
 
-        with pytest.raises(APIError) as exc_info:
+        with pytest.raises(ProxyAPIError) as exc_info:
             api_request("GET", "/api/test", proxy_name="testproxy")
 
         assert exc_info.value.status_code == 500

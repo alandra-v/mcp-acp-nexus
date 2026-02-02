@@ -15,7 +15,7 @@ from pathlib import Path
 
 import click
 
-from mcp_acp.cli.api_client import APIError, ProxyNotRunningError, api_request
+from mcp_acp.cli.api_client import ProxyAPIError, ProxyNotRunningError, api_request
 from mcp_acp.constants import CLI_POLICY_RELOAD_TIMEOUT_SECONDS
 from mcp_acp.manager.config import (
     get_proxy_policy_path,
@@ -193,7 +193,7 @@ def policy_reload(proxy_name: str) -> None:
     except ProxyNotRunningError:
         click.echo(style_warning(f"Proxy '{proxy_name}' is not running — skipping hot reload."))
         click.echo(style_dim("  Changes will be applied automatically on next startup."))
-    except APIError as e:
+    except ProxyAPIError as e:
         click.echo(style_error(f"Error: {e.message}"), err=True)
         sys.exit(1)
 

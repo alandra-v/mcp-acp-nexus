@@ -13,9 +13,6 @@ to the policy engine.
 from mcp_acp.security.auth.device_flow import (
     DeviceCodeResponse,
     DeviceFlow,
-    DeviceFlowDeniedError,
-    DeviceFlowError,
-    DeviceFlowExpiredError,
     DeviceFlowResult,
     run_device_flow,
 )
@@ -24,8 +21,6 @@ from mcp_acp.security.auth.jwt_validator import (
     ValidatedToken,
 )
 from mcp_acp.security.auth.token_refresh import (
-    TokenRefreshError,
-    TokenRefreshExpiredError,
     refresh_tokens,
 )
 from mcp_acp.security.auth.token_storage import (
@@ -52,12 +47,7 @@ __all__ = [
     "DeviceFlow",
     "DeviceCodeResponse",
     "DeviceFlowResult",
-    "DeviceFlowError",
-    "DeviceFlowExpiredError",
-    "DeviceFlowDeniedError",
     "run_device_flow",
     # Token refresh
     "refresh_tokens",
-    "TokenRefreshError",
-    "TokenRefreshExpiredError",
 ]

@@ -18,9 +18,6 @@ from __future__ import annotations
 __all__ = [
     "DeviceCodeResponse",
     "DeviceFlow",
-    "DeviceFlowDeniedError",
-    "DeviceFlowError",
-    "DeviceFlowExpiredError",
     "DeviceFlowResult",
     "PollOnceResult",
     "run_device_flow",
@@ -37,7 +34,11 @@ from mcp_acp.constants import (
     DEVICE_FLOW_TIMEOUT_SECONDS,
     OAUTH_CLIENT_TIMEOUT_SECONDS,
 )
-from mcp_acp.exceptions import AuthenticationError
+from mcp_acp.exceptions import (
+    DeviceFlowDeniedError,
+    DeviceFlowError,
+    DeviceFlowExpiredError,
+)
 from mcp_acp.security.auth.token_parser import parse_token_response
 from mcp_acp.security.auth.token_storage import StoredToken
 
@@ -104,24 +105,6 @@ class PollOnceResult:
     status: str
     token: StoredToken | None = None
     error_message: str | None = None
-
-
-class DeviceFlowError(AuthenticationError):
-    """Device flow specific errors."""
-
-    pass
-
-
-class DeviceFlowExpiredError(DeviceFlowError):
-    """Device code expired before user authenticated."""
-
-    pass
-
-
-class DeviceFlowDeniedError(DeviceFlowError):
-    """User denied the authorization request."""
-
-    pass
 
 
 class DeviceFlow:

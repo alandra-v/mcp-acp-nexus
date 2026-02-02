@@ -1,16 +1,40 @@
 """Custom exceptions for mcp-acp.
 
 This module contains all custom exceptions used throughout the package.
-Exceptions are organized into two categories:
+Exceptions are organized into the following categories:
 
 Recoverable Errors (proxy continues):
     - PermissionDeniedError: Policy denied a request, client gets MCP error
+
+Startup / Connection Errors:
+    - BackendHTTPError: Backend returned HTTP error during health check
+    - SSLCertificateError: SSL certificate validation failed
+    - SSLHandshakeError: SSL/TLS handshake failed
 
 Critical Failures (proxy must shutdown):
     - CriticalSecurityFailure: Base for unrecoverable security failures
     - AuditFailure: Audit log integrity compromised
     - PolicyEnforcementFailure: Policy engine cannot evaluate reliably
     - IdentityVerificationFailure: Cannot verify caller identity
+    - AuthenticationError: Authentication failed
+    - DeviceHealthError: Device health check failed
+    - SessionBindingViolationError: Session binding violated
+    - ConfigurationError: Configuration invalid
+
+Process Verification:
+    - ProcessVerificationError: Post-spawn process verification failed
+
+Auth Sub-Errors (Device Flow):
+    - DeviceFlowError: Device flow specific errors
+    - DeviceFlowExpiredError: Device code expired
+    - DeviceFlowDeniedError: User denied authorization
+
+Auth Sub-Errors (Token Refresh):
+    - TokenRefreshError: Token refresh failed
+    - TokenRefreshExpiredError: Refresh token expired
+
+Manager Connection:
+    - ManagerConnectionError: Manager communication failed
 
 Usage:
     from mcp_acp.exceptions import PermissionDeniedError, AuditFailure
@@ -21,14 +45,24 @@ from __future__ import annotations
 __all__ = [
     "AuditFailure",
     "AuthenticationError",
+    "BackendHTTPError",
     "ConfigurationError",
     "CriticalSecurityFailure",
+    "DeviceFlowDeniedError",
+    "DeviceFlowError",
+    "DeviceFlowExpiredError",
     "DeviceHealthError",
     "IdentityVerificationFailure",
+    "ManagerConnectionError",
     "PERMISSION_DENIED_CODE",
     "PermissionDeniedError",
     "PolicyEnforcementFailure",
+    "ProcessVerificationError",
+    "SSLCertificateError",
+    "SSLHandshakeError",
     "SessionBindingViolationError",
+    "TokenRefreshError",
+    "TokenRefreshExpiredError",
 ]
 
 from typing import TYPE_CHECKING, Any
@@ -154,6 +188,33 @@ class PermissionDeniedError(McpError):
     def __str__(self) -> str:
         """Return human-readable string representation."""
         return self.message
+
+
+# =============================================================================
+# Startup / Connection Errors
+# =============================================================================
+
+
+class BackendHTTPError(ConnectionError):
+    """Backend returned an HTTP error response during health check.
+
+    Subclasses ConnectionError so CLI error handlers catch it, but can be
+    distinguished from transport-level ConnectionErrors in retry logic
+    (HTTP 4xx errors should not be retried).
+
+    Attributes:
+        status_code: The HTTP status code returned by the backend.
+        url: The backend URL that returned the error.
+    """
+
+    def __init__(self, status_code: int, url: str) -> None:
+        self.status_code = status_code
+        self.url = url
+        if 400 <= status_code < 500:
+            hint = "Check backend authentication/authorization configuration."
+        else:
+            hint = "The backend server may be experiencing issues."
+        super().__init__(f"Backend health check failed: HTTP {status_code} from {url}. {hint}")
 
 
 # =============================================================================
@@ -287,3 +348,82 @@ class ConfigurationError(CriticalSecurityFailure):
 
     exit_code = 16
     failure_type = "configuration_failure"
+
+
+# =============================================================================
+# SSL / Connection Errors
+# =============================================================================
+
+
+class SSLCertificateError(ConnectionError):
+    """SSL certificate validation failed (wrong CA, expired server cert, etc.)."""
+
+    pass
+
+
+class SSLHandshakeError(ConnectionError):
+    """SSL/TLS handshake failed (client cert rejected, protocol mismatch, etc.)."""
+
+    pass
+
+
+# =============================================================================
+# Process Verification
+# =============================================================================
+
+
+class ProcessVerificationError(Exception):
+    """Raised when process verification fails after spawn."""
+
+    pass
+
+
+# =============================================================================
+# Auth Sub-Errors (Device Flow)
+# =============================================================================
+
+
+class DeviceFlowError(AuthenticationError):
+    """Device flow specific errors."""
+
+    pass
+
+
+class DeviceFlowExpiredError(DeviceFlowError):
+    """Device code expired before user authenticated."""
+
+    pass
+
+
+class DeviceFlowDeniedError(DeviceFlowError):
+    """User denied the authorization request."""
+
+    pass
+
+
+# =============================================================================
+# Auth Sub-Errors (Token Refresh)
+# =============================================================================
+
+
+class TokenRefreshError(AuthenticationError):
+    """Token refresh failed."""
+
+    pass
+
+
+class TokenRefreshExpiredError(TokenRefreshError):
+    """Refresh token has expired - user must re-authenticate."""
+
+    pass
+
+
+# =============================================================================
+# Manager Connection
+# =============================================================================
+
+
+class ManagerConnectionError(Exception):
+    """Error connecting to or communicating with manager."""
+
+    pass

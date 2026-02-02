@@ -34,11 +34,10 @@ from mcp_acp.api.schemas import (
     NotifyResponse,
 )
 from mcp_acp.api.security import VITE_DEV_PORT
-from mcp_acp.exceptions import AuthenticationError
+from mcp_acp.exceptions import AuthenticationError, DeviceFlowError
 from mcp_acp.security.auth.device_flow import (
     DeviceCodeResponse,
     DeviceFlow,
-    DeviceFlowError,
 )
 from mcp_acp.security.auth.token_storage import (
     create_token_storage,

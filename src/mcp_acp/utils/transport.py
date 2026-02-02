@@ -24,17 +24,18 @@ from mcp_acp.constants import (
     HEALTH_CHECK_TIMEOUT_SECONDS,
     TRANSPORT_ERRORS,
 )
+from mcp_acp.exceptions import (
+    BackendHTTPError,
+    ProcessVerificationError,
+    SSLCertificateError,
+    SSLHandshakeError,
+)
 from mcp_acp.security.binary_attestation import (
     BinaryAttestationConfig,
     BinaryAttestationResult,
-    ProcessVerificationError,
     verify_backend_binary,
 )
 from mcp_acp.security.mtls import (
-    SSLCertificateError,
-    SSLHandshakeError,
-    _check_certificate_expiry,
-    _validate_certificates,
     create_mtls_client_factory,
     get_certificate_expiry_info,
     validate_mtls_config,
@@ -50,16 +51,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Re-export mTLS and attestation functions
 __all__ = [
     "BinaryAttestationConfig",
     "BinaryAttestationResult",
-    "ProcessVerificationError",
-    "SSLCertificateError",
-    "SSLHandshakeError",
     "USER_AGENT",
-    "_check_certificate_expiry",
-    "_validate_certificates",
     "check_http_health",
     "check_http_health_with_retry",
     "create_backend_transport",
@@ -257,6 +252,10 @@ def check_http_health_with_retry(
             return
         except (SSLCertificateError, SSLHandshakeError) as e:
             # SSL errors are not retryable - fail immediately with clear message
+            raise
+        except BackendHTTPError:
+            # HTTP error responses mean the backend is reachable but rejecting
+            # requests - retrying won't help (especially for 4xx)
             raise
         except (TimeoutError, ConnectionError) as e:
             last_error = e
@@ -486,6 +485,8 @@ async def _check_async(
                 pass
     except asyncio.TimeoutError as e:
         raise TimeoutError(f"Connection to {url} timed out after {timeout}s") from e
+    except httpx.HTTPStatusError as e:
+        raise BackendHTTPError(e.response.status_code, url) from e
     except ConnectionRefusedError as e:
         raise ConnectionError(f"Backend refused connection: {url}") from e
     except ssl.SSLCertVerificationError as e:

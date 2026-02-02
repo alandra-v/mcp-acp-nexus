@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from mcp_acp.cli import cli
-from mcp_acp.cli.api_client import APIError, ProxyNotRunningError
+from mcp_acp.cli.api_client import ProxyAPIError, ProxyNotRunningError
 
 
 @pytest.fixture

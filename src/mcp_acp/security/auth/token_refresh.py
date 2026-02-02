@@ -13,8 +13,6 @@ Flow:
 from __future__ import annotations
 
 __all__ = [
-    "TokenRefreshError",
-    "TokenRefreshExpiredError",
     "refresh_tokens",
 ]
 
@@ -23,24 +21,12 @@ from typing import TYPE_CHECKING
 import httpx
 
 from mcp_acp.constants import OAUTH_CLIENT_TIMEOUT_SECONDS
-from mcp_acp.exceptions import AuthenticationError
+from mcp_acp.exceptions import TokenRefreshError, TokenRefreshExpiredError
 from mcp_acp.security.auth.token_parser import parse_token_response
 from mcp_acp.security.auth.token_storage import StoredToken
 
 if TYPE_CHECKING:
     from mcp_acp.config import OIDCConfig
-
-
-class TokenRefreshError(AuthenticationError):
-    """Token refresh failed."""
-
-    pass
-
-
-class TokenRefreshExpiredError(TokenRefreshError):
-    """Refresh token has expired - user must re-authenticate."""
-
-    pass
 
 
 def refresh_tokens(

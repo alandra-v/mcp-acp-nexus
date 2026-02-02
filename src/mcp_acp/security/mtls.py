@@ -7,8 +7,6 @@ creation for mTLS-authenticated connections to backend servers.
 from __future__ import annotations
 
 __all__ = [
-    "SSLCertificateError",
-    "SSLHandshakeError",
     "create_mtls_client_factory",
     "get_certificate_expiry_info",
     "validate_mtls_config",
@@ -34,23 +32,6 @@ if TYPE_CHECKING:
     from mcp_acp.config import MTLSConfig
 
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# SSL Error Types
-# =============================================================================
-
-
-class SSLCertificateError(ConnectionError):
-    """SSL certificate validation failed (wrong CA, expired server cert, etc.)."""
-
-    pass
-
-
-class SSLHandshakeError(ConnectionError):
-    """SSL/TLS handshake failed (client cert rejected, protocol mismatch, etc.)."""
-
-    pass
 
 
 # =============================================================================

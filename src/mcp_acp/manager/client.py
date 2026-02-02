@@ -19,7 +19,6 @@ from __future__ import annotations
 
 __all__ = [
     "ManagerClient",
-    "ManagerConnectionError",
 ]
 
 import asyncio
@@ -36,6 +35,7 @@ from mcp_acp.constants import (
     MANAGER_SOCKET_PATH,
     SOCKET_CONNECT_TIMEOUT_SECONDS,
 )
+from mcp_acp.exceptions import ManagerConnectionError
 from mcp_acp.manager.protocol import decode_ndjson, encode_ndjson
 from mcp_acp.telemetry.system.system_logger import get_system_logger
 
@@ -50,12 +50,6 @@ RECONNECT_CHECK_INTERVAL_SECONDS = 10.0
 
 # Use proxy's system logger since this code runs in the proxy process
 _logger = get_system_logger()
-
-
-class ManagerConnectionError(Exception):
-    """Error connecting to or communicating with manager."""
-
-    pass
 
 
 class ManagerClient:

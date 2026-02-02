@@ -13,7 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from mcp_acp.cli import cli
-from mcp_acp.cli.api_client import APIError, ProxyNotRunningError
+from mcp_acp.cli.api_client import ProxyAPIError, ProxyNotRunningError
 
 
 @pytest.fixture
@@ -114,7 +114,7 @@ class TestStatusCommand:
         # Arrange
         with patch(
             "mcp_acp.cli.commands.status.api_request",
-            side_effect=APIError("Connection refused"),
+            side_effect=ProxyAPIError("Connection refused"),
         ):
             # Act
             result = runner.invoke(cli, ["status", "--proxy", "test"])
@@ -240,7 +240,7 @@ class TestStatusSessionsErrorHandling:
         # Arrange
         def api_side_effect(method, endpoint, **kwargs):
             if "sessions" in endpoint:
-                raise APIError("Sessions unavailable")
+                raise ProxyAPIError("Sessions unavailable")
             return mock_status_response
 
         with patch(

@@ -11,12 +11,10 @@ import pytest
 from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
 
 from mcp_acp.config import BackendConfig, HttpTransportConfig, MTLSConfig, StdioTransportConfig
+from mcp_acp.exceptions import SSLCertificateError, SSLHandshakeError
+from mcp_acp.security.mtls import _check_certificate_expiry, _validate_certificates
 from mcp_acp.utils.transport import (
     USER_AGENT,
-    SSLCertificateError,
-    SSLHandshakeError,
-    _check_certificate_expiry,
-    _validate_certificates,
     create_backend_transport,
     create_httpx_client_factory,
     create_mtls_client_factory,
