@@ -13,7 +13,7 @@ Usage:
     python scripts/parse_latency_logs.py <decisions.jsonl> [operations.jsonl]
     python scripts/parse_latency_logs.py <decisions.jsonl> [operations.jsonl] --date 2025-01-15
     python scripts/parse_latency_logs.py <decisions.jsonl> [operations.jsonl] --by-decision
-    python scripts/parse_latency_logs.py <decisions.jsonl> [operations.jsonl] --output results.json
+    python scripts/parse_latency_logs.py <decisions.jsonl> [operations.jsonl] --output log_parse_results.json
 """
 
 from __future__ import annotations
@@ -284,6 +284,21 @@ def print_report(
         backend_stats = _compute_stats(_extract(correlated, "backend_ms"))
         print(_fmt_stat_line(backend_stats, "Backend Call (derived: duration - policy_total)"))
 
+    # Excluding-HITL stats (if any HITL entries exist)
+    non_hitl_decisions = [d for d in decisions if (d.get("decision") or "").lower() != "hitl"]
+    non_hitl_correlated = [c for c in correlated if (c.get("decision") or "").lower() != "hitl"]
+    if len(non_hitl_decisions) < len(decisions):
+        print(f"--- Excluding HITL ({len(decisions) - len(non_hitl_decisions)} entries removed) ---\n")
+        nh_eval = _compute_stats(_extract(non_hitl_decisions, "policy_eval_ms"))
+        print(_fmt_stat_line(nh_eval, "Policy Evaluation excl. HITL"))
+        nh_total = _compute_stats(_extract(non_hitl_decisions, "policy_total_ms"))
+        print(_fmt_stat_line(nh_total, "Policy Total excl. HITL"))
+        if non_hitl_correlated:
+            nh_e2e = _compute_stats(_extract(non_hitl_correlated, "duration_ms"))
+            print(_fmt_stat_line(nh_e2e, "End-to-End Proxy excl. HITL"))
+            nh_backend = _compute_stats(_extract(non_hitl_correlated, "backend_ms"))
+            print(_fmt_stat_line(nh_backend, "Backend Call excl. HITL"))
+
     # Per-decision breakdown
     if by_decision:
         source = correlated if correlated else decisions
@@ -343,6 +358,22 @@ def build_json_output(
     if correlated:
         result["end_to_end"] = asdict(_compute_stats(_extract(correlated, "duration_ms")))
         result["backend_call"] = asdict(_compute_stats(_extract(correlated, "backend_ms")))
+
+    # Excluding-HITL stats
+    non_hitl_decisions = [d for d in decisions if (d.get("decision") or "").lower() != "hitl"]
+    non_hitl_correlated = [c for c in correlated if (c.get("decision") or "").lower() != "hitl"]
+    if len(non_hitl_decisions) < len(decisions):
+        excl: dict = {
+            "hitl_entries_removed": len(decisions) - len(non_hitl_decisions),
+            "decision_count": len(non_hitl_decisions),
+            "policy_eval": asdict(_compute_stats(_extract(non_hitl_decisions, "policy_eval_ms"))),
+            "policy_total": asdict(_compute_stats(_extract(non_hitl_decisions, "policy_total_ms"))),
+        }
+        if non_hitl_correlated:
+            excl["correlated_count"] = len(non_hitl_correlated)
+            excl["end_to_end"] = asdict(_compute_stats(_extract(non_hitl_correlated, "duration_ms")))
+            excl["backend_call"] = asdict(_compute_stats(_extract(non_hitl_correlated, "backend_ms")))
+        result["excluding_hitl"] = excl
 
     if by_decision:
         source = correlated if correlated else decisions
