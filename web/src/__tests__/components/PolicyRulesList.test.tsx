@@ -222,25 +222,24 @@ describe('PolicyRulesList', () => {
       expect(screen.getByText('No conditions (matches all requests)')).toBeInTheDocument()
     })
 
-    it('shows cache_side_effects for expanded hitl rule', async () => {
+    it('shows approval caching indicator for expanded hitl rule with cache_side_effects', async () => {
       const user = userEvent.setup()
       render(<PolicyRulesList {...defaultProps} />)
 
       const row = screen.getByText('HITL for writes').closest('[role="button"]')!
       await user.click(row)
 
-      expect(screen.getByText('cache_side_effects:')).toBeInTheDocument()
-      expect(screen.getByText('fs_write, db_write')).toBeInTheDocument()
+      expect(screen.getByText('Approval caching: On')).toBeInTheDocument()
     })
 
-    it('does not show cache_side_effects for non-hitl rules', async () => {
+    it('does not show approval caching indicator for non-hitl rules', async () => {
       const user = userEvent.setup()
       render(<PolicyRulesList {...defaultProps} />)
 
       const row = screen.getByText('Allow reading data files').closest('[role="button"]')!
       await user.click(row)
 
-      expect(screen.queryByText('cache_side_effects:')).not.toBeInTheDocument()
+      expect(screen.queryByText('Approval caching: On')).not.toBeInTheDocument()
     })
   })
 
