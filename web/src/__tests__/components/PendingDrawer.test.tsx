@@ -246,4 +246,36 @@ describe('ApprovalItem', () => {
       expect(screen.getByRole('button', { name: 'Deny' })).toBeInTheDocument()
     })
   })
+
+  describe('two-path operations (move/copy)', () => {
+    const moveApproval = makeApproval({
+      tool_name: 'move_file',
+      path: '/src/old.txt',
+      source_path: '/src/old.txt',
+      dest_path: '/dst/new.txt',
+    })
+
+    it('shows source and dest paths in normal mode', () => {
+      const { container } = render(<ApprovalItem {...defaultProps} approval={moveApproval} />)
+      const pathDiv = container.querySelector('.font-mono.text-xs.break-words')!
+      expect(pathDiv.textContent).toContain('/src/old.txt')
+      expect(pathDiv.textContent).toContain('/dst/new.txt')
+      expect(pathDiv.textContent).toContain('from')
+      expect(pathDiv.textContent).toContain('to')
+    })
+
+    it('shows source and dest paths in compact mode', () => {
+      const { container } = render(<ApprovalItem {...defaultProps} approval={moveApproval} compact />)
+      const pathSpan = container.querySelector('.flex-1.min-w-0')!
+      expect(pathSpan.textContent).toContain('/src/old.txt')
+      expect(pathSpan.textContent).toContain('/dst/new.txt')
+    })
+
+    it('falls back to single path when only path is set', () => {
+      const singlePath = makeApproval({ path: '/just/one.txt', source_path: null, dest_path: null })
+      render(<ApprovalItem {...defaultProps} approval={singlePath} />)
+      expect(screen.getByText('/just/one.txt')).toBeInTheDocument()
+      expect(screen.queryByText('from')).not.toBeInTheDocument()
+    })
+  })
 })

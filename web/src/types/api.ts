@@ -118,6 +118,8 @@ export interface PendingApproval {
   proxy_name?: string
   tool_name: string
   path: string | null
+  source_path?: string | null
+  dest_path?: string | null
   subject_id: string
   created_at: string
   timeout_seconds: number

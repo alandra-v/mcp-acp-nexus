@@ -39,7 +39,7 @@ function ApprovalActions({
   const compactClass = compact ? ' text-xs px-3 py-1.5' : ''
 
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       <Button
         variant="outline"
         size="sm"
@@ -94,15 +94,25 @@ export function ApprovalItem({
   const remaining = useCountdown(undefined, approval.timeout_seconds, approval.created_at)
   const isUrgent = remaining < 10
 
+  // Use source/dest paths for two-path operations, fall back to single path
+  const hasSourceDest = approval.source_path && approval.dest_path
+
   if (compact) {
     return (
       <div className="p-4 card-gradient border border-[oklch(0.75_0.15_85_/_0.5)] rounded-lg shadow-[0_0_8px_var(--warning)]">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
             {approval.tool_name}
           </span>
-          <span className="flex-1 font-mono text-sm text-base-400 break-words">
-            {approval.path || '--'}
+          <span className="flex-1 min-w-0 font-mono text-sm text-base-400 break-words">
+            {hasSourceDest ? (
+              <>
+                <span className="text-base-500">from </span>{approval.source_path}
+                <span className="text-base-500"> to </span>{approval.dest_path}
+              </>
+            ) : (
+              approval.path || '--'
+            )}
           </span>
           <span className={`text-xs tabular-nums ${isUrgent ? 'text-error' : 'text-base-500'}`}>
             {formatCountdown(remaining)}
@@ -141,9 +151,17 @@ export function ApprovalItem({
         </span>
       </div>
 
-      {approval.path && (
+      {(hasSourceDest || approval.path) && (
         <div className="font-mono text-xs text-base-400 mb-3 break-words">
-          {approval.path}
+          {hasSourceDest ? (
+            <>
+              <span className="text-base-500">from </span>{approval.source_path}
+              <br />
+              <span className="text-base-500">to </span>{approval.dest_path}
+            </>
+          ) : (
+            approval.path
+          )}
         </div>
       )}
 

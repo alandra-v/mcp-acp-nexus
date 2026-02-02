@@ -456,6 +456,8 @@ class ProxyState:
         request_id: str,
         can_cache: bool = True,
         cache_ttl_seconds: int | None = None,
+        source_path: str | None = None,
+        dest_path: str | None = None,
     ) -> PendingApprovalRequest:
         """Create a pending approval request.
 
@@ -470,6 +472,8 @@ class ProxyState:
             request_id: Original MCP request ID for correlation.
             can_cache: Whether this approval can be cached.
             cache_ttl_seconds: How long cached approval will last (for UI display).
+            source_path: Source path for move/copy operations.
+            dest_path: Destination path for move/copy operations.
 
         Returns:
             PendingApprovalRequest that can be waited on.
@@ -480,6 +484,8 @@ class ProxyState:
             proxy_id=self._proxy_id,
             tool_name=tool_name,
             path=path,
+            source_path=source_path,
+            dest_path=dest_path,
             subject_id=subject_id,
             created_at=datetime.now(UTC),
             timeout_seconds=timeout_seconds,

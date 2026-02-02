@@ -156,6 +156,23 @@ class HITLHandler:
         """
         self._manager_disconnect_event.set()
 
+    @staticmethod
+    def _extract_resource_paths(
+        context: "DecisionContext",
+    ) -> tuple[str | None, str | None, str | None]:
+        """Extract path, source_path, dest_path from decision context.
+
+        Args:
+            context: Decision context with resource information.
+
+        Returns:
+            Tuple of (path, source_path, dest_path). All None if no resource.
+        """
+        resource = context.resource.resource
+        if resource is None:
+            return None, None, None
+        return resource.path, resource.source_path, resource.dest_path
+
     async def _request_approval_via_ui(
         self,
         context: "DecisionContext",
@@ -187,7 +204,7 @@ class HITLHandler:
 
         # Extract context for pending approval
         tool_name = context.resource.tool.name if context.resource.tool else "unknown"
-        path = context.resource.resource.path if context.resource.resource else None
+        path, source_path, dest_path = self._extract_resource_paths(context)
         subject_id = context.subject.id
         request_id = context.environment.request_id
 
@@ -200,6 +217,8 @@ class HITLHandler:
             request_id=request_id,
             can_cache=will_cache,
             cache_ttl_seconds=self.config.approval_ttl_seconds if will_cache else None,
+            source_path=source_path,
+            dest_path=dest_path,
         )
 
         # Wait for decision from web UI, but also watch for manager disconnect
@@ -327,7 +346,7 @@ class HITLHandler:
         # Build dialog content
         tool_name = context.resource.tool.name if context.resource.tool else "unknown"
         tool = context.resource.tool
-        path = context.resource.resource.path if context.resource.resource else None
+        path, source_path, dest_path = self._extract_resource_paths(context)
         subject_id = context.subject.id
         request_id = context.environment.request_id
         backend_id = context.resource.server.id
@@ -343,8 +362,11 @@ class HITLHandler:
         # Header: What operation
         message_parts.append(f"Tool: {tool_name}")
 
-        # Target path if present
-        if path:
+        # Target path(s) if present
+        if source_path and dest_path:
+            message_parts.append(f"From: {source_path}")
+            message_parts.append(f"To: {dest_path}")
+        elif path:
             message_parts.append(f"Path: {path}")
 
         # Side effects (security-relevant info)

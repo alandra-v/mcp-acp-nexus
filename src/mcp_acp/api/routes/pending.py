@@ -136,6 +136,8 @@ async def list_pending_approvals(state: ProxyStateDep) -> list[PendingApprovalRe
             proxy_id=p.proxy_id,
             tool_name=p.tool_name,
             path=p.path,
+            source_path=p.source_path,
+            dest_path=p.dest_path,
             subject_id=p.subject_id,
             created_at=p.created_at,
             timeout_seconds=p.timeout_seconds,

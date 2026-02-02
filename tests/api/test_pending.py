@@ -31,6 +31,8 @@ def mock_pending_approval() -> MagicMock:
     approval.proxy_id = "proxy-1"
     approval.tool_name = "read_file"
     approval.path = "/project/file.txt"
+    approval.source_path = None
+    approval.dest_path = None
     approval.subject_id = "user@example.com"
     approval.created_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     approval.timeout_seconds = 30
@@ -40,6 +42,8 @@ def mock_pending_approval() -> MagicMock:
         "proxy_id": "proxy-1",
         "tool_name": "read_file",
         "path": "/project/file.txt",
+        "source_path": None,
+        "dest_path": None,
         "subject_id": "user@example.com",
         "created_at": "2024-01-01T12:00:00+00:00",
         "timeout_seconds": 30,
@@ -131,6 +135,8 @@ class TestListPendingApprovals:
         approval.proxy_id = "proxy-1"
         approval.tool_name = "list_tools"
         approval.path = None
+        approval.source_path = None
+        approval.dest_path = None
         approval.subject_id = "user@example.com"
         approval.created_at = datetime.now(timezone.utc)
         approval.timeout_seconds = 30

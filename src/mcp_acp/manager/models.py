@@ -431,6 +431,8 @@ class PendingApprovalInfo(FrozenModel):
         proxy_id: ID of the proxy that created this request.
         tool_name: The tool being invoked.
         path: The path being accessed (if applicable).
+        source_path: Source path for move/copy operations (None for single-path ops).
+        dest_path: Destination path for move/copy operations (None for single-path ops).
         subject_id: The user making the request.
         created_at: When the request was created.
         timeout_seconds: How long to wait for decision.
@@ -443,6 +445,8 @@ class PendingApprovalInfo(FrozenModel):
     proxy_id: str
     tool_name: str
     path: str | None
+    source_path: str | None = None
+    dest_path: str | None = None
     subject_id: str
     created_at: datetime
     timeout_seconds: int
