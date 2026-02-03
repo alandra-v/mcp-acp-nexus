@@ -105,7 +105,7 @@ def _handle_startup_error(
 
     def show_popup() -> None:
         show_startup_error_popup(
-            title="MCP ACP",
+            title="MCP ACP — Proxy Startup Failed",
             message=popup_message,
             detail=popup_detail,
             backoff=True,
