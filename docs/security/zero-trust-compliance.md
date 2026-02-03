@@ -26,7 +26,7 @@ assets, network infrastructure and communications and uses it to improve its sec
 | **Policy Engine (PE)** | `pdp/engine.py` — ABAC policy engine with specificity-scored rule combining |
 | **Policy Administrator (PA)** | `pep/middleware.py` — PolicyEnforcementMiddleware orchestrates context→evaluation→enforcement |
 | **Policy Enforcement Point (PEP)** | Middleware chain: Context → Audit → ClientLogger → Enforcement (innermost) |
-| **Policy Information Point (PIP)** | `pips/auth/oidc_provider.py` (identity), `context/context.py` (environment), `context/resource.py` (tool metadata) |
+| **Policy Information Point (PIP)** | `pips/auth/oidc_provider.py` (identity), `security/posture/device.py` (device health), `security/credential_storage.py` (backend credentials), `context/context.py` (environment), `context/resource.py` (tool metadata) |
 | **Subject** | Human user authenticated via OIDC; represented as `context/subject.py` with provenance-tagged claims |
 | **Resource** | MCP tools, resources, prompts — each individually addressable in policy |
 
@@ -44,19 +44,28 @@ assets, network infrastructure and communications and uses it to improve its sec
 | **Session binding** | Format `<user_id>:<session_id>`, identity change → immediate shutdown | 3, 6 | `pips/auth/session.py` |
 | **HITL approval** | Human-in-the-loop for sensitive operations with per-rule configuration | 4, 6 | `pep/middleware.py` |
 | **HITL approval cache** | TTL-based cache (default 10 min); CODE_EXEC never cached; policy still re-evaluated | 4 | `pep/approval_store.py` |
-| **Device health checks** | FileVault + SIP verification at startup and periodic (5-min intervals) | 5 | `constants.py` |
+| **Device health checks** | FileVault + SIP verification at startup and periodic (5-min intervals) | 5 | `security/posture/device.py`, `security/posture/device_monitor.py` |
 | **mTLS for HTTP backends** | Optional mutual TLS with certificate expiry monitoring | 2 | `security/mtls.py`, `utils/transport.py` |
-| **Binary attestation (STDIO)** | SHA-256 hash of backend binary verified at startup | 2, 5 | `utils/transport.py` |
+| **Binary attestation (STDIO)** | SLSA provenance, SHA-256 hash, and macOS code signature verification at startup; fail-closed on mismatch | 2, 5 | `security/binary_attestation.py`, `utils/transport.py` |
 | **Fail-closed audit** | Inode/device checks before every write; shutdown on mismatch | 7 | `security/integrity/audit_handler.py` |
-| **SHA-256 hash chain** | Audit log entries chained with SHA-256 hashes for tamper detection | 7 | `telemetry/audit/` |
+| **SHA-256 hash chain** | Audit log entries chained with SHA-256 hashes for tamper detection | 7 | `security/integrity/hash_chain.py` |
 | **Rate limiting** | Per-session, per-tool rate tracking (default 30/min); breach triggers HITL | 5, 7 | `security/rate_limiter.py` |
 | **Tool description sanitization** | Strips prompt injection patterns from tool descriptions | 1, 5 | `security/tool_sanitizer.py` |
 | **Protected config directory** | `PROTECTED_CONFIG_DIR` resolved with `os.path.realpath()` to prevent symlink bypass | 1 | `constants.py` |
 | **Machine-bound token storage** | Tokens encrypted with machine-specific key in OS keychain | 3 | `security/auth/` |
 | **Provenance tracking** | Context facts tagged with provenance (TOKEN, MTLS, MCP_REQUEST, CLIENT_HINT, etc.) | 7 | `context/provenance.py` |
-| **Shutdown coordinator** | Exit codes 10-15 for specific security failures; crash breadcrumb for recovery | 5 | `security/shutdown.py` |
+| **Shutdown coordinator** | Exit codes 10-12 (10=audit, 11=policy, 12=identity); crash breadcrumb for recovery | 5 | `security/shutdown.py` |
 | **Manager API security** | Host validation (DNS rebinding), origin validation (CSRF), token/cookie auth, security headers | 2 | `api/security.py` |
 | **UDS auth via OS permissions** | Socket at 0o600; OS file permissions = authentication (no token needed for CLI) | 2, 3 | `constants.py` (path), `proxy.py`, `manager/daemon/server.py` (permissions) |
+| **SLSA provenance verification** | Optional build-time attestation via `gh attestation verify --owner`; proves binary from trusted CI/CD | 2, 5 | `security/binary_attestation.py` |
+| **Code signature verification** | macOS `codesign -v --strict` for tamper detection on STDIO backend binaries | 2, 5 | `security/binary_attestation.py` |
+| **Emergency audit fallback chain** | 3-level fallback: primary log → `system.jsonl` → `emergency_audit.jsonl` (config dir); proxy shuts down after any fallback | 7 | `security/integrity/emergency_audit.py` |
+| **Background audit health monitoring** | Periodic audit log integrity checks every 30 seconds; catches tampering during idle periods | 5, 7 | `security/integrity/audit_monitor.py` |
+| **Backend credential storage** | Backend API keys/tokens stored in OS keychain; config files hold reference key only, never the credential | 2, 3 | `security/credential_storage.py` |
+| **Auth event logging** | Separate `auth.jsonl` for authentication events (token_invalid, token_refreshed, session_started, device_health_failed); subject IDs hashed before logging | 7 | `telemetry/audit/auth_logger.py` |
+| **Config/policy history logging** | Policy and config changes tracked in `policy_history.jsonl` and `config_history.jsonl` for change audit trail | 7 | `utils/history_logging/` |
+| **AppleScript injection prevention** | User input escaped for safe use in native macOS HITL dialogs | 1 | `pep/applescript.py` |
+| **Token format validation** | Hex-only character validation on auth tokens prevents XSS via malformed token injection | 2 | `api/security.py` |
 
 ---
 
@@ -76,6 +85,7 @@ assets, network infrastructure and communications and uses it to improve its sec
 | Backend servers | Aligned | `backend_id` condition allows per-server policy differentiation |
 | Side-effect typing | Aligned | 21 SideEffect categories classify tool risk; used in policy conditions |
 | Protected config dir | Aligned | Built-in immutable protection for policy/config/audit directories |
+| Input sanitization | Aligned | AppleScript injection prevention in native HITL dialogs (`pep/applescript.py`) |
 
 **Gaps:**
 
@@ -96,6 +106,10 @@ assets, network infrastructure and communications and uses it to improve its sec
 |--------|--------|--------|
 | Backend HTTP: mTLS | Aligned | Optional mutual TLS with cert expiry monitoring (14-day warning, 7-day critical) |
 | Backend STDIO: process isolation | Aligned | Local process pipe — no network involved; binary attestation at startup |
+| Backend STDIO: SLSA provenance | Aligned | Optional build-time attestation via `gh attestation verify` proves binary from trusted CI/CD |
+| Backend STDIO: code signing | Aligned | macOS `codesign -v --strict` verifies binary signature integrity before spawn |
+| Backend credential storage | Aligned | API keys/tokens in OS keychain — config files never contain credentials |
+| Token format validation | Aligned | Hex-only character validation on auth tokens prevents XSS via malformed injection |
 | Manager API: localhost binding | Aligned | HTTP on `127.0.0.1:8765` — not exposed to network |
 | Manager API: host validation | Aligned | DNS rebinding protection — rejects requests with non-localhost Host headers |
 | Manager API: CSRF protection | Aligned | Origin header validation for browser requests |
@@ -164,7 +178,7 @@ assets, network infrastructure and communications and uses it to improve its sec
 | CLI → Manager | UDS (manager.sock) | **None (kernel IPC)** | OS file permissions (0o600) |
 | MCP Client → Proxy | STDIO pipe | **None (kernel IPC)** | Process parentage |
 | Proxy → HTTP Backend | TCP (remote) | **mTLS** | Client certificate |
-| Proxy → STDIO Backend | STDIO pipe | **None (kernel IPC)** | Binary attestation at startup |
+| Proxy → STDIO Backend | STDIO pipe | **None (kernel IPC)** | Binary attestation at startup (SLSA, SHA-256, codesign) |
 
 **Existing mitigations (why severity is Low):**
 
@@ -302,8 +316,9 @@ The proxy already has the PIP abstraction (`pips/auth/oidc_provider.py` for iden
 | Device health: FileVault | Aligned | Disk encryption verified at startup and every 5 minutes |
 | Device health: SIP | Aligned | System Integrity Protection verified at startup and every 5 minutes |
 | Fail-closed on health failure | Aligned | `DEFAULT_DEVICE_FAILURE_THRESHOLD = 1` — single failure triggers shutdown |
-| Backend binary attestation | Aligned | SHA-256 hash of STDIO backend binary verified at startup |
+| Backend binary attestation | Aligned | Multi-layer verification at startup: SLSA provenance, SHA-256 hash, macOS code signature |
 | Audit log integrity | Aligned | Inode/device monitoring, fail-closed on compromise |
+| Background audit monitoring | Aligned | Periodic audit log integrity checks every 30 seconds (`security/integrity/audit_monitor.py`) |
 | Tool sanitization monitoring | Aligned | Prompt injection patterns detected and stripped |
 | Crash recovery breadcrumbs | Aligned | `CRASH_BREADCRUMB_FILENAME` records failure context for post-incident analysis |
 
@@ -313,7 +328,7 @@ The proxy already has the PIP abstraction (`pips/auth/oidc_provider.py` for iden
 |----|-----|----------|----------|--------|
 | GAP-008 | Device health: macOS only | Medium | Platform limitation | Tenet 5 requires evaluating security posture of all assets. Not met on Linux/Windows because FileVault and SIP checks are macOS-specific. `SKIP_DEVICE_HEALTH_CHECK = True` on non-macOS — no equivalent disk encryption or system integrity checks exist for those platforms. |
 | GAP-018 | No external device posture integration | Medium | Scope limitation | Tenet 5 expects device security posture to be evaluated continuously. The current FileVault/SIP checks are **local self-assessment** — the proxy inspects its own host. ZTA architecturally expects device posture signals to come from external authorities (MDM/CDM/EDR) and be consumed via PIPs ([NIST SP 1800-35](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.1800-35.pdf)). The proxy has no PIP for consuming external posture signals (e.g., EDR compliance status, OS patch level, host firewall state). See [GAP-017 detail](#gap-017-detail) for the architectural pattern. |
-| GAP-009 | No continuous backend integrity monitoring | Low | Implementation | Tenet 5 says "no asset is inherently trusted." Partially not met because the STDIO backend binary hash is verified at startup only. If the binary is replaced while the proxy is running, the change goes undetected until restart. The process is still the original one (binary replacement doesn't affect a running process), but a restart would load the modified binary without re-verification until the next startup. |
+| GAP-009 | No continuous backend integrity monitoring | Low | Implementation | Tenet 5 says "no asset is inherently trusted." Partially not met because the STDIO backend binary hash is verified at startup only. If the binary is replaced while the proxy is running, the change goes undetected until restart. The process is still the original one (binary replacement doesn't affect a running process), but a restart would load the modified binary without re-verification until the next startup. Note: post-spawn process path verification (`verify_spawned_process()`) is implemented in `security/binary_attestation.py` but not yet integrated into the transport layer — it would catch process substitution attacks between binary verification and process spawn. |
 | GAP-010 | No asset inventory or CMDB integration | Low | Scope limitation | Tenet 5 assumes an enterprise asset inventory. Not met because the proxy has no formal catalog of monitored assets, software versions, patch levels, or compliance status. The proxy operates on tools discovered at runtime, not from a managed inventory. |
 
 ---
@@ -359,6 +374,9 @@ The proxy already has the PIP abstraction (`pips/auth/oidc_provider.py` for iden
 | Rate anomaly detection | Aligned | Per-session, per-tool rate tracking with configurable thresholds |
 | Duration metrics | Aligned | `DurationInfo` tracks operation timing for performance/anomaly analysis |
 | Response hashing | Aligned | `ResponseSummary` captures `size_bytes` and `body_hash` without storing content |
+| Auth event logging | Aligned | Separate `auth.jsonl` for authentication events (token failures, session lifecycle, device health); subject IDs hashed |
+| Config/policy history | Aligned | Changes tracked in `policy_history.jsonl` and `config_history.jsonl` for change audit trail |
+| Emergency audit fallback | Aligned | 3-level fallback chain (primary → `system.jsonl` → `emergency_audit.jsonl` in config dir) ensures audit survives log directory compromise |
 
 **Gaps:**
 
@@ -456,80 +474,71 @@ Tier 3 creates a high-value attack target (the log itself becomes the most sensi
 | Tenet | Coverage | Key Strength | Primary Gap |
 |-------|----------|--------------|-------------|
 | 1 — Resources | Strong | Per-tool policy with side-effect classification | GAP-001: No resource registry |
-| 2 — Secure Comms | Strong | mTLS for HTTP, binary attestation for STDIO, localhost binding | GAP-003: No TLS on local HTTP API |
+| 2 — Secure Comms | Strong | mTLS for HTTP, multi-layer binary attestation for STDIO, credential keychain, localhost binding | GAP-003: No TLS on local HTTP API |
 | 3 — Per-Session | Strong | Session binding with identity-change shutdown | GAP-005: No scope narrowing within session |
 | 4 — Dynamic Policy | Strong | ABAC with 12 condition types, hot-reload | GAP-006: No behavioral attributes |
-| 5 — Asset Integrity | Moderate | Device health + audit integrity + binary attestation | GAP-008: macOS-only device checks |
+| 5 — Asset Integrity | Moderate | Device health + audit integrity + background monitoring + multi-layer binary attestation | GAP-008: macOS-only device checks |
 | 6 — Dynamic AuthZ | Strong | Per-request auth + policy eval, no caching | GAP-011: Discovery bypass |
-| 7 — Telemetry | Moderate | Structured OCSF-inspired logs, hash chain, provenance | GAP-014: No feedback loop |
+| 7 — Telemetry | Moderate | Structured OCSF-inspired logs, hash chain, provenance, auth/config history, emergency fallback | GAP-014: No feedback loop |
 
 ---
 
-## Corrected Claims
+## Enforceability of Zero Trust in MCP-Based Agentic AI via Proxy-Layer Access Control
 
-### "No least-privilege enforcement at the operation level" — INVALID GAP
+The mcp-acp proxy was developed to investigate the following research question: *To what extent can zero trust principles be enforced in MCP-based agentic AI systems through a proxy-layer access control architecture, and what security improvements, architectural limitations, and operational trade-offs result from this approach?* The following assessment is based on the implementation evidence documented in the preceding sections, evaluated against the seven tenets of NIST SP 800-207.
 
-This was flagged in an earlier evaluation but is **not a valid gap**. Here is why:
+### Extent of enforcement
 
-MCP protocol's `tools/call` method has **no operation type field**. There is no `read`/`write`/`delete` in the protocol — it is simply "call this tool with these arguments." The proxy cannot enforce operation-level least privilege because the protocol does not express operation intent.
+A proxy-layer architecture can achieve **strong coverage on 5 of 7 NIST ZTA tenets** and moderate coverage on the remaining 2 when applied to MCP-based agentic AI systems. By intercepting every JSON-RPC message between client and backend, a proxy creates a single mandatory enforcement point for authentication, authorization, and audit. This architectural position enables per-request identity validation with no caching, attribute-based policy evaluation on every tool invocation, and fail-closed audit logging with tamper-evident integrity guarantees — all without requiring modifications to the MCP client or backend server. In the mcp-acp implementation, this translates to per-request JWT validation (`pips/auth/oidc_provider.py`), an ABAC engine with deny-by-default policy (`pdp/engine.py`, `pdp/policy.py`), session binding with identity-change shutdown (`pips/auth/session.py`), human-in-the-loop approval gating (`pep/middleware.py`), and SHA-256 hash-chained audit logs (`security/integrity/hash_chain.py`).
 
-What the proxy **does** implement:
+The two tenets at moderate coverage — Asset Integrity (Tenet 5) and Telemetry (Tenet 7) — are constrained not by the proxy architecture itself but by scope boundaries. Device posture verification depends on OS-specific mechanisms and lacks cross-platform parity (GAP-008). External device posture signals require enterprise MDM/CDM/EDR infrastructure that a proxy cannot provide on its own (GAP-018). The observation-to-improvement feedback loop required by Tenet 7 demands behavioral analytics infrastructure beyond what a proxy-layer enforcement point is designed to deliver (GAP-014). These gaps indicate that a proxy-layer architecture is necessary but not sufficient for full ZTA compliance — it must be complemented by external enterprise infrastructure for asset posture and telemetry analysis.
 
-1. **Side-effect classification** — 21 `SideEffect` categories (CODE_EXEC, FS_WRITE, FS_READ, NETWORK_EGRESS, etc.) map tools to their actual capabilities
-2. **`operations` policy condition** — Derived from side-effect mapping, allows rules like `operations: [read]` to match tools classified as read-only
-3. **Per-tool granularity** — Each tool is individually addressable in policy
-4. **Path-level controls** — `path_pattern`, `source_path`, `dest_path`, `extension` conditions constrain where tools can operate
+It is worth noting that the coverage ceiling of a proxy-layer architecture is higher than what any single implementation demonstrates. The mcp-acp implementation uses a pluggable policy engine interface (`PolicyEngineProtocol` in `pdp/engine.py`) that supports substitution with external engines such as Casbin or OPA. A more sophisticated policy engine could incorporate behavioral attributes (GAP-006), composite risk scoring (GAP-007), or time-bounded scope narrowing (GAP-005) — all within the same proxy architecture, without modifying the enforcement layer. The proxy's interception position and modular PIP/PDP/PEP separation provide the architectural foundation; the remaining moderate-coverage tenets are bounded by implementation maturity and external infrastructure availability, not by the proxy pattern itself.
 
-This is the maximum operation-level enforcement possible given MCP protocol constraints. The `operations` condition working through side-effects mapping is the correct architectural approach.
+### Security improvements
 
-**Classification**: MCP protocol design constraint, not an implementation gap.
+The MCP protocol has no built-in authorization model. Without a proxy, any connected client can invoke any tool on any backend. A proxy-layer architecture addresses this by introducing controls that neither endpoint provides natively:
 
-### "HITL approval cache bypasses policy re-evaluation" — INCORRECT
+- **Mandatory access control over tool invocation.** A proxy can enforce attribute-based policy covering subject, action, resource, and environment attributes before any tool call reaches the backend. The mcp-acp implementation uses 12 policy condition types and 21 side-effect categories for tool risk classification (`context/resource.py`, `pdp/policy.py`).
+- **Human-in-the-loop gating.** A proxy can interpose human approval dialogs for sensitive operations, converting implicit tool trust into explicit authorization. Approval caching with security-aware exclusions (e.g., never caching code execution tools) balances usability against control. In mcp-acp, this is implemented with TTL-based caching and per-rule configurability (`pep/approval_store.py`).
+- **Backend integrity verification.** A proxy can verify backend binary integrity before communication — through provenance attestation, cryptographic hash comparison, or code signature checks — a control architecturally impossible from the client side, since the client does not control or observe backend process spawning. The mcp-acp implementation supports SLSA provenance, SHA-256 hash, and macOS code signature verification (`security/binary_attestation.py`).
+- **Tamper-evident audit trail.** A proxy can maintain hash-chained audit logs with fail-closed enforcement, ensuring that security-relevant events are recorded even if the backend or client is compromised. The mcp-acp implementation adds background integrity monitoring and a multi-level emergency fallback chain (`security/integrity/audit_monitor.py`, `security/integrity/emergency_audit.py`).
+- **Transport-layer hardening.** A proxy can enforce mutual TLS for remote backends, protect its own configuration and policy files from tool access, and sanitize tool descriptions against prompt injection — attack surfaces specific to agentic AI systems where untrusted tool metadata can influence LLM behavior. In mcp-acp, these are implemented via mTLS (`security/mtls.py`), protected path enforcement (`pep/protected_paths.py`), and description sanitization (`security/sanitizer.py`).
 
-The HITL approval cache does **not** bypass policy re-evaluation. The actual flow (`pep/middleware.py`):
+### Architectural limitations
 
-1. `on_message()` builds DecisionContext (includes per-request JWT validation)
-2. `self._engine.evaluate(decision_context)` runs policy evaluation → returns `Decision.HITL`
-3. `_handle_hitl_decision()` is called
-4. **Inside** `_handle_hitl_decision`, approval cache is checked
-5. If cached → skips the dialog, but policy was **already evaluated** in step 2
+Three limitations are inherent to the MCP protocol and its transport layer, constraining what any proxy-layer architecture can enforce regardless of implementation:
 
-The cache reduces dialog fatigue, not policy enforcement. If policy changes (e.g., rule removed), the engine may return `Decision.ALLOW` or `Decision.DENY` instead of `Decision.HITL`, and the cache is never consulted. Additionally, `reload_policy()` explicitly clears the approval cache (`middleware.py`).
+1. **No operation-level intent.** MCP's `tools/call` method carries no read/write/delete semantics — a proxy cannot enforce operation-level least privilege directly. It can compensate through side-effect classification and derived operation heuristics, but this mapping is maintained outside the protocol and is not guaranteed to be complete or accurate.
+2. **No client identity or posture in-band.** MCP's standard transports (STDIO, UDS) are kernel IPC with no network addressing. The `initialize` message carries only client name and version. Client IP, device fingerprint, and network location are architecturally unavailable to the proxy (GAP-017). This limitation would be partially resolved by HTTP-based client transports, which expose ASGI request context including client address.
+3. **Discovery must bypass policy.** MCP clients require capability discovery (`tools/list`, `resources/list`) to function. A proxy must permit these methods without policy evaluation (GAP-011), which exposes available tool names and resource URIs to any authenticated user regardless of authorization policy.
 
----
+A fourth limitation is platform-scoped rather than protocol-inherent: device posture verification (e.g., disk encryption, system integrity protection) depends on OS-specific mechanisms. The mcp-acp implementation covers macOS (FileVault, SIP) but has no equivalent checks on Linux or Windows (GAP-008), leaving device health unverified on those platforms.
 
-## Architectural Limitations (Not Gaps)
+### Operational trade-offs
 
-These are properties of the proxy's architecture and deployment model. They are not implementation gaps — they are intentional design boundaries.
+Applying zero trust to agentic AI systems introduces trade-offs at two levels: those inherent to any OIDC-based ZTA enforcement, and those specific to the mcp-acp implementation's design choices.
 
-### Desktop single-user architecture
+**Trade-offs inherent to ZTA enforcement:**
 
-The proxy runs as a desktop application for a single user, not as an enterprise service. This affects:
+| Trade-off | Security cost | Operational benefit |
+|-----------|---------------|---------------------|
+| **Signing key caching** (GAP-013) | A revoked signing key remains valid for the JWKS cache TTL (e.g., 600 seconds). This window exists in any system that caches OIDC signing keys. | Avoids a network round-trip to the identity provider on every request, eliminating per-call latency and IdP availability dependency. |
+| **No within-session scope narrowing** (GAP-005) | All policy-allowed tools remain available for the full session duration with no automatic privilege decay. | Avoids session interruption. A more sophisticated policy engine could implement time-bounded or count-bounded access (see pluggability discussion above), but no current MCP implementation provides this. |
 
-- **Control/data plane separation**: Logical separation exists in code (PE, PA, PEP are distinct modules), but physical separation (separate services/processes) adds deployment complexity inappropriate for desktop use.
-- **IdP resilience**: Users configure one identity provider. Fallback IdP assumes multiple providers, which is uncommon for individual users.
+**Implementation design choices in mcp-acp:**
 
-### Per-session lifecycle
+The following trade-offs are not inherent to the proxy-layer ZTA approach but reflect design decisions in the mcp-acp implementation. Alternative implementations could make different choices.
 
-The proxy runs per-MCP-session (started by Claude Desktop, ends when session ends). This affects:
+| Trade-off | Security cost | Operational benefit |
+|-----------|---------------|---------------------|
+| **HITL approval caching** | Cached approvals skip the human dialog for a configurable TTL window; a compromised tool could be re-invoked without review during that period. Mitigated: policy is still re-evaluated on every request; high-risk categories (e.g., code execution) are excluded from caching; cache clears on policy reload. | Without caching, approval fatigue degrades the control — users approve reflexively when prompted repeatedly within a session. |
+| **Argument redaction in audit** (GAP-015) | Forensics cannot reconstruct what a tool was asked to do — only that it was called with a payload of a given size and hash. | Avoids logging PII, secrets, and proprietary code. The audit log does not become a high-value exfiltration target. A tiered logging approach (structural metadata without values) could narrow this gap. |
+| **Discovery bypass** (GAP-011) | Tool names and resource URIs are visible to all authenticated users regardless of authorization policy. | The current implementation allows discovery methods to bypass policy evaluation entirely. An alternative approach — evaluating policy on discovery and filtering results to show only authorized tools — is architecturally feasible but not yet implemented. |
 
-- **Dynamic policy updates**: Hot-reload is supported (`reload_policy()`), but the primary mechanism is session restart. This is acceptable for short sessions.
-- **Continuous re-authentication**: Token refresh already re-validates with IdP. Additional re-auth during typical session durations provides marginal benefit.
+### Summary
 
-### Proxy scope boundary
-
-The proxy controls the client→backend path. Some ZTA concerns are outside this scope:
-
-- **Network segmentation**: VLANs, firewalls, service mesh are infrastructure concerns.
-- **Backend trust**: User configures which backend to use, establishing trust at configuration time. The proxy protects the backend from unauthorized clients, not vice versa.
-
-### MCP protocol constraints
-
-Certain ZTA capabilities are limited by the MCP protocol specification:
-
-- **No operation-level intent** on `tools/call` — addressed via side-effect classification
-- **No client device info** in `initialize` — only `name` and `version`
-- **No client network location** — STDIO transport is kernel IPC, not network
+Proxy-layer access control is a viable architecture for enforcing zero trust principles in MCP-based agentic AI systems. It achieves strong coverage across the majority of NIST ZTA tenets by exploiting its position as a mandatory intermediary — every message between client and backend passes through the enforcement chain. The primary limitations stem from the MCP protocol itself (no operation-level intent, no client posture signaling) and from external infrastructure dependencies (enterprise device posture, behavioral analytics) rather than from the proxy architecture. The architecture's modular design — with pluggable policy engines, extensible Policy Information Points, and separated PDP/PEP/PIP components — means that the coverage ceiling exceeds what the current implementation demonstrates. More sophisticated policy engines, richer context signals, and integration with enterprise infrastructure could address the remaining moderate-coverage tenets within the same architectural pattern. The mcp-acp implementation provides evidence that the core zero trust property — no implicit trust, every request evaluated — is achievable and maintainable in MCP-based agentic AI systems through proxy-layer enforcement.
 
 ---
 
@@ -563,8 +572,7 @@ Beyond the proxy's architectural scope:
 
 ## References
 
-- NIST SP 800-207: Zero Trust Architecture (Section 2.1 — Seven Tenets)
+- [NIST SP 800-207](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-207.pdf): Zero Trust Architecture (Section 2.1 — Seven Tenets)
 - [NIST SP 1800-35](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.1800-35.pdf): Implementing a Zero Trust Architecture — Device posture integration via PIPs (addresses GAP-018)
 - [roadmap.md](../design/roadmap.md) — Deferred improvements
-- [ui-security.md](../design/ui-security.md) — API security design
 - [http-client-support.md](../design/http-client-support.md) — Future HTTP client transport (addresses GAP-017)
