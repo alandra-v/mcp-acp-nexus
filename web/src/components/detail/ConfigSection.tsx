@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useId, cloneElement, isValidElement, Children } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, useId, cloneElement, isValidElement, Children } from 'react'
 import { Key, Trash2 } from 'lucide-react'
 import { Section } from './Section'
 import { SetApiKeyDialog, DeleteApiKeyDialog } from './ApiKeyDialogs'
@@ -34,6 +34,9 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
   const { status: authStatus } = useAuth()
   const [form, setForm] = useState<FormState | null>(null)
 
+  // When true, the next config change should NOT reset the form (e.g. credential_key update)
+  const skipFormResetRef = useRef(false)
+
   // API Key management state
   const [showApiKeyDialog, setShowApiKeyDialog] = useState(false)
   const [apiKeyInput, setApiKeyInput] = useState('')
@@ -49,6 +52,10 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
 
   // Update form when config refreshes (after successful save)
   useEffect(() => {
+    if (skipFormResetRef.current) {
+      skipFormResetRef.current = false
+      return
+    }
     if (config && form) {
       // Only reset form if config actually changed (successful save)
       const newFormState = configToFormState(config)
@@ -120,6 +127,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
         setApiKeyInput('')
         // Update credential_key locally — avoids full refresh which would lose dirty form edits
         if (config?.backend.http) {
+          skipFormResetRef.current = true
           setConfig({
             ...config,
             backend: {
@@ -159,6 +167,7 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
         setShowDeleteConfirm(false)
         // Update credential_key locally — avoids full refresh which would lose dirty form edits
         if (config?.backend.http) {
+          skipFormResetRef.current = true
           setConfig({
             ...config,
             backend: {

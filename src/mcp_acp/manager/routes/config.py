@@ -5,10 +5,12 @@ from __future__ import annotations
 __all__ = ["router"]
 
 import json
+import logging
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Request
+from pydantic import ValidationError as PydanticValidationError
 
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas.config import (
@@ -28,14 +30,16 @@ from mcp_acp.api.schemas.config import (
     StdioAttestationResponse,
     StdioTransportResponse,
 )
-from mcp_acp.security.credential_storage import BackendCredentialStorage
 from mcp_acp.config import PerProxyConfig, load_proxy_config, save_proxy_config
+from mcp_acp.constants import APP_NAME
 from mcp_acp.manager.config import get_proxy_config_path, get_proxy_log_dir
 from mcp_acp.manager.registry import ProxyRegistry
-from pydantic import ValidationError as PydanticValidationError
+from mcp_acp.security.credential_storage import BackendCredentialStorage
 
 from .deps import find_proxy_by_id, get_proxy_socket
 from .helpers import PROXY_SNAPSHOT_TIMEOUT_SECONDS, create_uds_client
+
+_logger = logging.getLogger(f"{APP_NAME}.manager.routes.config")
 
 router = APIRouter(prefix="/api/manager/proxies", tags=["config"])
 
@@ -141,8 +145,18 @@ def _build_config_response_from_proxy(config: PerProxyConfig, proxy_name: str) -
     )
 
 
-def _deep_merge(base: dict, update_vals: dict) -> dict:
-    """Deep merge two dictionaries."""
+def _deep_merge(base: dict[str, Any], update_vals: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge updates into base dict, handling nested dicts.
+
+    Recursively merges nested dictionaries while overwriting scalar values.
+
+    Args:
+        base: Base dictionary to merge into.
+        update_vals: Dictionary of updates to apply.
+
+    Returns:
+        New dictionary with updates merged into base.
+    """
     result = base.copy()
     for key, value in update_vals.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -152,7 +166,7 @@ def _deep_merge(base: dict, update_vals: dict) -> dict:
     return result
 
 
-def _normalize_attestation_keys(update_dict: dict) -> dict:
+def _normalize_attestation_keys(update_dict: dict[str, Any]) -> dict[str, Any]:
     """Rename API field names to internal model field names for attestation."""
     if "stdio" in update_dict and isinstance(update_dict["stdio"], dict):
         att = update_dict["stdio"].get("attestation")
@@ -200,8 +214,8 @@ async def get_proxy_config(proxy_id: str, request: Request) -> ConfigResponse:
                 resp = await client.get("/api/config")
                 if resp.status_code == 200:
                     return ConfigResponse.model_validate(resp.json())
-        except (httpx.ConnectError, httpx.TimeoutException, OSError, json.JSONDecodeError):
-            pass  # Fall through to disk config
+        except (httpx.ConnectError, httpx.TimeoutException, OSError, json.JSONDecodeError) as exc:
+            _logger.debug("Could not reach proxy %s via UDS for config: %s", proxy_name, exc)
 
     # Proxy not running or unreachable — return config from disk
     return _build_config_response_from_proxy(config, proxy_name)
@@ -348,8 +362,8 @@ async def compare_proxy_config(proxy_id: str, request: Request) -> ConfigCompari
             resp = await client.get("/api/config/compare")
             if resp.status_code == 200:
                 return ConfigComparisonResponse.model_validate(resp.json())
-    except (httpx.ConnectError, httpx.TimeoutException, OSError, json.JSONDecodeError):
-        pass
+    except (httpx.ConnectError, httpx.TimeoutException, OSError, json.JSONDecodeError) as exc:
+        _logger.debug("Could not reach proxy %s via UDS for config compare: %s", proxy_name, exc)
 
     return ConfigComparisonResponse(
         running_config=saved_response,
@@ -424,8 +438,8 @@ async def set_api_key(proxy_id: str, request: ApiKeySetRequest) -> ApiKeyRespons
         # Rollback: delete the stored credential
         try:
             cred_storage.delete()
-        except RuntimeError:
-            pass  # Best effort cleanup
+        except RuntimeError as cleanup_exc:
+            _logger.debug("Best-effort credential cleanup failed: %s", cleanup_exc)
         raise APIError(
             status_code=500,
             code=ErrorCode.CONFIG_SAVE_FAILED,
