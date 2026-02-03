@@ -162,6 +162,14 @@ The `DecisionContext` flows through the system for policy evaluation, logging, a
 
 **Design principle**: Context is used for **matching**, not autonomous decision-making. The PolicyEngine matches attributes against rules - it does not analyze context to infer intent.
 
+### Why Device Posture lives in `security/posture/`, not `pips/`
+
+Device health is conceptually a PIP in NIST 800-207 — it provides posture attributes that should feed into policy decisions. However, the current implementation lives in `security/posture/` because it does not yet behave like a PIP:
+
+- **Current behavior is enforcement, not attribute-providing.** Device health is a hard startup gate (`check_device_health()`) and a background monitor (`DeviceHealthMonitor`) that triggers fail-closed shutdown on failure. This is PEP-like behavior — it enforces a binary pass/fail, not surfacing attributes for the PDP to evaluate in policy rules.
+- **`security/` groups implementation primitives** (auth tokens, mTLS, integrity, posture) while `pips/` groups higher-level zero trust components that provide attributes to the PDP. The split reflects what the code actually does.
+- **Migration trigger:** Move device posture to `pips/posture/` when it becomes a real attribute source for the PDP — i.e., when posture signals (e.g., `device.filevault == "enabled"`, `device.sip == "enabled"`) are exposed as policy conditions in `RuleConditions` and evaluated by the policy engine per-request, rather than acting as a binary startup/shutdown gate.
+
 ---
 
 ## State Management
