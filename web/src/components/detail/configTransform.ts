@@ -104,10 +104,7 @@ export function formStateToUpdateRequest(
 ): ConfigUpdateRequest {
   const updates: ConfigUpdateRequest = {}
 
-  // Proxy
-  if (form.proxy_name !== original.proxy.name) {
-    updates.proxy = { name: form.proxy_name }
-  }
+  // Proxy name is immutable (used as directory key, log paths, keychain entries)
 
   // Backend
   const backendUpdates: ConfigUpdateRequest['backend'] = {}

@@ -27,7 +27,6 @@ __all__ = [
     "LoggingConfigUpdate",
     "MTLSConfigUpdate",
     "OIDCConfigUpdate",
-    "ProxyConfigUpdate",
     "StdioAttestationUpdate",
     "StdioTransportUpdate",
     # API Key schemas
@@ -219,12 +218,6 @@ class BackendConfigUpdate(BaseModel):
     http: HttpTransportUpdate | None = None
 
 
-class ProxyConfigUpdate(BaseModel):
-    """Updatable proxy fields."""
-
-    name: str | None = Field(default=None, min_length=1)
-
-
 class OIDCConfigUpdate(BaseModel):
     """Updatable OIDC fields."""
 
@@ -276,7 +269,6 @@ class ConfigUpdateRequest(BaseModel):
 
     logging: LoggingConfigUpdate | None = None
     backend: BackendConfigUpdate | None = None
-    proxy: ProxyConfigUpdate | None = None
     auth: AuthConfigUpdate | None = None
     hitl: HITLConfigUpdate | None = None
 

@@ -276,11 +276,6 @@ async def update_config(config: ConfigDep, updates: ConfigUpdateRequest) -> Conf
             backend_updates = _normalize_attestation_keys(backend_updates)
             update_dict["backend"] = _deep_merge(update_dict["backend"], backend_updates)
 
-    if updates.proxy:
-        proxy_updates = updates.proxy.model_dump(exclude_unset=True)
-        if proxy_updates:
-            update_dict["proxy"] = _deep_merge(update_dict["proxy"], proxy_updates)
-
     if updates.auth:
         auth_updates = updates.auth.model_dump(exclude_unset=True)
         if auth_updates:

@@ -503,7 +503,6 @@ class TestUpdateModels:
         # Assert
         assert update.logging is None
         assert update.backend is None
-        assert update.proxy is None
 
     def test_config_update_request_with_logging(self) -> None:
         """ConfigUpdateRequest with logging updates."""

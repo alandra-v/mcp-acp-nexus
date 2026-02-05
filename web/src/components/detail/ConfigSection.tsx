@@ -226,11 +226,11 @@ export function ConfigSection({ loaded = true, proxyId }: ConfigSectionProps) {
       >
         {/* Proxy Settings */}
         <FormSection title="Proxy">
-          <FormRow label="Name" hint="Display name for this proxy">
+          <FormRow label="Name" hint="Proxy name is immutable (used as directory key)">
             <Input
               value={form.proxy_name}
-              onChange={(e) => updateField('proxy_name', e.target.value)}
-              className="max-w-md"
+              className="max-w-md bg-base-900/50 text-muted-foreground"
+              disabled
             />
           </FormRow>
         </FormSection>

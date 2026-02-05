@@ -152,10 +152,6 @@ export interface AuthConfigUpdate {
   mtls?: MTLSConfigUpdate | null
 }
 
-export interface ProxyConfigUpdate {
-  name?: string
-}
-
 /** HITL update (cache_side_effects moved to per-rule policy) */
 export interface HITLConfigUpdate {
   timeout_seconds?: number
@@ -165,7 +161,6 @@ export interface HITLConfigUpdate {
 export interface ConfigUpdateRequest {
   logging?: LoggingConfigUpdate
   backend?: BackendConfigUpdate
-  proxy?: ProxyConfigUpdate
   auth?: AuthConfigUpdate
   hitl?: HITLConfigUpdate
 }
