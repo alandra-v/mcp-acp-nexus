@@ -40,31 +40,28 @@ assets, network infrastructure and communications and uses it to improve its sec
 | **ABAC policy engine** | Attribute-based rules with AND logic, deny-overrides combining, specificity scoring | 4 | `pdp/engine.py` |
 | **Deny-by-default** | `default_action = "deny"` — no rules match → deny | 4, 6 | `pdp/policy.py` |
 | **Per-tool policy rules** | Tools individually addressable via `tool_name`, `path_pattern`, `operations`, `side_effects`, etc. | 1, 4 | `pdp/policy.py` |
-| **Side-effect classification** | 21 SideEffect categories (CODE_EXEC, FS_WRITE, NETWORK_EGRESS, etc.) for tool risk typing | 1, 4 | `context/resource.py` |
+| **Side-effect classification** | 21 SideEffect categories (CODE_EXEC, FS_WRITE, NETWORK_EGRESS, etc.) across 95 mapped tools for tool risk typing | 4 | `context/resource.py`, `context/tool_side_effects.py` |
 | **Session binding** | Format `<user_id>:<session_id>`, identity change → immediate shutdown | 3, 6 | `pips/auth/session.py` |
-| **HITL approval** | Human-in-the-loop for sensitive operations with per-rule configuration | 4, 6 | `pep/middleware.py` |
-| **HITL approval cache** | TTL-based cache (default 10 min); CODE_EXEC never cached; policy still re-evaluated | 4 | `pep/approval_store.py` |
+| **HITL approval** | Human-in-the-loop for sensitive operations with per-rule configuration | 6 | `pep/middleware.py` |
 | **Device health checks** | FileVault + SIP verification at startup and periodic (5-min intervals) | 5 | `security/posture/device.py`, `security/posture/device_monitor.py` |
 | **mTLS for HTTP backends** | Optional mutual TLS with certificate expiry monitoring | 2 | `security/mtls.py`, `utils/transport.py` |
-| **Binary attestation (STDIO)** | SLSA provenance, SHA-256 hash, and macOS code signature verification at startup; fail-closed on mismatch | 2, 5 | `security/binary_attestation.py`, `utils/transport.py` |
-| **Fail-closed audit** | Inode/device checks before every write; shutdown on mismatch | 7 | `security/integrity/audit_handler.py` |
+| **Binary attestation (STDIO)** | SLSA provenance, SHA-256 hash, and macOS code signature verification at startup; fail-closed on mismatch | 5 | `security/binary_attestation.py`, `utils/transport.py` |
+| **Fail-closed audit** | Inode/device checks before every write; shutdown on mismatch | 5 | `security/integrity/audit_handler.py` |
 | **SHA-256 hash chain** | Audit log entries chained with SHA-256 hashes for tamper detection | 7 | `security/integrity/hash_chain.py` |
-| **Rate limiting** | Per-session, per-tool rate tracking (default 30/min); breach triggers HITL | 5, 7 | `security/rate_limiter.py` |
-| **Tool description sanitization** | Strips prompt injection patterns from tool descriptions | 1, 5 | `security/tool_sanitizer.py` |
-| **Protected config directory** | `PROTECTED_CONFIG_DIR` resolved with `os.path.realpath()` to prevent symlink bypass | 1 | `constants.py` |
-| **Machine-bound token storage** | Tokens encrypted with machine-specific key in OS keychain | 3 | `security/auth/` |
+| **Rate limiting** | Per-session, per-tool rate tracking (default 30/min); breach triggers HITL | 4 | `security/rate_limiter.py` |
+| **Protected config directory** | `PROTECTED_CONFIG_DIR` resolved with `os.path.realpath()` to prevent symlink bypass | 5 | `constants.py` |
+| **Machine-bound token storage** | Tokens encrypted with machine-specific key in OS keychain | 2 | `security/auth/` |
 | **Provenance tracking** | Context facts tagged with provenance (TOKEN, MTLS, MCP_REQUEST, CLIENT_HINT, etc.) | 7 | `context/provenance.py` |
 | **Shutdown coordinator** | Exit codes 10-12 (10=audit, 11=policy, 12=identity); crash breadcrumb for recovery | 5 | `security/shutdown.py` |
 | **Manager API security** | Host validation (DNS rebinding), origin validation (CSRF), token/cookie auth, security headers | 2 | `api/security.py` |
-| **UDS auth via OS permissions** | Socket at 0o600; OS file permissions = authentication (no token needed for CLI) | 2, 3 | `constants.py` (path), `proxy.py`, `manager/daemon/server.py` (permissions) |
-| **SLSA provenance verification** | Optional build-time attestation via `gh attestation verify --owner`; proves binary from trusted CI/CD | 2, 5 | `security/binary_attestation.py` |
-| **Code signature verification** | macOS `codesign -v --strict` for tamper detection on STDIO backend binaries | 2, 5 | `security/binary_attestation.py` |
+| **UDS auth via OS permissions** | Socket at 0o600; OS file permissions = authentication (no token needed for CLI) | 2 | `constants.py` (path), `proxy.py`, `manager/daemon/server.py` (permissions) |
+| **SLSA provenance verification** | Optional build-time attestation via `gh attestation verify --owner`; proves binary from trusted CI/CD | 5 | `security/binary_attestation.py` |
+| **Code signature verification** | macOS `codesign -v --strict` for tamper detection on STDIO backend binaries | 5 | `security/binary_attestation.py` |
 | **Emergency audit fallback chain** | 3-level fallback: primary log → `system.jsonl` → `emergency_audit.jsonl` (config dir); proxy shuts down after any fallback | 7 | `security/integrity/emergency_audit.py` |
 | **Background audit health monitoring** | Periodic audit log integrity checks every 30 seconds; catches tampering during idle periods | 5, 7 | `security/integrity/audit_monitor.py` |
-| **Backend credential storage** | Backend API keys/tokens stored in OS keychain; config files hold reference key only, never the credential | 2, 3 | `security/credential_storage.py` |
+| **Backend credential storage** | Backend API keys/tokens stored in OS keychain; config files hold reference key only, never the credential | 2 | `security/credential_storage.py` |
 | **Auth event logging** | Separate `auth.jsonl` for authentication events (token_invalid, token_refreshed, session_started, device_health_failed); subject IDs hashed before logging | 7 | `telemetry/audit/auth_logger.py` |
 | **Config/policy history logging** | Policy and config changes tracked in `policy_history.jsonl` and `config_history.jsonl` for change audit trail | 7 | `utils/history_logging/` |
-| **AppleScript injection prevention** | User input escaped for safe use in native macOS HITL dialogs | 1 | `pep/applescript.py` |
 | **Token format validation** | Hex-only character validation on auth tokens prevents XSS via malformed token injection | 2 | `api/security.py` |
 
 ---
@@ -83,9 +80,6 @@ assets, network infrastructure and communications and uses it to improve its sec
 | Resources as resources | Aligned | MCP `resources/read` has dedicated policy path with `path_pattern`, `extension`, `scheme` conditions |
 | Prompts as resources | Aligned | `prompts/get` excluded from discovery bypass, requires policy evaluation |
 | Backend servers | Aligned | `backend_id` condition allows per-server policy differentiation |
-| Side-effect typing | Aligned | 21 SideEffect categories classify tool risk; used in policy conditions |
-| Protected config dir | Aligned | Built-in immutable protection for policy/config/audit directories |
-| Input sanitization | Aligned | AppleScript injection prevention in native HITL dialogs (`pep/applescript.py`) |
 
 **Gaps:**
 
@@ -105,9 +99,7 @@ assets, network infrastructure and communications and uses it to improve its sec
 | Aspect | Status | Detail |
 |--------|--------|--------|
 | Backend HTTP: mTLS | Aligned | Optional mutual TLS with cert expiry monitoring (14-day warning, 7-day critical) |
-| Backend STDIO: process isolation | Aligned | Local process pipe — no network involved; binary attestation at startup |
-| Backend STDIO: SLSA provenance | Aligned | Optional build-time attestation via `gh attestation verify` proves binary from trusted CI/CD |
-| Backend STDIO: code signing | Aligned | macOS `codesign -v --strict` verifies binary signature integrity before spawn |
+| Backend STDIO: process isolation | Aligned | Local process pipe — no network involved; kernel-mediated IPC only |
 | Backend credential storage | Aligned | API keys/tokens in OS keychain — config files never contain credentials |
 | Token format validation | Aligned | Hex-only character validation on auth tokens prevents XSS via malformed injection |
 | Manager API: localhost binding | Aligned | HTTP on `127.0.0.1:8765` — not exposed to network |
@@ -178,7 +170,7 @@ assets, network infrastructure and communications and uses it to improve its sec
 | CLI → Manager | UDS (manager.sock) | **None (kernel IPC)** | OS file permissions (0o600) |
 | MCP Client → Proxy | STDIO pipe | **None (kernel IPC)** | Process parentage |
 | Proxy → HTTP Backend | TCP (remote) | **mTLS** | Client certificate |
-| Proxy → STDIO Backend | STDIO pipe | **None (kernel IPC)** | Binary attestation at startup (SLSA, SHA-256, codesign) |
+| Proxy → STDIO Backend | STDIO pipe | **None (kernel IPC)** | Process parentage; binary integrity verified at startup (Tenet 5) |
 
 **Existing mitigations (why severity is Low):**
 
@@ -214,7 +206,6 @@ assets, network infrastructure and communications and uses it to improve its sec
 | Per-session lifecycle | Aligned | Proxy runs per-MCP-session; sessions bound to authenticated identity |
 | Session binding | Aligned | Format `<user_id>:<session_id>` — identity change triggers immediate shutdown |
 | 8-hour session TTL | Aligned | Configurable maximum session duration |
-| Machine-bound tokens | Aligned | Cannot be exfiltrated and used on another device |
 | In-memory state | Aligned | Approval cache, rate counters, session state — all cleared on restart |
 
 **Gaps:**
@@ -237,6 +228,8 @@ assets, network infrastructure and communications and uses it to improve its sec
 | Dynamic context building | Aligned | `build_decision_context()` assembles fresh context per-request from live signals |
 | Identity as input | Aligned | Subject ID from OIDC token feeds policy conditions via `subject_id` |
 | Tool metadata as input | Aligned | Tool name, side effects, path, extension, scheme, backend — all policy-evaluable |
+| Side-effect classification | Aligned | 21 SideEffect categories across 95 mapped tools provide risk-typing as a policy input |
+| Rate limiting | Aligned | Per-session, per-tool rate tracking (default 30/min); threshold breach triggers HITL escalation |
 | Session context as input | Aligned | Request ID, session ID, client name/version, timestamp available in Environment |
 | Combining algorithm | Aligned | HITL > DENY > ALLOW with specificity scoring within each level |
 | Hot-reload | Aligned | Policy reloadable without restart via `reload_policy()` — approval cache cleared on reload |
@@ -317,10 +310,10 @@ The proxy already has the PIP abstraction (`pips/auth/oidc_provider.py` for iden
 | Device health: SIP | Aligned | System Integrity Protection verified at startup and every 5 minutes |
 | Fail-closed on health failure | Aligned | `DEFAULT_DEVICE_FAILURE_THRESHOLD = 1` — single failure triggers shutdown |
 | Backend binary attestation | Aligned | Multi-layer verification at startup: SLSA provenance, SHA-256 hash, macOS code signature |
-| Audit log integrity | Aligned | Inode/device monitoring, fail-closed on compromise |
+| Audit log integrity | Aligned | Inode/device monitoring, fail-closed on compromise; operations blocked if audit compromised |
 | Background audit monitoring | Aligned | Periodic audit log integrity checks every 30 seconds (`security/integrity/audit_monitor.py`) |
-| Tool sanitization monitoring | Aligned | Prompt injection patterns detected and stripped |
-| Crash recovery breadcrumbs | Aligned | `CRASH_BREADCRUMB_FILENAME` records failure context for post-incident analysis |
+| Protected config directory | Aligned | `PROTECTED_CONFIG_DIR` resolved with `os.path.realpath()` to prevent symlink bypass of policy/config files |
+| Shutdown coordinator | Aligned | Categorised exit codes (10=audit, 11=policy, 12=identity); crash breadcrumb for post-incident analysis |
 
 **Gaps:**
 
@@ -368,14 +361,13 @@ The proxy already has the PIP abstraction (`pips/auth/oidc_provider.py` for iden
 |--------|--------|--------|
 | Structured audit logs | Aligned | OCSF-inspired events: `AuthEvent`, `OperationEvent`, `DecisionEvent` with structured fields |
 | Decision trace logging | Aligned | Every policy decision logged with matched rules, final rule, eval timing |
-| Fail-closed audit | Aligned | Operations blocked if audit log is compromised; inode monitoring |
 | SHA-256 hash chain | Aligned | Tamper-evident audit trail |
 | Provenance tracking | Aligned | Context facts tagged with source (TOKEN, MTLS, MCP_REQUEST, CLIENT_HINT) |
-| Rate anomaly detection | Aligned | Per-session, per-tool rate tracking with configurable thresholds |
 | Duration metrics | Aligned | `DurationInfo` tracks operation timing for performance/anomaly analysis |
 | Response hashing | Aligned | `ResponseSummary` captures `size_bytes` and `body_hash` without storing content |
 | Auth event logging | Aligned | Separate `auth.jsonl` for authentication events (token failures, session lifecycle, device health); subject IDs hashed |
 | Config/policy history | Aligned | Changes tracked in `policy_history.jsonl` and `config_history.jsonl` for change audit trail |
+| Background audit monitoring | Aligned | Periodic audit log integrity checks every 30 seconds; ensures collection continues during idle periods |
 | Emergency audit fallback | Aligned | 3-level fallback chain (primary → `system.jsonl` → `emergency_audit.jsonl` in config dir) ensures audit survives log directory compromise |
 
 **Gaps:**
@@ -474,10 +466,10 @@ Tier 3 creates a high-value attack target (the log itself becomes the most sensi
 | Tenet | Coverage | Key Strength | Primary Gap |
 |-------|----------|--------------|-------------|
 | 1 — Resources | Strong | Per-tool policy with side-effect classification | GAP-001: No resource registry |
-| 2 — Secure Comms | Strong | mTLS for HTTP, multi-layer binary attestation for STDIO, credential keychain, localhost binding | GAP-003: No TLS on local HTTP API |
+| 2 — Secure Comms | Strong | mTLS for HTTP, credential keychain, UDS permissions, localhost binding with DNS rebinding protection | GAP-003: No TLS on local HTTP API |
 | 3 — Per-Session | Strong | Session binding with identity-change shutdown | GAP-005: No scope narrowing within session |
-| 4 — Dynamic Policy | Strong | ABAC with 12 condition types, hot-reload | GAP-006: No behavioral attributes |
-| 5 — Asset Integrity | Moderate | Device health + audit integrity + background monitoring + multi-layer binary attestation | GAP-008: macOS-only device checks |
+| 4 — Dynamic Policy | Strong | ABAC with 12 condition types, side-effect classification, rate limiting, hot-reload | GAP-006: No behavioral attributes |
+| 5 — Asset Integrity | Moderate | Device health + binary attestation + audit integrity + background monitoring + protected config | GAP-008: macOS-only device checks |
 | 6 — Dynamic AuthZ | Strong | Per-request auth + policy eval, no caching | GAP-011: Discovery bypass |
 | 7 — Telemetry | Moderate | Structured OCSF-inspired logs, hash chain, provenance, auth/config history, emergency fallback | GAP-014: No feedback loop |
 
@@ -493,7 +485,7 @@ A proxy-layer architecture can achieve **strong coverage on 5 of 7 NIST ZTA tene
 
 The two tenets at moderate coverage — Asset Integrity (Tenet 5) and Telemetry (Tenet 7) — are constrained not by the proxy architecture itself but by scope boundaries. Device posture verification depends on OS-specific mechanisms and lacks cross-platform parity (GAP-008). External device posture signals require enterprise MDM/CDM/EDR infrastructure that a proxy cannot provide on its own (GAP-018). The observation-to-improvement feedback loop required by Tenet 7 demands behavioral analytics infrastructure beyond what a proxy-layer enforcement point is designed to deliver (GAP-014). These gaps indicate that a proxy-layer architecture is necessary but not sufficient for full ZTA compliance — it must be complemented by external enterprise infrastructure for asset posture and telemetry analysis.
 
-It is worth noting that the coverage ceiling of a proxy-layer architecture is higher than what any single implementation demonstrates. The mcp-acp implementation uses a pluggable policy engine interface (`PolicyEngineProtocol` in `pdp/engine.py`) that supports substitution with external engines such as Casbin or OPA. A more sophisticated policy engine could incorporate behavioral attributes (GAP-006), composite risk scoring (GAP-007), or time-bounded scope narrowing (GAP-005) — all within the same proxy architecture, without modifying the enforcement layer. The proxy's interception position and modular PIP/PDP/PEP separation provide the architectural foundation; the remaining moderate-coverage tenets are bounded by implementation maturity and external infrastructure availability, not by the proxy pattern itself.
+It is worth noting that the coverage ceiling of a proxy-layer architecture is higher than what any single implementation demonstrates. The mcp-acp implementation uses a pluggable policy engine interface (`PolicyEngineProtocol` in `pdp/protocol.py`) that supports substitution with external engines such as Casbin or OPA. A more sophisticated policy engine could incorporate behavioral attributes (GAP-006), composite risk scoring (GAP-007), or time-bounded scope narrowing (GAP-005) — all within the same proxy architecture, without modifying the enforcement layer. The proxy's interception position and modular PIP/PDP/PEP separation provide the architectural foundation; the remaining moderate-coverage tenets are bounded by implementation maturity and external infrastructure availability, not by the proxy pattern itself.
 
 ### Security improvements
 
@@ -524,7 +516,6 @@ Applying zero trust to agentic AI systems introduces trade-offs at two levels: t
 | Trade-off | Security cost | Operational benefit |
 |-----------|---------------|---------------------|
 | **Signing key caching** (GAP-013) | A revoked signing key remains valid for the JWKS cache TTL (e.g., 600 seconds). This window exists in any system that caches OIDC signing keys. | Avoids a network round-trip to the identity provider on every request, eliminating per-call latency and IdP availability dependency. |
-| **No within-session scope narrowing** (GAP-005) | All policy-allowed tools remain available for the full session duration with no automatic privilege decay. | Avoids session interruption. A more sophisticated policy engine could implement time-bounded or count-bounded access (see pluggability discussion above), but no current MCP implementation provides this. |
 
 **Implementation design choices in mcp-acp:**
 
@@ -532,7 +523,8 @@ The following trade-offs are not inherent to the proxy-layer ZTA approach but re
 
 | Trade-off | Security cost | Operational benefit |
 |-----------|---------------|---------------------|
-| **HITL approval caching** | Cached approvals skip the human dialog for a configurable TTL window; a compromised tool could be re-invoked without review during that period. Mitigated: policy is still re-evaluated on every request; high-risk categories (e.g., code execution) are excluded from caching; cache clears on policy reload. | Without caching, approval fatigue degrades the control — users approve reflexively when prompted repeatedly within a session. |
+| **No within-session scope narrowing** (GAP-005) | All policy-allowed tools remain available for the full session duration with no automatic privilege decay. | Avoids session interruption. A more sophisticated policy engine could implement time-bounded or count-bounded access (see pluggability discussion above), but this was not implemented in the current POC. |
+| **HITL approval caching** | Cached approvals skip the human dialog for a configurable TTL window; a compromised tool could be re-invoked without review during that period. Mitigated: policy is still re-evaluated on every request; all tools with side effects are excluded from caching by default, and code execution tools (`CODE_EXEC`) are hardcoded to never cache even if policy overrides the default; cache clears on policy reload. | Without caching, approval fatigue degrades the control — users approve reflexively when prompted repeatedly within a session. |
 | **Argument redaction in audit** (GAP-015) | Forensics cannot reconstruct what a tool was asked to do — only that it was called with a payload of a given size and hash. | Avoids logging PII, secrets, and proprietary code. The audit log does not become a high-value exfiltration target. A tiered logging approach (structural metadata without values) could narrow this gap. |
 | **Discovery bypass** (GAP-011) | Tool names and resource URIs are visible to all authenticated users regardless of authorization policy. | The current implementation allows discovery methods to bypass policy evaluation entirely. An alternative approach — evaluating policy on discovery and filtering results to show only authorized tools — is architecturally feasible but not yet implemented. |
 
