@@ -6,6 +6,22 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Format a validation error location path for display.
+ *
+ * Strips the leading "body" segment (FastAPI implementation detail)
+ * and uses bracket notation for numeric indices.
+ *
+ * Example: ["body", "rules", 0, "effect"] → "rules[0].effect"
+ */
+export function formatValidationLoc(loc: (string | number)[]): string {
+  const parts = loc[0] === 'body' ? loc.slice(1) : loc
+  return parts.reduce<string>((path, part) => {
+    if (typeof part === 'number') return `${path}[${part}]`
+    return path ? `${path}.${part}` : String(part)
+  }, '')
+}
+
+/**
  * Format ISO timestamp to readable time (HH:MM:SS).
  */
 export function formatTime(ts: string | undefined): string {

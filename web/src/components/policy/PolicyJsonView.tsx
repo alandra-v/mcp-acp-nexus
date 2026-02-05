@@ -19,16 +19,18 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
+import { cn, formatValidationLoc } from '@/lib/utils'
+import { ApiError } from '@/types/api'
 import type { PolicyResponse, PolicyFullUpdate, PolicyRuleCreate } from '@/types/api'
+import type { MutationOptions } from '@/hooks/usePolicy'
 
 interface PolicyJsonViewProps {
   /** Current policy */
   policy: PolicyResponse
   /** Callback to save full policy */
-  onSave: (policy: PolicyFullUpdate) => Promise<void>
+  onSave: (policy: PolicyFullUpdate, options?: MutationOptions) => Promise<void>
   /** Callback to add a single rule */
-  onAddRule: (rule: PolicyRuleCreate) => Promise<unknown>
+  onAddRule: (rule: PolicyRuleCreate, options?: MutationOptions) => Promise<unknown>
   /** Whether a mutation is in progress */
   mutating: boolean
 }
@@ -58,6 +60,25 @@ function policyToEditable(policy: PolicyResponse): PolicyFullUpdate {
   }
 }
 
+/** Extract a detailed error message from an API or unknown error */
+function getSaveErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.validationErrors?.length) {
+      return err.validationErrors
+        .map((ve) => {
+          const loc = formatValidationLoc(ve.loc)
+          return loc ? `${loc}: ${ve.msg}` : ve.msg
+        })
+        .join('; ')
+    }
+    return err.message
+  }
+  if (err instanceof Error) {
+    return err.message
+  }
+  return String(err)
+}
+
 /** Parse JSON and return error message if invalid */
 function parseJsonSafe<T>(text: string): { data: T | null; error: string | null } {
   try {
@@ -83,9 +104,11 @@ export function PolicyJsonView({
 
   const [jsonText, setJsonText] = useState(originalJson)
   const [parseError, setParseError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addJsonText, setAddJsonText] = useState('')
   const [addParseError, setAddParseError] = useState<string | null>(null)
+  const [addSaveError, setAddSaveError] = useState<string | null>(null)
 
   // Refs for syncing line numbers scroll
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -105,6 +128,7 @@ export function PolicyJsonView({
   useEffect(() => {
     setJsonText(originalJson)
     setParseError(null)
+    setSaveError(null)
   }, [originalJson])
 
   // Check if dirty
@@ -116,6 +140,7 @@ export function PolicyJsonView({
     setJsonText(text)
     const { error } = parseJsonSafe(text)
     setParseError(error)
+    setSaveError(null)
   }, [])
 
   // Handle save
@@ -126,19 +151,26 @@ export function PolicyJsonView({
       return
     }
 
-    await onSave(parsed)
+    try {
+      setSaveError(null)
+      await onSave(parsed, { silent: true })
+    } catch (err) {
+      setSaveError(getSaveErrorMessage(err))
+    }
   }, [jsonText, onSave])
 
   // Handle cancel/reset
   const handleDiscard = useCallback(() => {
     setJsonText(originalJson)
     setParseError(null)
+    setSaveError(null)
   }, [originalJson])
 
   // Open add dialog with template
   const handleAddClick = useCallback(() => {
     setAddJsonText(JSON.stringify(RULE_TEMPLATE, null, 2))
     setAddParseError(null)
+    setAddSaveError(null)
     setAddDialogOpen(true)
   }, [])
 
@@ -148,6 +180,7 @@ export function PolicyJsonView({
     setAddJsonText(text)
     const { error } = parseJsonSafe(text)
     setAddParseError(error)
+    setAddSaveError(null)
   }, [])
 
   // Handle add submit
@@ -155,8 +188,13 @@ export function PolicyJsonView({
     const { data: parsed } = parseJsonSafe<PolicyRuleCreate>(addJsonText)
     if (!parsed) return
 
-    await onAddRule(parsed)
-    setAddDialogOpen(false)
+    try {
+      setAddSaveError(null)
+      await onAddRule(parsed, { silent: true })
+      setAddDialogOpen(false)
+    } catch (err) {
+      setAddSaveError(getSaveErrorMessage(err))
+    }
   }, [addJsonText, onAddRule])
 
   return (
@@ -218,6 +256,17 @@ export function PolicyJsonView({
             <div className="text-sm text-destructive">
               <span className="font-medium">Invalid JSON: </span>
               <span>{parseError}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Server Validation Error */}
+        {saveError && !parseError && (
+          <div className="mt-2 bg-destructive/10 border border-destructive/30 rounded-md p-3 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-destructive">
+              <span className="font-medium">Validation error: </span>
+              <span>{saveError}</span>
             </div>
           </div>
         )}
@@ -286,7 +335,14 @@ export function PolicyJsonView({
             {addParseError && (
               <div className="mt-2 flex items-start gap-2 text-sm text-destructive">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>{addParseError}</span>
+                <span>Invalid JSON: {addParseError}</span>
+              </div>
+            )}
+
+            {addSaveError && !addParseError && (
+              <div className="mt-2 flex items-start gap-2 text-sm text-destructive">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>Validation error: {addSaveError}</span>
               </div>
             )}
           </div>

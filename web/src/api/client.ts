@@ -1,4 +1,5 @@
 import { ApiError, type ErrorDetail } from '@/types/api'
+import { formatValidationLoc } from '@/lib/utils'
 
 const API_BASE = '/api'
 
@@ -102,9 +103,14 @@ async function parseErrorResponse(res: Response): Promise<ApiError> {
       return new ApiError(res.status, res.statusText, json.detail)
     }
 
-    // Pydantic validation error format: {"detail": [{msg: "..."}]}
+    // Pydantic validation error format: {"detail": [{loc: [...], msg: "..."}]}
     if (Array.isArray(json.detail)) {
-      const messages = json.detail.map((e: { msg?: string }) => e.msg || JSON.stringify(e)).join(', ')
+      const messages = json.detail.map((e: { loc?: (string | number)[]; msg?: string }) => {
+        if (!e.msg) return JSON.stringify(e)
+        if (!Array.isArray(e.loc) || e.loc.length === 0) return e.msg
+        const loc = formatValidationLoc(e.loc)
+        return loc ? `${loc}: ${e.msg}` : e.msg
+      }).join('; ')
       return new ApiError(res.status, res.statusText, messages)
     }
 

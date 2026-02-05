@@ -22,6 +22,7 @@ import {
   updateProxyPolicy,
 } from '@/api/policy'
 import { notifyError } from '@/hooks/useErrorSound'
+import { formatValidationLoc } from '@/lib/utils'
 import type {
   PolicyResponse,
   PolicyRuleCreate,
@@ -29,6 +30,12 @@ import type {
   PolicyFullUpdate,
   ApiError,
 } from '@/types/api'
+
+/** Options for mutation functions */
+export interface MutationOptions {
+  /** When true, suppress error toast (caller handles display) */
+  silent?: boolean
+}
 
 /** Result interface for usePolicy hook */
 export interface UsePolicyResult {
@@ -41,13 +48,13 @@ export interface UsePolicyResult {
   /** Refresh policy from server */
   refresh: () => Promise<void>
   /** Add a new rule */
-  addRule: (rule: PolicyRuleCreate) => Promise<PolicyRuleResponse>
+  addRule: (rule: PolicyRuleCreate, options?: MutationOptions) => Promise<PolicyRuleResponse>
   /** Update an existing rule */
   updateRule: (id: string, rule: PolicyRuleCreate) => Promise<PolicyRuleResponse>
   /** Delete a rule */
   deleteRule: (id: string) => Promise<void>
   /** Update full policy (for JSON editor) */
-  updateFullPolicy: (policy: PolicyFullUpdate) => Promise<void>
+  updateFullPolicy: (policy: PolicyFullUpdate, options?: MutationOptions) => Promise<void>
   /** Whether a mutation is in progress */
   mutating: boolean
 }
@@ -75,7 +82,9 @@ function formatValidationErrors(detail: unknown): string {
     return detail
       .map((err) => {
         if (typeof err === 'object' && err !== null && 'msg' in err) {
-          const loc = Array.isArray(err.loc) ? err.loc.join('.') : ''
+          const loc = Array.isArray(err.loc)
+            ? formatValidationLoc(err.loc as (string | number)[])
+            : ''
           return loc ? `${loc}: ${err.msg}` : err.msg
         }
         return String(err)
@@ -179,7 +188,10 @@ export function usePolicy(options?: UsePolicyOptions): UsePolicyResult {
     }
   }, [fetchPolicy])
 
-  const handleAddRule = useCallback(async (rule: PolicyRuleCreate): Promise<PolicyRuleResponse> => {
+  const handleAddRule = useCallback(async (
+    rule: PolicyRuleCreate,
+    options?: MutationOptions
+  ): Promise<PolicyRuleResponse> => {
     setMutating(true)
     try {
       const result = proxyId
@@ -189,8 +201,10 @@ export function usePolicy(options?: UsePolicyOptions): UsePolicyResult {
       await fetchPolicy()
       return result.rule
     } catch (e) {
-      const message = getErrorMessage(e)
-      notifyError(`Failed to add rule: ${message}`)
+      if (!options?.silent) {
+        const message = getErrorMessage(e)
+        notifyError(`Failed to add rule: ${message}`)
+      }
       throw e
     } finally {
       setMutating(false)
@@ -237,7 +251,10 @@ export function usePolicy(options?: UsePolicyOptions): UsePolicyResult {
     }
   }, [proxyId, fetchPolicy])
 
-  const handleUpdateFullPolicy = useCallback(async (policyData: PolicyFullUpdate): Promise<void> => {
+  const handleUpdateFullPolicy = useCallback(async (
+    policyData: PolicyFullUpdate,
+    options?: MutationOptions
+  ): Promise<void> => {
     setMutating(true)
     try {
       const result = proxyId
@@ -246,8 +263,10 @@ export function usePolicy(options?: UsePolicyOptions): UsePolicyResult {
       // Success toast comes from SSE policy_reloaded event (if proxy running)
       setPolicy(result)
     } catch (e) {
-      const message = getErrorMessage(e)
-      notifyError(`Failed to save policy: ${message}`)
+      if (!options?.silent) {
+        const message = getErrorMessage(e)
+        notifyError(`Failed to save policy: ${message}`)
+      }
       throw e
     } finally {
       setMutating(false)
