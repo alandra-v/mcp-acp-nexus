@@ -3,12 +3,14 @@
  *
  * Uses /api/manager/proxies which returns all configured proxies
  * (not just running ones) with config + runtime data.
+ *
+ * Subscribes to Zustand store for SSE-driven updates instead of window events.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getManagerProxies } from '@/api/proxies'
 import { notifyError } from '@/hooks/useErrorSound'
-import { SSE_EVENTS } from '@/constants'
+import { useAppStore } from '@/store/appStore'
 import type { Proxy } from '@/types/api'
 
 export interface UseManagerProxiesResult {
@@ -24,6 +26,13 @@ export function useManagerProxies(): UseManagerProxiesResult {
   const [error, setError] = useState<Error | null>(null)
   const hasShownErrorRef = useRef(false)
   const mountedRef = useRef(true)
+
+  // Subscribe to store signal counters and stats
+  const proxyListVersion = useAppStore((s) => s.proxyListVersion)
+  const storeStats = useAppStore((s) => s.stats)
+
+  // Track mount-time version to skip initial effect run
+  const mountVersionRef = useRef(proxyListVersion)
 
   const fetchProxies = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -64,45 +73,35 @@ export function useManagerProxies(): UseManagerProxiesResult {
     }
   }, [fetchProxies])
 
-  // Listen for proxy_registered and proxy_disconnected SSE events to refetch
-  // Track controller to abort in-flight requests when new events arrive
+  // Refetch when proxyListVersion changes (skip mount-time value)
   const sseControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const handleProxyChange = () => {
-      // Abort any in-flight SSE-triggered fetch
-      sseControllerRef.current?.abort()
-      const controller = new AbortController()
-      sseControllerRef.current = controller
-      fetchProxies(controller.signal)
-    }
+    // Skip if this is the mount-time value
+    if (proxyListVersion === mountVersionRef.current) return
 
-    window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
-    window.addEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleProxyChange)
-    window.addEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyChange)
+    // Abort any in-flight SSE-triggered fetch
+    sseControllerRef.current?.abort()
+    const controller = new AbortController()
+    sseControllerRef.current = controller
+    fetchProxies(controller.signal)
+
     return () => {
-      // Abort any in-flight fetch on cleanup
-      sseControllerRef.current?.abort()
-      window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
-      window.removeEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleProxyChange)
-      window.removeEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyChange)
+      controller.abort()
     }
-  }, [fetchProxies])
+  }, [proxyListVersion, fetchProxies])
 
-  // Listen for stats_updated SSE events to update proxy stats in-place
+  // Update proxy stats from store (no refetch needed)
   useEffect(() => {
-    const handleStatsUpdated = (e: CustomEvent<{ proxy_id: string; stats: Proxy['stats'] }>) => {
-      const { proxy_id, stats } = e.detail
-      setProxies((prev) =>
-        prev.map((p) => (p.proxy_id === proxy_id ? { ...p, stats } : p))
-      )
-    }
-
-    window.addEventListener(SSE_EVENTS.STATS_UPDATED, handleStatsUpdated as EventListener)
-    return () => {
-      window.removeEventListener(SSE_EVENTS.STATS_UPDATED, handleStatsUpdated as EventListener)
-    }
-  }, [])
+    setProxies((prev) => {
+      // Skip no-op on mount when proxies haven't loaded yet
+      if (prev.length === 0) return prev
+      return prev.map((p) => {
+        const updated = storeStats[p.proxy_id]
+        return updated ? { ...p, stats: updated } : p
+      })
+    })
+  }, [storeStats])
 
   const refetch = useCallback(async () => {
     await fetchProxies()

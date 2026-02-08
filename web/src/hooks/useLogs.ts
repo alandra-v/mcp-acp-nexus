@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLogs, getProxyLogs, type LogType, type LogFilters } from '@/api/logs'
 import { toast } from '@/components/ui/sonner'
 import { notifyError } from '@/hooks/useErrorSound'
+import { useAppStore } from '@/store/appStore'
 import { ApiError, type LogEntry } from '@/types/api'
 
 /** Result interface for useLogs hook */
@@ -54,6 +55,12 @@ export function useLogs(
 
   // Serialize filters for dependency comparison
   const filtersKey = JSON.stringify(filters)
+
+  // Subscribe to store signal counter
+  const logEntriesVersion = useAppStore((s) => s.logEntriesVersion)
+
+  // Track mount-time version to skip initial effect run
+  const mountVersionRef = useRef(logEntriesVersion)
 
   const fetchLogs = useCallback(async (reset = false) => {
     if (!enabled) return
@@ -119,19 +126,13 @@ export function useLogs(
     fetchLogs(true)
   }, [type, filtersKey, fetchLogs, enabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Listen for SSE new-log-entries event to auto-refresh (only if enabled)
+  // Refetch when logEntriesVersion changes (skip mount-time value)
   useEffect(() => {
     if (!enabled) return
-
-    const handleNewLogEntries = () => {
-      cursorRef.current = undefined
-      fetchLogs(true)
-    }
-    window.addEventListener('new-log-entries', handleNewLogEntries)
-    return () => {
-      window.removeEventListener('new-log-entries', handleNewLogEntries)
-    }
-  }, [fetchLogs, enabled])
+    if (logEntriesVersion === mountVersionRef.current) return
+    cursorRef.current = undefined
+    fetchLogs(true)
+  }, [logEntriesVersion, fetchLogs, enabled])
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore && enabled) {

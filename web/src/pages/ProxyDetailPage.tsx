@@ -25,7 +25,8 @@ import { ApiError } from '@/types/api'
 import { notifyError } from '@/hooks/useErrorSound'
 import { toast } from '@/components/ui/sonner'
 import { DeleteProxyConfirmDialog } from '@/components/proxy/DeleteProxyConfirmDialog'
-import { COPY_FEEDBACK_DURATION_MS, SSE_EVENTS } from '@/constants'
+import { COPY_FEEDBACK_DURATION_MS } from '@/constants'
+import { useAppStore } from '@/store/appStore'
 import { cn } from '@/lib/utils'
 
 const VALID_SECTIONS: DetailSection[] = ['overview', 'audit', 'policy', 'config']
@@ -43,6 +44,14 @@ export function ProxyDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const deletingLocallyRef = useRef(false)
+
+  // Subscribe to store values
+  const proxyListVersion = useAppStore((s) => s.proxyListVersion)
+  const lastProxyDeleted = useAppStore((s) => s.lastProxyDeleted)
+
+  // Track mount-time versions to skip initial effect runs
+  const mountProxyListVersionRef = useRef(proxyListVersion)
+  const mountProxyDeletedRef = useRef(lastProxyDeleted)
 
   // Get section from URL or default to 'overview'
   const sectionParam = searchParams.get('section')
@@ -70,45 +79,48 @@ export function ProxyDetailPage() {
   }, [])
 
   // Fetch audit status for sidebar indicator
-  useEffect(() => {
+  const fetchAuditStatus = useCallback(async (signal?: AbortSignal) => {
     if (!proxyId) return
+    try {
+      const status = await verifyAuditLogs(proxyId, { signal })
+      const hasBroken = status.files.some((f) => f.status === 'broken')
+      setAuditHasIssues(hasBroken)
+    } catch (err) {
+      // Ignore aborted requests and other errors - indicator just won't show
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      // Non-critical: indicator won't show but page still works
+    }
+  }, [proxyId])
 
+  // Initial audit status fetch
+  useEffect(() => {
     const controller = new AbortController()
+    fetchAuditStatus(controller.signal)
+    return () => controller.abort()
+  }, [fetchAuditStatus])
 
-    const fetchAuditStatus = async () => {
-      try {
-        const status = await verifyAuditLogs(proxyId, { signal: controller.signal })
-        const hasBroken = status.files.some((f) => f.status === 'broken')
-        setAuditHasIssues(hasBroken)
-      } catch (err) {
-        // Ignore aborted requests and other errors - indicator just won't show
-        if (err instanceof DOMException && err.name === 'AbortError') return
-        // Non-critical: indicator won't show but page still works
-      }
-    }
+  // Refetch audit status when proxyListVersion changes (skip mount-time value)
+  useEffect(() => {
+    if (proxyListVersion === mountProxyListVersionRef.current) return
+    const controller = new AbortController()
+    fetchAuditStatus(controller.signal)
+    return () => controller.abort()
+  }, [proxyListVersion, fetchAuditStatus])
 
-    fetchAuditStatus()
+  // Navigate away if this proxy is deleted externally (CLI or another tab)
+  useEffect(() => {
+    // Skip if this is the mount-time value
+    if (lastProxyDeleted === mountProxyDeletedRef.current) return
+    // Skip if no proxy deleted
+    if (!lastProxyDeleted) return
+    // Skip if different proxy
+    if (lastProxyDeleted.proxy_id !== proxyId) return
+    // Skip if we're deleting locally (avoid double-navigate and toast)
+    if (deletingLocallyRef.current) return
 
-    // Refetch on proxy connect/disconnect
-    const handleProxyChange = () => fetchAuditStatus()
-    window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
-
-    // Navigate away if this proxy is deleted externally (CLI or another tab)
-    const handleProxyDeleted = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      if (detail?.proxy_id === proxyId && !deletingLocallyRef.current) {
-        toast.info(`Proxy '${detail.proxy_name || proxyId}' was deleted`)
-        navigate('/')
-      }
-    }
-    window.addEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyDeleted)
-
-    return () => {
-      controller.abort()
-      window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
-      window.removeEventListener(SSE_EVENTS.PROXY_DELETED, handleProxyDeleted)
-    }
-  }, [proxyId, navigate])
+    toast.info(`Proxy '${lastProxyDeleted.proxy_name || proxyId}' was deleted`)
+    navigate('/')
+  }, [lastProxyDeleted, proxyId, navigate])
 
   const handleCopyConfig = useCallback(async () => {
     const proxyName = managerProxy?.proxy_name

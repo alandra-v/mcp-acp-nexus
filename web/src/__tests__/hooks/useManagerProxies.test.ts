@@ -1,14 +1,14 @@
 /**
  * Unit tests for useManagerProxies hook.
  *
- * Tests proxy list fetching, SSE refresh, error handling, and abort on unmount.
+ * Tests proxy list fetching, store-driven refresh, error handling, and abort on unmount.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { useManagerProxies } from '@/hooks/useManagerProxies'
+import { useAppStore, getInitialState } from '@/store/appStore'
 import * as proxiesApi from '@/api/proxies'
-import { SSE_EVENTS } from '@/constants'
 import type { Proxy } from '@/types/api'
 
 // Mock the API module
@@ -64,6 +64,8 @@ describe('useManagerProxies', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset store to initial state
+    useAppStore.setState(getInitialState())
   })
 
   afterEach(() => {
@@ -134,8 +136,8 @@ describe('useManagerProxies', () => {
     })
   })
 
-  describe('SSE refresh', () => {
-    it('refetches on proxy_registered event', async () => {
+  describe('store-driven refresh', () => {
+    it('refetches when proxyListVersion increments', async () => {
       vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
 
       renderHook(() => useManagerProxies())
@@ -144,9 +146,9 @@ describe('useManagerProxies', () => {
         expect(proxiesApi.getManagerProxies).toHaveBeenCalledTimes(1)
       })
 
-      // Dispatch SSE event
+      // Increment proxyListVersion in store
       act(() => {
-        window.dispatchEvent(new Event(SSE_EVENTS.PROXY_REGISTERED))
+        useAppStore.setState((s) => ({ proxyListVersion: s.proxyListVersion + 1 }))
       })
 
       await waitFor(() => {
@@ -154,26 +156,7 @@ describe('useManagerProxies', () => {
       })
     })
 
-    it('refetches on proxy_disconnected event', async () => {
-      vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
-
-      renderHook(() => useManagerProxies())
-
-      await waitFor(() => {
-        expect(proxiesApi.getManagerProxies).toHaveBeenCalledTimes(1)
-      })
-
-      // Dispatch SSE event
-      act(() => {
-        window.dispatchEvent(new Event(SSE_EVENTS.PROXY_DISCONNECTED))
-      })
-
-      await waitFor(() => {
-        expect(proxiesApi.getManagerProxies).toHaveBeenCalledTimes(2)
-      })
-    })
-
-    it('updates proxy stats on stats_updated event', async () => {
+    it('updates proxy stats from store directly', async () => {
       vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
 
       const { result } = renderHook(() => useManagerProxies())
@@ -185,7 +168,7 @@ describe('useManagerProxies', () => {
       // Verify initial stats for proxy-123
       expect(result.current.proxies[0].stats?.requests_total).toBe(100)
 
-      // Dispatch stats_updated event for proxy-123
+      // Update stats in store
       const newStats = {
         requests_total: 150,
         requests_allowed: 140,
@@ -195,11 +178,9 @@ describe('useManagerProxies', () => {
       }
 
       act(() => {
-        window.dispatchEvent(
-          new CustomEvent(SSE_EVENTS.STATS_UPDATED, {
-            detail: { proxy_id: 'proxy-123', stats: newStats },
-          })
-        )
+        useAppStore.setState((s) => ({
+          stats: { ...s.stats, 'proxy-123': newStats },
+        }))
       })
 
       // Stats should be updated without refetch
@@ -214,7 +195,7 @@ describe('useManagerProxies', () => {
       expect(result.current.proxies[1].stats).toBeNull()
     })
 
-    it('ignores stats_updated for unknown proxy_id', async () => {
+    it('ignores stats for unknown proxy_id', async () => {
       vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
 
       const { result } = renderHook(() => useManagerProxies())
@@ -225,16 +206,20 @@ describe('useManagerProxies', () => {
 
       const originalStats = result.current.proxies[0].stats
 
-      // Dispatch stats_updated for unknown proxy
+      // Update stats for unknown proxy in store
       act(() => {
-        window.dispatchEvent(
-          new CustomEvent(SSE_EVENTS.STATS_UPDATED, {
-            detail: {
-              proxy_id: 'unknown-proxy',
-              stats: { requests_total: 999, requests_allowed: 999, requests_denied: 0, requests_hitl: 0, proxy_latency_ms: null },
+        useAppStore.setState((s) => ({
+          stats: {
+            ...s.stats,
+            'unknown-proxy': {
+              requests_total: 999,
+              requests_allowed: 999,
+              requests_denied: 0,
+              requests_hitl: 0,
+              proxy_latency_ms: null,
             },
-          })
-        )
+          },
+        }))
       })
 
       // Stats should remain unchanged
@@ -262,33 +247,6 @@ describe('useManagerProxies', () => {
 
       // Should not throw and should not update state after unmount
       await new Promise((resolve) => setTimeout(resolve, 150))
-    })
-
-    it('removes event listeners on unmount', async () => {
-      vi.mocked(proxiesApi.getManagerProxies).mockResolvedValue(mockProxies)
-
-      const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
-
-      const { unmount } = renderHook(() => useManagerProxies())
-
-      await waitFor(() => {
-        expect(proxiesApi.getManagerProxies).toHaveBeenCalled()
-      })
-
-      unmount()
-
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        SSE_EVENTS.PROXY_REGISTERED,
-        expect.any(Function)
-      )
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        SSE_EVENTS.PROXY_DISCONNECTED,
-        expect.any(Function)
-      )
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        SSE_EVENTS.STATS_UPDATED,
-        expect.any(Function)
-      )
     })
   })
 

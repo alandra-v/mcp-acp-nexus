@@ -1,12 +1,13 @@
 /**
  * Unit tests for useDeviceFlow hook.
  *
- * Tests device code flow login with SSE-based completion.
+ * Tests device code flow login with store-based completion.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useDeviceFlow } from '@/hooks/useDeviceFlow'
+import { useAppStore, getInitialState } from '@/store/appStore'
 import * as authApi from '@/api/auth'
 
 // Mock the API module
@@ -28,11 +29,6 @@ vi.mock('@/hooks/useErrorSound', () => ({
   notifyError: vi.fn(),
 }))
 
-/** Dispatch an auth-login-result CustomEvent. */
-function dispatchAuthResult(detail: { type: string; reason?: string; message?: string }) {
-  window.dispatchEvent(new CustomEvent('auth-login-result', { detail }))
-}
-
 describe('useDeviceFlow', () => {
   const mockDeviceFlowStart: authApi.DeviceFlowStart = {
     user_code: 'ABCD-1234',
@@ -47,6 +43,8 @@ describe('useDeviceFlow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     onSuccess = vi.fn()
+    // Reset store to initial state
+    useAppStore.setState(getInitialState())
   })
 
   afterEach(() => {
@@ -112,8 +110,8 @@ describe('useDeviceFlow', () => {
     })
   })
 
-  describe('SSE events', () => {
-    it('calls onSuccess when auth_login event received', async () => {
+  describe('store-driven auth result', () => {
+    it('calls onSuccess when auth_login result is set in store', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
@@ -124,15 +122,16 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.polling).toBe(true)
 
+      // Set auth login result in store
       act(() => {
-        dispatchAuthResult({ type: 'auth_login' })
+        useAppStore.setState({ lastAuthLoginResult: { type: 'auth_login' } })
       })
 
       expect(onSuccess).toHaveBeenCalled()
       expect(result.current.state.polling).toBe(false)
     })
 
-    it('handles expired status from SSE', async () => {
+    it('handles expired status from store', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
@@ -141,17 +140,19 @@ describe('useDeviceFlow', () => {
         await result.current.start()
       })
 
+      // Set auth login failed result in store
       act(() => {
-        dispatchAuthResult({ type: 'auth_login_failed', reason: 'expired', message: 'Code expired' })
+        useAppStore.setState({
+          lastAuthLoginResult: { type: 'auth_login_failed', reason: 'expired', message: 'Code expired' },
+        })
       })
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Code expired')
-      // Toast is shown by AppStateContext via showSystemToast, not by this hook
       expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('handles denied status from SSE', async () => {
+    it('handles denied status from store', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
@@ -161,7 +162,9 @@ describe('useDeviceFlow', () => {
       })
 
       act(() => {
-        dispatchAuthResult({ type: 'auth_login_failed', reason: 'denied', message: 'User denied' })
+        useAppStore.setState({
+          lastAuthLoginResult: { type: 'auth_login_failed', reason: 'denied', message: 'User denied' },
+        })
       })
 
       expect(result.current.state.polling).toBe(false)
@@ -169,7 +172,7 @@ describe('useDeviceFlow', () => {
       expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('handles error status from SSE', async () => {
+    it('handles error status from store', async () => {
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
 
       const { result } = renderHook(() => useDeviceFlow(onSuccess))
@@ -179,7 +182,9 @@ describe('useDeviceFlow', () => {
       })
 
       act(() => {
-        dispatchAuthResult({ type: 'auth_login_failed', reason: 'error', message: 'Server error' })
+        useAppStore.setState({
+          lastAuthLoginResult: { type: 'auth_login_failed', reason: 'error', message: 'Server error' },
+        })
       })
 
       expect(result.current.state.polling).toBe(false)
@@ -187,12 +192,12 @@ describe('useDeviceFlow', () => {
       expect(onSuccess).not.toHaveBeenCalled()
     })
 
-    it('ignores SSE events when flow is not active', () => {
+    it('ignores store updates when flow is not active', () => {
       renderHook(() => useDeviceFlow(onSuccess))
 
-      // Dispatch without starting flow
+      // Set result without starting flow
       act(() => {
-        dispatchAuthResult({ type: 'auth_login' })
+        useAppStore.setState({ lastAuthLoginResult: { type: 'auth_login' } })
       })
 
       expect(onSuccess).not.toHaveBeenCalled()
@@ -220,35 +225,12 @@ describe('useDeviceFlow', () => {
       expect(result.current.state.userCode).toBeUndefined()
       expect(result.current.state.verificationUri).toBeUndefined()
 
-      // SSE events should be ignored after reset
+      // Store updates should be ignored after reset
       act(() => {
-        dispatchAuthResult({ type: 'auth_login' })
+        useAppStore.setState({ lastAuthLoginResult: { type: 'auth_login' } })
       })
 
       expect(onSuccess).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('cleanup', () => {
-    it('removes event listener on unmount', async () => {
-      vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
-
-      const { result, unmount } = renderHook(() => useDeviceFlow(onSuccess))
-
-      await act(async () => {
-        await result.current.start()
-      })
-
-      unmount()
-
-      // SSE events after unmount should not trigger callbacks
-      act(() => {
-        dispatchAuthResult({ type: 'auth_login' })
-      })
-
-      // onSuccess should not be called since activeRef was set by start
-      // but the listener was removed on unmount — no way to receive events
-      // The key assertion is that no errors are thrown
     })
   })
 

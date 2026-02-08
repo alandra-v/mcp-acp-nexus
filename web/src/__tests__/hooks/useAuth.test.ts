@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { useAuth } from '@/hooks/useAuth'
+import { useAppStore, getInitialState } from '@/store/appStore'
 import * as authApi from '@/api/auth'
 
 // Mock the API module
@@ -48,6 +49,8 @@ describe('useAuth', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset store to initial state
+    useAppStore.setState(getInitialState())
   })
 
   afterEach(() => {
@@ -292,8 +295,8 @@ describe('useAuth', () => {
     })
   })
 
-  describe('event listener', () => {
-    it('refreshes on auth-state-changed event', async () => {
+  describe('store-driven refresh', () => {
+    it('refreshes when authVersion increments', async () => {
       vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
 
       renderHook(() => useAuth())
@@ -302,30 +305,14 @@ describe('useAuth', () => {
         expect(authApi.getAuthStatus).toHaveBeenCalledTimes(1)
       })
 
-      // Dispatch auth state change event
+      // Increment authVersion in store
       act(() => {
-        window.dispatchEvent(new Event('auth-state-changed'))
+        useAppStore.setState((s) => ({ authVersion: s.authVersion + 1 }))
       })
 
       await waitFor(() => {
         expect(authApi.getAuthStatus).toHaveBeenCalledTimes(2)
       })
-    })
-
-    it('removes event listener on unmount', async () => {
-      vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
-
-      const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
-
-      const { unmount } = renderHook(() => useAuth())
-
-      await waitFor(() => {
-        expect(authApi.getAuthStatus).toHaveBeenCalled()
-      })
-
-      unmount()
-
-      expect(removeEventListenerSpy).toHaveBeenCalledWith('auth-state-changed', expect.any(Function))
     })
   })
 

@@ -1,14 +1,14 @@
 /**
  * Unit tests for useProxyDetail hook.
  *
- * Tests proxy detail fetching, SSE refresh, and abort on unmount.
+ * Tests proxy detail fetching, store-driven refresh, and abort on unmount.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { useProxyDetail } from '@/hooks/useProxyDetail'
+import { useAppStore, getInitialState } from '@/store/appStore'
 import * as proxiesApi from '@/api/proxies'
-import { SSE_EVENTS } from '@/constants'
 import type { ProxyDetailResponse } from '@/types/api'
 
 // Mock the API module
@@ -50,6 +50,8 @@ describe('useProxyDetail', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset store to initial state
+    useAppStore.setState(getInitialState())
   })
 
   afterEach(() => {
@@ -112,8 +114,8 @@ describe('useProxyDetail', () => {
     })
   })
 
-  describe('SSE refresh', () => {
-    it('refetches on proxy_registered event', async () => {
+  describe('store-driven refresh', () => {
+    it('refetches when proxyListVersion increments', async () => {
       vi.mocked(proxiesApi.getProxyDetail).mockResolvedValue(mockProxyDetail)
 
       renderHook(() => useProxyDetail('proxy-123'))
@@ -122,28 +124,9 @@ describe('useProxyDetail', () => {
         expect(proxiesApi.getProxyDetail).toHaveBeenCalledTimes(1)
       })
 
-      // Dispatch SSE event
+      // Increment proxyListVersion in store
       act(() => {
-        window.dispatchEvent(new Event(SSE_EVENTS.PROXY_REGISTERED))
-      })
-
-      await waitFor(() => {
-        expect(proxiesApi.getProxyDetail).toHaveBeenCalledTimes(2)
-      })
-    })
-
-    it('refetches on proxy_disconnected event', async () => {
-      vi.mocked(proxiesApi.getProxyDetail).mockResolvedValue(mockProxyDetail)
-
-      renderHook(() => useProxyDetail('proxy-123'))
-
-      await waitFor(() => {
-        expect(proxiesApi.getProxyDetail).toHaveBeenCalledTimes(1)
-      })
-
-      // Dispatch SSE event
-      act(() => {
-        window.dispatchEvent(new Event(SSE_EVENTS.PROXY_DISCONNECTED))
+        useAppStore.setState((s) => ({ proxyListVersion: s.proxyListVersion + 1 }))
       })
 
       await waitFor(() => {
@@ -172,29 +155,6 @@ describe('useProxyDetail', () => {
 
       // Should not throw and should not update state after unmount
       await new Promise((resolve) => setTimeout(resolve, 150))
-    })
-
-    it('removes event listeners on unmount', async () => {
-      vi.mocked(proxiesApi.getProxyDetail).mockResolvedValue(mockProxyDetail)
-
-      const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
-
-      const { unmount } = renderHook(() => useProxyDetail('proxy-123'))
-
-      await waitFor(() => {
-        expect(proxiesApi.getProxyDetail).toHaveBeenCalled()
-      })
-
-      unmount()
-
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        SSE_EVENTS.PROXY_REGISTERED,
-        expect.any(Function)
-      )
-      expect(removeEventListenerSpy).toHaveBeenCalledWith(
-        SSE_EVENTS.PROXY_DISCONNECTED,
-        expect.any(Function)
-      )
     })
   })
 

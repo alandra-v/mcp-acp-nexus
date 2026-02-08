@@ -3,11 +3,13 @@
  *
  * Uses /api/manager/proxies/{proxy_id} which returns config + runtime data
  * including pending and cached approvals.
+ *
+ * Subscribes to Zustand store for SSE-driven updates instead of window events.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getProxyDetail } from '@/api/proxies'
-import { SSE_EVENTS } from '@/constants'
+import { useAppStore } from '@/store/appStore'
 import type { ProxyDetailResponse } from '@/types/api'
 
 export interface UseProxyDetailResult {
@@ -22,6 +24,12 @@ export function useProxyDetail(proxyId: string | undefined): UseProxyDetailResul
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
+
+  // Subscribe to store signal counter
+  const proxyListVersion = useAppStore((s) => s.proxyListVersion)
+
+  // Track mount-time version to skip initial effect run
+  const mountVersionRef = useRef(proxyListVersion)
 
   const fetchProxy = useCallback(async (signal?: AbortSignal) => {
     if (!proxyId) {
@@ -49,23 +57,20 @@ export function useProxyDetail(proxyId: string | undefined): UseProxyDetailResul
     return () => controller.abort()
   }, [fetchProxy])
 
-  // SSE event listeners for auto-refresh
+  // Refetch when proxyListVersion changes (skip mount-time value)
   useEffect(() => {
-    const handleRefresh = () => {
-      controllerRef.current?.abort()
-      const controller = new AbortController()
-      controllerRef.current = controller
-      fetchProxy(controller.signal)
-    }
+    // Skip if this is the mount-time value
+    if (proxyListVersion === mountVersionRef.current) return
 
-    window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleRefresh)
-    window.addEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleRefresh)
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    fetchProxy(controller.signal)
+
     return () => {
-      controllerRef.current?.abort()
-      window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleRefresh)
-      window.removeEventListener(SSE_EVENTS.PROXY_DISCONNECTED, handleRefresh)
+      controller.abort()
     }
-  }, [fetchProxy])
+  }, [proxyListVersion, fetchProxy])
 
   const refetch = useCallback(async () => {
     await fetchProxy()

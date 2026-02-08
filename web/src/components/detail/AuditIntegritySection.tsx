@@ -2,7 +2,7 @@
  * Audit integrity section showing hash chain status and verification controls.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Shield, ShieldCheck, ShieldAlert, RefreshCw, Wrench, Archive } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -23,7 +23,7 @@ import {
 import { toast } from '@/components/ui/sonner'
 import { notifyError } from '@/hooks/useErrorSound'
 import { cn } from '@/lib/utils'
-import { SSE_EVENTS } from '@/constants'
+import { useAppStore } from '@/store/appStore'
 
 interface AuditIntegritySectionProps {
   proxyId?: string
@@ -198,13 +198,12 @@ export function AuditIntegritySection({ proxyId, onBrokenStatusChange }: AuditIn
   }, [fetchStatus])
 
   // Refresh status when proxy connects or disconnects
+  const proxyListVersion = useAppStore((s) => s.proxyListVersion)
+  const mountVersionRef = useRef(proxyListVersion)
   useEffect(() => {
-    const handleProxyChange = () => fetchStatus()
-    window.addEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
-    return () => {
-      window.removeEventListener(SSE_EVENTS.PROXY_REGISTERED, handleProxyChange)
-    }
-  }, [fetchStatus])
+    if (proxyListVersion === mountVersionRef.current) return
+    fetchStatus()
+  }, [proxyListVersion, fetchStatus])
 
   const handleVerify = useCallback(async () => {
     if (!proxyId) return

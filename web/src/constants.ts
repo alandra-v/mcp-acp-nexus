@@ -14,17 +14,6 @@ export const DEFAULT_INCIDENT_LIMIT = 100
 /** Default limit for paginated log queries */
 export const DEFAULT_LOG_LIMIT = 50
 
-/** SSE event names dispatched via window for cross-component communication */
-export const SSE_EVENTS = {
-  PROXY_REGISTERED: 'proxy-registered',
-  PROXY_DISCONNECTED: 'proxy-disconnected',
-  PROXY_DELETED: 'proxy-deleted',
-  AUTH_STATE_CHANGED: 'auth-state-changed',
-  STATS_UPDATED: 'stats-updated',
-  INCIDENTS_UPDATED: 'incidents-updated',
-  INCIDENTS_MARKED_READ: 'incidents-marked-read',
-} as const
-
 /** localStorage keys for incidents tracking */
 export const INCIDENTS_STORAGE_KEYS = {
   LAST_SEEN_TIMESTAMP: 'mcp-acp-incidents-last-seen-timestamp',

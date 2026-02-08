@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   getAuthStatus,
   logout as apiLogout,
@@ -6,6 +6,7 @@ import {
   type AuthStatus,
 } from '@/api/auth'
 import { notifyError } from '@/hooks/useErrorSound'
+import { useAppStore } from '@/store/appStore'
 
 interface UseAuthReturn {
   status: AuthStatus | null
@@ -23,6 +24,12 @@ export function useAuth(): UseAuthReturn {
   const [loading, setLoading] = useState(true)
   const [loggingOut, setLoggingOut] = useState(false)
   const [popupBlockedUrl, setPopupBlockedUrl] = useState<string | null>(null)
+
+  // Subscribe to store signal counter
+  const authVersion = useAppStore((s) => s.authVersion)
+
+  // Track mount-time version to skip initial effect run
+  const mountVersionRef = useRef(authVersion)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -50,20 +57,16 @@ export function useAuth(): UseAuthReturn {
     }
   }, [])
 
+  // Initial fetch
   useEffect(() => {
     fetchStatus()
   }, [fetchStatus])
 
-  // Listen for SSE auth state changes (auth_login, auth_logout, token_refresh_failed)
+  // Refetch when authVersion changes (skip mount-time value)
   useEffect(() => {
-    const handleAuthChange = () => {
-      fetchStatus()
-    }
-    window.addEventListener('auth-state-changed', handleAuthChange)
-    return () => {
-      window.removeEventListener('auth-state-changed', handleAuthChange)
-    }
-  }, [fetchStatus])
+    if (authVersion === mountVersionRef.current) return
+    fetchStatus()
+  }, [authVersion, fetchStatus])
 
   const logout = useCallback(async () => {
     try {

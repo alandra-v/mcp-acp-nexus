@@ -3,16 +3,16 @@
  *
  * Tests loading state, proxy not found, connecting state, header rendering,
  * tab routing via search params, delete button state, copy config, and
- * SSE proxy_deleted navigation.
+ * store-driven proxy_deleted navigation.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { ProxyDetailPage } from '@/pages/ProxyDetailPage'
+import { useAppStore, getInitialState } from '@/store/appStore'
 import * as proxiesApi from '@/api/proxies'
-import { SSE_EVENTS } from '@/constants'
 import type { Proxy, ProxyDetailResponse } from '@/types/api'
 
 // Track navigate calls
@@ -220,6 +220,8 @@ describe('ProxyDetailPage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Reset store to initial state
+    useAppStore.setState(getInitialState())
 
     // Re-establish mock return values after clearAllMocks
     mockUseAppState.mockReturnValue({
@@ -488,8 +490,8 @@ describe('ProxyDetailPage', () => {
     })
   })
 
-  describe('SSE proxy_deleted redirect', () => {
-    it('navigates to / when proxy-deleted event fires for this proxy', () => {
+  describe('store-driven proxy_deleted redirect', () => {
+    it('navigates to / when lastProxyDeleted is set for this proxy', () => {
       mockUseManagerProxies.mockReturnValue({
         proxies: [mockRunningProxy],
         loading: false,
@@ -505,17 +507,21 @@ describe('ProxyDetailPage', () => {
 
       renderPage('proxy-123')
 
-      // Dispatch proxy-deleted event for this proxy
-      window.dispatchEvent(
-        new CustomEvent(SSE_EVENTS.PROXY_DELETED, {
-          detail: { proxy_id: 'proxy-123', proxy_name: 'test-proxy-1' },
+      // Set lastProxyDeleted in store
+      act(() => {
+        useAppStore.setState({
+          lastProxyDeleted: {
+            type: 'proxy_deleted',
+            proxy_id: 'proxy-123',
+            proxy_name: 'test-proxy-1',
+          },
         })
-      )
+      })
 
       expect(mockNavigate).toHaveBeenCalledWith('/')
     })
 
-    it('does not navigate when proxy-deleted event is for a different proxy', () => {
+    it('does not navigate when lastProxyDeleted is for a different proxy', () => {
       mockUseManagerProxies.mockReturnValue({
         proxies: [mockRunningProxy],
         loading: false,
@@ -531,12 +537,16 @@ describe('ProxyDetailPage', () => {
 
       renderPage('proxy-123')
 
-      // Dispatch proxy-deleted event for a different proxy
-      window.dispatchEvent(
-        new CustomEvent(SSE_EVENTS.PROXY_DELETED, {
-          detail: { proxy_id: 'proxy-999', proxy_name: 'other-proxy' },
+      // Set lastProxyDeleted for a different proxy
+      act(() => {
+        useAppStore.setState({
+          lastProxyDeleted: {
+            type: 'proxy_deleted',
+            proxy_id: 'proxy-999',
+            proxy_name: 'other-proxy',
+          },
         })
-      )
+      })
 
       expect(mockNavigate).not.toHaveBeenCalled()
     })

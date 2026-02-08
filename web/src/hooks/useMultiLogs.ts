@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getLogs, getProxyLogs, type LogType, type LogFilters } from '@/api/logs'
 import { notifyError } from '@/hooks/useErrorSound'
+import { useAppStore } from '@/store/appStore'
 import type { LogEntry } from '@/types/api'
 
 /** Result interface for useMultiLogs hook */
@@ -52,6 +53,12 @@ export function useMultiLogs(
   // Serialize for dependency comparison
   const typesKey = JSON.stringify(types)
   const filtersKey = JSON.stringify(filters)
+
+  // Subscribe to store signal counter
+  const logEntriesVersion = useAppStore((s) => s.logEntriesVersion)
+
+  // Track mount-time version to skip initial effect run
+  const mountVersionRef = useRef(logEntriesVersion)
 
   // Merged and sorted logs
   const logs = useMemo(() => {
@@ -146,17 +153,12 @@ export function useMultiLogs(
     fetchLogs(true)
   }, [typesKey, filtersKey, fetchLogs])
 
-  // Listen for SSE new-log-entries event
+  // Refetch when logEntriesVersion changes (skip mount-time value)
   useEffect(() => {
-    const handleNewLogEntries = () => {
-      cursorsRef.current = {}
-      fetchLogs(true)
-    }
-    window.addEventListener('new-log-entries', handleNewLogEntries)
-    return () => {
-      window.removeEventListener('new-log-entries', handleNewLogEntries)
-    }
-  }, [fetchLogs])
+    if (logEntriesVersion === mountVersionRef.current) return
+    cursorsRef.current = {}
+    fetchLogs(true)
+  }, [logEntriesVersion, fetchLogs])
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore) {
