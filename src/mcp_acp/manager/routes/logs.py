@@ -18,6 +18,7 @@ from mcp_acp.api.schemas.logs import (
 from mcp_acp.manager.config import get_proxy_log_dir, load_manager_config
 from mcp_acp.utils.api import (
     LOG_PATHS,
+    TimeRange,
     build_filters_applied,
     extract_versions,
     get_cutoff_time,
@@ -47,7 +48,7 @@ LOG_FOLDER_STRUCTURE: dict[str, list[str]] = {
 def _build_proxy_logs_response(
     proxy_name: str,
     log_type: str,
-    time_range: str,
+    time_range: TimeRange,
     limit: int,
     before: str | None,
     filters_applied: dict[str, Any],
@@ -106,7 +107,7 @@ def _build_proxy_logs_response(
 )
 async def get_proxy_decision_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     session_id: str | None = Query(default=None, description="Filter by MCP session ID"),
@@ -177,7 +178,7 @@ async def get_proxy_decision_logs(
 )
 async def get_proxy_operation_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     session_id: str | None = Query(default=None, description="Filter by MCP session ID"),
@@ -233,7 +234,7 @@ async def get_proxy_operation_logs(
 )
 async def get_proxy_auth_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     session_id: str | None = Query(default=None, description="Filter by MCP session ID"),
@@ -295,7 +296,7 @@ async def get_proxy_auth_logs(
 )
 async def get_proxy_system_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     session_id: str | None = Query(default=None, description="Filter by MCP session ID"),
@@ -362,7 +363,7 @@ async def get_proxy_system_logs(
 )
 async def get_proxy_config_history_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     config_version: str | None = Query(default=None, description="Filter by config version"),
@@ -416,7 +417,7 @@ async def get_proxy_config_history_logs(
 )
 async def get_proxy_policy_history_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     policy_version: str | None = Query(default=None, description="Filter by policy version"),
@@ -470,7 +471,7 @@ async def get_proxy_policy_history_logs(
 )
 async def get_proxy_client_wire_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     session_id: str | None = Query(default=None, description="Filter by MCP session ID"),
@@ -542,7 +543,7 @@ async def get_proxy_client_wire_logs(
 )
 async def get_proxy_backend_wire_logs(
     proxy_id: str,
-    time_range: str = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
+    time_range: TimeRange = Query(default="5m", description="Time range: 5m, 1h, 24h, all"),
     limit: int = Query(default=50, ge=1, le=1000, description="Max entries to return"),
     before: str | None = Query(default=None, description="Pagination cursor (ISO timestamp)"),
     session_id: str | None = Query(default=None, description="Filter by MCP session ID"),

@@ -42,6 +42,7 @@ from mcp_acp.utils.api import (
     LOG_PATHS,
     BeforeQuery,
     LimitQuery,
+    TimeRange,
     build_filters_applied,
     extract_versions,
     get_cutoff_time,
@@ -80,7 +81,7 @@ ConfigVersionQuery = Query(default=None, description="Filter by config version")
 def _fetch_logs(
     config: AppConfig,
     log_key: str,
-    time_range: str,
+    time_range: TimeRange,
     limit: int,
     before: str | None,
     filters_applied: dict[str, Any],
@@ -151,7 +152,7 @@ def _fetch_logs(
 @router.get("/decisions", response_model=LogsResponse)
 async def get_decision_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     session_id: str | None = SessionIdQuery,
@@ -201,7 +202,7 @@ async def get_decision_logs(
 @router.get("/operations", response_model=LogsResponse)
 async def get_operation_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     session_id: str | None = SessionIdQuery,
@@ -233,7 +234,7 @@ async def get_operation_logs(
 @router.get("/auth", response_model=LogsResponse)
 async def get_auth_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     session_id: str | None = SessionIdQuery,
@@ -278,7 +279,7 @@ async def get_auth_logs(
 @router.get("/system", response_model=LogsResponse)
 async def get_system_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     session_id: str | None = SessionIdQuery,
@@ -325,7 +326,7 @@ async def get_system_logs(
 @router.get("/config_history", response_model=LogsResponse)
 async def get_config_history_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     config_version: str | None = ConfigVersionQuery,
@@ -359,7 +360,7 @@ async def get_config_history_logs(
 @router.get("/policy_history", response_model=LogsResponse)
 async def get_policy_history_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     policy_version: str | None = PolicyVersionQuery,
@@ -398,7 +399,7 @@ async def get_policy_history_logs(
 @router.get("/client_wire", response_model=LogsResponse)
 async def get_client_wire_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     session_id: str | None = SessionIdQuery,
@@ -438,7 +439,7 @@ async def get_client_wire_logs(
 @router.get("/backend_wire", response_model=LogsResponse)
 async def get_backend_wire_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
     session_id: str | None = SessionIdQuery,

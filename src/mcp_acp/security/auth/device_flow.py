@@ -25,7 +25,7 @@ __all__ = [
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import httpx
 
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from mcp_acp.config import OIDCConfig
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DeviceCodeResponse:
     """Response from device authorization request.
 
@@ -67,7 +67,7 @@ class DeviceCodeResponse:
     interval: int
 
     @classmethod
-    def from_response(cls, data: dict) -> "DeviceCodeResponse":
+    def from_response(cls, data: dict[str, Any]) -> "DeviceCodeResponse":
         """Parse from Auth0 response."""
         return cls(
             device_code=data["device_code"],
@@ -79,7 +79,7 @@ class DeviceCodeResponse:
         )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DeviceFlowResult:
     """Result of successful device flow authentication.
 
@@ -92,7 +92,7 @@ class DeviceFlowResult:
     user_code: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PollOnceResult:
     """Result of a single poll attempt.
 
@@ -266,7 +266,7 @@ class DeviceFlow:
             f"Authentication timed out after {timeout} seconds. " "Please run 'auth login' again."
         )
 
-    def _parse_token_response(self, data: dict) -> StoredToken:
+    def _parse_token_response(self, data: dict[str, Any]) -> StoredToken:
         """Parse token response from Auth0.
 
         Args:

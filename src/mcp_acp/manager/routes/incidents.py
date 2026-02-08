@@ -35,6 +35,7 @@ from mcp_acp.manager.config import (
 from mcp_acp.manager.models import AggregatedIncidentsResponse, IncidentType
 from mcp_acp.security.integrity.emergency_audit import get_emergency_audit_path
 from mcp_acp.utils.api import (
+    TimeRange,
     count_entries_and_latest,
     get_cutoff_time,
     parse_timestamp,
@@ -105,7 +106,7 @@ def _fetch_incidents(
 async def get_aggregated_incidents(
     proxy: str | None = None,
     incident_type: IncidentType | None = None,
-    time_range: str = "all",
+    time_range: TimeRange = "all",
     limit: int = 100,
     before: str | None = None,
 ) -> AggregatedIncidentsResponse:

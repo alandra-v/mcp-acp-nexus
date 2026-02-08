@@ -19,7 +19,6 @@ from __future__ import annotations
 
 __all__ = ["router"]
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter
@@ -29,6 +28,7 @@ from mcp_acp.api.schemas import IncidentsSummary, LogsResponse
 from mcp_acp.utils.api import (
     BeforeQuery,
     LimitQuery,
+    TimeRange,
     count_entries_and_latest,
     get_cutoff_time,
     get_log_base_path,
@@ -80,7 +80,7 @@ TimeRangeQuery = time_range_query(default="all")
 
 def _fetch_incident_logs(
     log_path: Path,
-    time_range: str,
+    time_range: TimeRange,
     limit: int,
     before: str | None,
 ) -> LogsResponse:
@@ -126,7 +126,7 @@ def _fetch_incident_logs(
 @router.get("/shutdowns", response_model=LogsResponse)
 async def get_shutdowns(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
 ) -> LogsResponse:
@@ -148,7 +148,7 @@ async def get_shutdowns(
 @router.get("/bootstrap", response_model=LogsResponse)
 async def get_bootstrap_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
 ) -> LogsResponse:
@@ -168,7 +168,7 @@ async def get_bootstrap_logs(
 @router.get("/emergency", response_model=LogsResponse)
 async def get_emergency_logs(
     config: ConfigDep,
-    time_range: str = TimeRangeQuery,
+    time_range: TimeRange = TimeRangeQuery,
     limit: int = LimitQuery,
     before: str | None = BeforeQuery,
 ) -> LogsResponse:

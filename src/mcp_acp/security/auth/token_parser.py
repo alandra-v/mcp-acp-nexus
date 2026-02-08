@@ -9,11 +9,12 @@ from __future__ import annotations
 __all__ = ["parse_token_response"]
 
 from datetime import datetime, timezone
+from typing import Any
 
 from mcp_acp.security.auth.token_storage import StoredToken
 
 
-def parse_token_response(data: dict) -> StoredToken:
+def parse_token_response(data: dict[str, Any]) -> StoredToken:
     """Parse OAuth token response into StoredToken.
 
     Handles standard OAuth 2.0 token response fields:

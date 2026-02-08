@@ -10,7 +10,7 @@ Usage:
     async def get_logs(
         limit: int = LimitQuery,
         before: str | None = BeforeQuery,
-        time_range: str = time_range_query(default="5m"),
+        time_range: TimeRange = time_range_query(default="5m"),
     ) -> LogsResponse:
         ...
 """
@@ -20,10 +20,14 @@ from __future__ import annotations
 __all__ = [
     "BeforeQuery",
     "LimitQuery",
+    "TimeRange",
     "time_range_query",
 ]
 
-from typing import Any
+from typing import Any, Literal
+
+# Type alias for time_range parameter values
+TimeRange = Literal["5m", "1h", "24h", "all"]
 
 from fastapi import Query
 
@@ -65,10 +69,10 @@ def time_range_query(default: str = "5m") -> Any:
 
     Example:
         # For logs (default to recent):
-        time_range: str = time_range_query(default="5m")
+        time_range: TimeRange = time_range_query(default="5m")
 
         # For incidents (default to all):
-        time_range: str = time_range_query(default="all")
+        time_range: TimeRange = time_range_query(default="all")
     """
     return Query(
         default=default,

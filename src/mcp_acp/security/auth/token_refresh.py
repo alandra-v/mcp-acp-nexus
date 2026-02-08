@@ -16,7 +16,7 @@ __all__ = [
     "refresh_tokens",
 ]
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -93,7 +93,7 @@ def refresh_tokens(
             client.close()
 
 
-def _parse_token_response(data: dict) -> StoredToken:
+def _parse_token_response(data: dict[str, Any]) -> StoredToken:
     """Parse token response from Auth0.
 
     Args:

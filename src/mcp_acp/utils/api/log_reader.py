@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mcp_acp.utils.api.query_params import TimeRange
+
 from mcp_acp.constants import APP_NAME
 
 if TYPE_CHECKING:
@@ -94,7 +96,7 @@ def parse_timestamp(ts: str | None) -> datetime | None:
         return None
 
 
-def get_cutoff_time(time_range: str | None) -> datetime | None:
+def get_cutoff_time(time_range: TimeRange | None) -> datetime | None:
     """Get cutoff datetime for time range filter.
 
     Args:
@@ -439,7 +441,7 @@ def extract_versions(path: Path, version_field: str) -> list[str]:
 
 
 def build_filters_applied(
-    time_range: str | None = None,
+    time_range: TimeRange | None = None,
     session_id: str | None = None,
     bound_session_id: str | None = None,
     request_id: str | None = None,

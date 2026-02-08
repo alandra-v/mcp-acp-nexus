@@ -19,6 +19,7 @@ from mcp_acp.utils.config import LOG_PATHS
 from mcp_acp.utils.api.query_params import (
     BeforeQuery,
     LimitQuery,
+    TimeRange,
     time_range_query,
 )
 
@@ -37,5 +38,6 @@ __all__ = [
     # query_params.py
     "BeforeQuery",
     "LimitQuery",
+    "TimeRange",
     "time_range_query",
 ]
