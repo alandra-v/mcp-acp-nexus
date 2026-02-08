@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from fastmcp.server.middleware.middleware import MiddlewareContext
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ClientInfo:
     """Client metadata extracted from initialize request.
 

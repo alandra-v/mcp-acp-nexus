@@ -41,7 +41,7 @@ INITIAL_SEQUENCE = 1
 _READ_CHUNK_SIZE = 4096  # Bytes to read at a time when reading from end of file
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class FileIntegrityState:
     """State for a single log file's hash chain.
 
@@ -60,7 +60,7 @@ class FileIntegrityState:
     last_size: int
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class VerificationResult:
     """Result of integrity verification.
 

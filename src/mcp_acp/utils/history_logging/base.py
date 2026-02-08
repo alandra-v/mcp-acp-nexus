@@ -85,7 +85,7 @@ def configure_history_logging_hash_chain(
     _history_log_dir = log_dir
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class HistoryLoggerConfig:
     """Configuration for a history logger.
 

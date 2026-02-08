@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from mcp_acp.telemetry.models.audit import SubjectIdentity
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class BoundSession:
     """Session bound to authenticated user.
 

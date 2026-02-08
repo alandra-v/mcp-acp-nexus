@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from mcp_acp.telemetry.audit.auth_logger import AuthLogger
 
 
-@dataclass
+@dataclass(slots=True)
 class _CachedIdentity:
     """Holds the last validated identity for get_validated_token() access."""
 

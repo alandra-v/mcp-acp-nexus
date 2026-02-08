@@ -53,7 +53,7 @@ class HITLOutcome(Enum):
     TIMEOUT = "timeout"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class HITLResult:
     """Result of HITL approval request.
 

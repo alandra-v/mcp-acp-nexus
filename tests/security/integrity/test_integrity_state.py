@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -328,7 +329,8 @@ class TestIntegrityStateManagerVerification:
         )
 
         # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
-        state_manager._states["audit/test.jsonl"].last_inode += 1
+        _old = state_manager._states["audit/test.jsonl"]
+        state_manager._states["audit/test.jsonl"] = replace(_old, last_inode=_old.last_inode + 1)
         state_manager.save_state()
 
         # Replace file (creates new inode)
@@ -660,7 +662,8 @@ class TestIntegrityStateAutoRepairOnCrash:
         )
 
         # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
-        state_manager._states["audit/test.jsonl"].last_inode += 1
+        _old = state_manager._states["audit/test.jsonl"]
+        state_manager._states["audit/test.jsonl"] = replace(_old, last_inode=_old.last_inode + 1)
         state_manager.save_state()
 
         # Replace file (creates new inode) - simulating crash recovery
@@ -737,7 +740,8 @@ class TestIntegrityStateAutoRepairOnCrash:
         )
 
         # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
-        state_manager._states["audit/test.jsonl"].last_inode += 1
+        _old = state_manager._states["audit/test.jsonl"]
+        state_manager._states["audit/test.jsonl"] = replace(_old, last_inode=_old.last_inode + 1)
         state_manager.save_state()
 
         # Replace file (creates new inode)
@@ -777,7 +781,8 @@ class TestIntegrityStateAutoRepairOnCrash:
         )
 
         # Guarantee inode mismatch (Linux tmpfs may recycle inodes on unlink+write)
-        state_manager._states["audit/test.jsonl"].last_inode += 1
+        _old = state_manager._states["audit/test.jsonl"]
+        state_manager._states["audit/test.jsonl"] = replace(_old, last_inode=_old.last_inode + 1)
         state_manager.save_state()
 
         # Replace file (creates new inode)

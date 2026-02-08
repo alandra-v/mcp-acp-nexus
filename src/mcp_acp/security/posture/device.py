@@ -43,7 +43,7 @@ CheckResult = Literal["pass", "fail", "unknown"]
 _SUBPROCESS_TIMEOUT_SECONDS = 5
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DeviceHealthReport:
     """Results of device health checks."""
 

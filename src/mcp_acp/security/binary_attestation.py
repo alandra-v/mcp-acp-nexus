@@ -121,7 +121,7 @@ class _CodesignVerificationResult(TypedDict):
     error: str | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class BinaryAttestationConfig:
     """Configuration for binary attestation checks.
 

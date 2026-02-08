@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from mcp_acp.config import OIDCConfig
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ValidatedToken:
     """Result of successful token validation.
 
@@ -70,7 +70,7 @@ class ValidatedToken:
         return (datetime.now(timezone.utc) - self.auth_time).total_seconds()
 
 
-@dataclass
+@dataclass(slots=True)
 class _CachedJWKS:
     """Cached JWKS client with expiration tracking."""
 

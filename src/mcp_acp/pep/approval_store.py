@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from mcp_acp.context.resource import SideEffect
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CachedApproval:
     """A cached HITL approval with timestamp.
 

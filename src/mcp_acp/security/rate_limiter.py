@@ -54,7 +54,7 @@ DEFAULT_RATE_WINDOW_SECONDS: int = 60
 DEFAULT_RATE_THRESHOLD: int = 30
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RateLimitConfig:
     """Configuration for per-session rate limiting.
 
@@ -75,7 +75,7 @@ class RateLimitConfig:
     per_tool_thresholds: dict[str, int] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(slots=True)
 class SessionRateTracker:
     """Track request rates per session using sliding window.
 

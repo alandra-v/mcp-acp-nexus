@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from mcp_acp.pep.middleware import PolicyEnforcementMiddleware
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ReloadResult:
     """Result of a policy reload attempt.
 

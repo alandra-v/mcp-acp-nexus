@@ -65,7 +65,7 @@ HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
 CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SanitizationResult:
     """Result of sanitizing a description.
 

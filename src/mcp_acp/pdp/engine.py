@@ -127,7 +127,7 @@ def _count_path_depth(pattern: str | list[str] | None) -> int:
     return max(_depth_for_single(p) for p in pattern) if pattern else 0
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MatchedRule:
     """A policy rule that matched the decision context.
 
