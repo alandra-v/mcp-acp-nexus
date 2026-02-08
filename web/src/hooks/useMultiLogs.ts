@@ -111,29 +111,32 @@ export function useMultiLogs(
         })
       )
 
-      // Update state for each type
-      const newLogsByType: Record<string, LogEntry[]> = reset ? {} : { ...logsByType }
+      // Update cursors and compute hasMore outside setState
       const newHasMore: Record<string, boolean> = {}
       let scanned = 0
 
       for (const { type, data } of results) {
-        if (reset) {
-          newLogsByType[type] = data.entries
-        } else {
-          newLogsByType[type] = [...(newLogsByType[type] || []), ...data.entries]
-        }
-
-        // Update cursor
         if (data.entries.length > 0) {
           const oldestEntry = data.entries[data.entries.length - 1]
           cursorsRef.current[type] = oldestEntry.time || oldestEntry.timestamp
         }
-
         newHasMore[type] = data.has_more
         scanned += data.total_scanned
       }
 
-      setLogsByType(newLogsByType)
+      // Use functional updater to avoid stale closure over logsByType
+      setLogsByType((prev) => {
+        const updated: Record<string, LogEntry[]> = reset ? {} : { ...prev }
+        for (const { type, data } of results) {
+          if (reset) {
+            updated[type] = data.entries
+          } else {
+            updated[type] = [...(updated[type] || []), ...data.entries]
+          }
+        }
+        return updated
+      })
+
       setHasMoreByType(newHasMore)
       setTotalScanned((prev) => reset ? scanned : prev + scanned)
     } catch {
