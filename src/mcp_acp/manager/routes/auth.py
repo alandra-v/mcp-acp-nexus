@@ -10,9 +10,10 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas.auth import (
     DeviceFlowStartResponse,
     FederatedLogoutResponse,
@@ -82,14 +83,14 @@ async def get_dev_token(request: Request) -> _DevTokenResponse:
         _DevTokenResponse with the manager's api_token.
 
     Raises:
-        HTTPException: 404 in production, 503 if token unavailable.
+        APIError: 404 in production, 503 if token unavailable.
     """
     if not _is_dev_mode():
-        raise HTTPException(status_code=404, detail="Not found")
+        raise APIError(status_code=404, code=ErrorCode.NOT_FOUND, message="Not found")
 
     token = getattr(request.app.state, "api_token", None)
     if not token:
-        raise HTTPException(status_code=503, detail="Token not available")
+        raise APIError(status_code=503, code=ErrorCode.SERVICE_UNAVAILABLE, message="Token not available")
 
     return _DevTokenResponse(token=token)
 
@@ -134,13 +135,14 @@ def _get_oidc_config() -> "OIDCConfig":
     """Load OIDC config from manager config.
 
     Raises:
-        HTTPException: If OIDC is not configured.
+        APIError: If OIDC is not configured.
     """
     manager_config = load_manager_config()
     if manager_config.auth is None or manager_config.auth.oidc is None:
-        raise HTTPException(
+        raise APIError(
             status_code=400,
-            detail="OIDC not configured. Run 'mcp-acp init' first.",
+            code=ErrorCode.CONFIG_NOT_FOUND,
+            message="OIDC not configured. Run 'mcp-acp init' first.",
         )
     return manager_config.auth.oidc
 
@@ -418,16 +420,21 @@ async def start_login(request: Request) -> DeviceFlowStartResponse:
 
     # Prevent memory exhaustion
     if len(_device_flows) >= _MAX_DEVICE_FLOWS:
-        raise HTTPException(
+        raise APIError(
             status_code=503,
-            detail="Too many concurrent login attempts. Please try again later.",
+            code=ErrorCode.AUTH_DEVICE_FLOW_LIMIT,
+            message="Too many concurrent login attempts. Please try again later.",
         )
 
     # Start device flow (sync HTTP call, run in thread pool)
     try:
         device_code = await asyncio.to_thread(_request_device_code, oidc_config)
     except DeviceFlowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise APIError(
+            status_code=502,
+            code=ErrorCode.AUTH_DEVICE_FLOW_FAILED,
+            message=str(e),
+        )
 
     # Store flow state
     flow_state = _DeviceFlowState(device_code, oidc_config)
@@ -465,7 +472,11 @@ async def logout(request: Request) -> LogoutResponse:
     try:
         storage.delete()
     except AuthenticationError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(e),
+        )
 
     # Clear token service (broadcasts to proxies)
     ts = request.app.state.token_service

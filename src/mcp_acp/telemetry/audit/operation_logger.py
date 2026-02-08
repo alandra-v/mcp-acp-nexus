@@ -9,6 +9,8 @@ Audit logs are ALWAYS enabled (not controlled by log_level).
 Logs are written to <log_dir>/mcp-acp/proxies/default/audit/operations.jsonl.
 """
 
+from __future__ import annotations
+
 import logging
 
 __all__ = [
@@ -218,6 +220,9 @@ class AuditLoggingMiddleware(Middleware):
         error_code = None
         response_summary: ResponseSummary | None = None
 
+        # Track whether the try/except block raised an exception
+        request_exception: Exception | None = None
+
         try:
             # Process request through chain
             result = await call_next(context)
@@ -228,6 +233,7 @@ class AuditLoggingMiddleware(Middleware):
             return result
 
         except Exception as e:
+            request_exception = e
             status = "Failure"
             error_message = str(e)
             # Extract MCP/JSON-RPC error code if available
@@ -298,8 +304,11 @@ class AuditLoggingMiddleware(Middleware):
                 proxy_name=self.proxy_name,
             )
 
-            # If primary audit failed, raise error to client before shutdown
-            if not success:
+            # If primary audit failed and no other exception is in flight,
+            # raise error to client before shutdown. If a request exception
+            # is already propagating, don't replace it (log the audit failure
+            # via the fallback chain above instead).
+            if not success and request_exception is None:
                 raise McpError(
                     ErrorData(
                         code=INTERNAL_ERROR,

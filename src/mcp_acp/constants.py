@@ -4,6 +4,8 @@ Constants that define application behavior.
 For user-configurable settings per deployment, see config.py.
 """
 
+from __future__ import annotations
+
 import os
 import platform
 

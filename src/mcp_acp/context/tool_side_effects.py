@@ -18,6 +18,8 @@ Note: Unknown tools have no side effects listed (empty set).
 This is conservative - unknown tools won't match side_effect rules.
 """
 
+from __future__ import annotations
+
 __all__ = ["TOOL_SIDE_EFFECTS"]
 
 TOOL_SIDE_EFFECTS: dict[str, frozenset[str]] = {

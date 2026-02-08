@@ -10,6 +10,8 @@ Provides generic utilities for telemetry logging:
 For MCP-specific metadata extraction, see extractors.py.
 """
 
+from __future__ import annotations
+
 __all__ = [
     # Event serialization
     "serialize_audit_event",

@@ -5,6 +5,8 @@ Supports STDIO (local process) and Streamable HTTP (remote URL) transports.
 Includes mTLS support for secure proxy-to-backend authentication.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import ssl
