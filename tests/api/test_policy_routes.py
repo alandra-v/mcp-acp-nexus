@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from mcp_acp.api.errors import APIError
-from mcp_acp.api.routes.policy import _load_policy_or_raise, _rule_to_response, router
+from mcp_acp.api.routes.policy import router
 from mcp_acp.api.schemas import (
     PolicyResponse,
     PolicyRuleCreate,
@@ -21,6 +21,7 @@ from mcp_acp.api.schemas import (
     PolicyRuleResponse,
 )
 from mcp_acp.pdp.policy import PolicyConfig, PolicyRule, RuleConditions
+from mcp_acp.utils.policy.route_helpers import load_policy_or_raise, rule_to_response
 
 
 # =============================================================================
@@ -91,7 +92,7 @@ class TestGetPolicy:
     ) -> None:
         """Given valid policy, returns policy with metadata."""
         # Arrange
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             with patch(
                 "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=Path("/config/policy.json"),
@@ -112,7 +113,7 @@ class TestGetPolicy:
         """Given missing policy file, returns 404."""
         # Arrange
         with patch(
-            "mcp_acp.api.routes.policy.load_policy",
+            "mcp_acp.utils.policy.route_helpers.load_policy",
             side_effect=FileNotFoundError,
         ):
             # Act
@@ -126,7 +127,7 @@ class TestGetPolicy:
         """Given invalid policy, returns 500."""
         # Arrange
         with patch(
-            "mcp_acp.api.routes.policy.load_policy",
+            "mcp_acp.utils.policy.route_helpers.load_policy",
             side_effect=ValueError("Invalid"),
         ):
             # Act
@@ -147,7 +148,7 @@ class TestGetPolicyRules:
     def test_returns_rules_list(self, client: TestClient, sample_policy: PolicyConfig) -> None:
         """Given policy, returns simplified rules list."""
         # Arrange
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.get("/api/policy/rules")
 
@@ -168,7 +169,7 @@ class TestGetPolicyRules:
             rules=[],
         )
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=empty_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=empty_policy):
             # Act
             response = client.get("/api/policy/rules")
 
@@ -198,7 +199,7 @@ class TestAddPolicyRule:
         }
         policy_file = tmp_path / "policy.json"
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             with patch(
                 "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=policy_file,
@@ -224,7 +225,7 @@ class TestAddPolicyRule:
             "conditions": {"tool_name": "test"},
         }
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.post("/api/policy/rules", json=duplicate_rule)
 
@@ -242,7 +243,7 @@ class TestAddPolicyRule:
             "conditions": {"invalid_field": "test"},
         }
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.post("/api/policy/rules", json=invalid_rule)
 
@@ -259,7 +260,7 @@ class TestAddPolicyRule:
             "conditions": {"tool_name": "test"},
         }
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.post("/api/policy/rules", json=invalid_rule)
 
@@ -287,7 +288,7 @@ class TestUpdatePolicyRule:
         }
         policy_file = tmp_path / "policy.json"
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             with patch(
                 "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=policy_file,
@@ -312,7 +313,7 @@ class TestUpdatePolicyRule:
             "conditions": {"tool_name": "test"},
         }
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.put("/api/policy/rules/nonexistent", json=update_data)
 
@@ -329,7 +330,7 @@ class TestUpdatePolicyRule:
             "conditions": {"invalid": "field"},
         }
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.put("/api/policy/rules/rule-1", json=invalid_update)
 
@@ -352,7 +353,7 @@ class TestDeletePolicyRule:
         # Arrange
         policy_file = tmp_path / "policy.json"
 
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             with patch(
                 "mcp_acp.manager.config.get_proxy_policy_path",
                 return_value=policy_file,
@@ -368,7 +369,7 @@ class TestDeletePolicyRule:
     ) -> None:
         """Given nonexistent rule ID, returns 404."""
         # Arrange
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
             response = client.delete("/api/policy/rules/nonexistent")
 
@@ -382,15 +383,15 @@ class TestDeletePolicyRule:
 
 
 class TestLoadPolicyOrRaise:
-    """Tests for _load_policy_or_raise helper."""
+    """Tests for load_policy_or_raise helper."""
 
     def test_returns_policy_on_success(self, sample_policy: PolicyConfig) -> None:
         """Given valid policy, returns it."""
         # Arrange
         policy_path = Path("/config/policy.json")
-        with patch("mcp_acp.api.routes.policy.load_policy", return_value=sample_policy):
+        with patch("mcp_acp.utils.policy.route_helpers.load_policy", return_value=sample_policy):
             # Act
-            result = _load_policy_or_raise(policy_path)
+            result = load_policy_or_raise(policy_path)
 
         # Assert
         assert result == sample_policy
@@ -400,12 +401,12 @@ class TestLoadPolicyOrRaise:
         # Arrange
         policy_path = Path("/config/policy.json")
         with patch(
-            "mcp_acp.api.routes.policy.load_policy",
+            "mcp_acp.utils.policy.route_helpers.load_policy",
             side_effect=FileNotFoundError,
         ):
             # Act & Assert
             with pytest.raises(APIError) as exc_info:
-                _load_policy_or_raise(policy_path)
+                load_policy_or_raise(policy_path)
 
         assert exc_info.value.status_code == 404
 
@@ -414,18 +415,18 @@ class TestLoadPolicyOrRaise:
         # Arrange
         policy_path = Path("/config/policy.json")
         with patch(
-            "mcp_acp.api.routes.policy.load_policy",
+            "mcp_acp.utils.policy.route_helpers.load_policy",
             side_effect=ValueError("Invalid"),
         ):
             # Act & Assert
             with pytest.raises(APIError) as exc_info:
-                _load_policy_or_raise(policy_path)
+                load_policy_or_raise(policy_path)
 
         assert exc_info.value.status_code == 500
 
 
 class TestRuleToResponse:
-    """Tests for _rule_to_response helper."""
+    """Tests for rule_to_response helper."""
 
     def test_converts_rule_to_response(self) -> None:
         """Given PolicyRule, converts to PolicyRuleResponse."""
@@ -438,7 +439,7 @@ class TestRuleToResponse:
         )
 
         # Act
-        response = _rule_to_response(rule)
+        response = rule_to_response(rule)
 
         # Assert
         assert isinstance(response, PolicyRuleResponse)
@@ -456,7 +457,7 @@ class TestRuleToResponse:
         )
 
         # Act
-        response = _rule_to_response(rule)
+        response = rule_to_response(rule)
 
         # Assert
         assert response.description is None

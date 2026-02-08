@@ -36,6 +36,8 @@ from mcp_acp.manager.config import get_proxy_config_path, get_proxy_log_dir
 from mcp_acp.manager.registry import ProxyRegistry
 from mcp_acp.security.credential_storage import BackendCredentialStorage
 
+from mcp_acp.utils.policy.route_helpers import validation_errors_from_pydantic
+
 from .deps import find_proxy_by_id, get_proxy_socket
 from .helpers import PROXY_SNAPSHOT_TIMEOUT_SECONDS, create_uds_client
 
@@ -47,18 +49,6 @@ router = APIRouter(prefix="/api/manager/proxies", tags=["config"])
 # ==========================================================================
 # Config Helpers
 # ==========================================================================
-
-
-def _validation_errors_from_pydantic(e: PydanticValidationError) -> list[dict[str, Any]]:
-    """Extract validation errors from a Pydantic ValidationError."""
-    return [
-        {
-            "loc": list(err.get("loc", [])),
-            "msg": err.get("msg", ""),
-            "type": err.get("type", ""),
-        }
-        for err in e.errors()
-    ]
 
 
 def _build_config_response_from_proxy(config: PerProxyConfig, proxy_name: str) -> ConfigResponse:
@@ -300,7 +290,7 @@ async def update_proxy_config(proxy_id: str, updates: ConfigUpdateRequest) -> Co
             status_code=400,
             code=ErrorCode.CONFIG_INVALID,
             message=f"Invalid configuration: {e.error_count()} validation error(s)",
-            validation_errors=_validation_errors_from_pydantic(e),
+            validation_errors=validation_errors_from_pydantic(e),
         )
 
     # Save to file

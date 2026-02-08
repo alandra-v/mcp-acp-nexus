@@ -5,12 +5,10 @@ from __future__ import annotations
 __all__ = ["router"]
 
 import json
-from pathlib import Path
-from typing import Any
 
 import httpx
-
 from fastapi import APIRouter, Request
+from pydantic import ValidationError as PydanticValidationError
 
 from mcp_acp.api.errors import APIError, ErrorCode
 from mcp_acp.api.schemas.policy import (
@@ -20,11 +18,17 @@ from mcp_acp.api.schemas.policy import (
     PolicyRuleMutationResponse,
     PolicyRuleResponse,
 )
-from mcp_acp.context.resource import SideEffect
 from mcp_acp.manager.registry import ProxyRegistry
-from mcp_acp.pdp import PolicyConfig, PolicyRule, RuleConditions
-from mcp_acp.utils.policy import load_policy, save_policy
-from pydantic import ValidationError as PydanticValidationError
+from mcp_acp.pdp import PolicyConfig, PolicyRule
+from mcp_acp.utils.policy import save_policy
+from mcp_acp.utils.policy.route_helpers import (
+    load_policy_or_raise,
+    parse_cache_side_effects,
+    rebuild_policy,
+    rule_to_response,
+    validate_conditions,
+    validation_errors_from_pydantic,
+)
 
 from .deps import get_proxy_paths, get_proxy_socket
 from .helpers import PROXY_SNAPSHOT_TIMEOUT_SECONDS, create_uds_client
@@ -74,153 +78,6 @@ async def _fetch_policy_version(socket_path: str) -> str | None:
     return None
 
 
-def _load_policy_or_raise(policy_path: Path) -> PolicyConfig:
-    """Load policy from disk, raising APIError on error.
-
-    Args:
-        policy_path: Path to the policy JSON file.
-
-    Returns:
-        PolicyConfig loaded from the file.
-
-    Raises:
-        APIError: 404 if file not found, 500 if policy is invalid.
-    """
-    try:
-        return load_policy(policy_path)
-    except FileNotFoundError:
-        raise APIError(
-            status_code=404,
-            code=ErrorCode.POLICY_NOT_FOUND,
-            message="Policy file not found",
-            details={"path": str(policy_path)},
-        )
-    except ValueError as e:
-        raise APIError(
-            status_code=500,
-            code=ErrorCode.POLICY_INVALID,
-            message=f"Invalid policy: {e}",
-        )
-
-
-def _validation_errors_from_pydantic(e: PydanticValidationError) -> list[dict[str, Any]]:
-    """Extract validation errors from a Pydantic ValidationError.
-
-    Args:
-        e: The Pydantic ValidationError to extract from.
-
-    Returns:
-        List of error dicts with loc, msg, and type fields.
-    """
-    return [
-        {
-            "loc": list(err.get("loc", [])),
-            "msg": err.get("msg", ""),
-            "type": err.get("type", ""),
-        }
-        for err in e.errors()
-    ]
-
-
-def _validate_conditions(conditions: dict[str, Any]) -> RuleConditions:
-    """Validate and parse rule conditions.
-
-    Args:
-        conditions: Dictionary of condition fields to validate.
-
-    Returns:
-        Validated RuleConditions instance.
-
-    Raises:
-        APIError: 400 if conditions are invalid.
-    """
-    try:
-        return RuleConditions.model_validate(conditions)
-    except PydanticValidationError as e:
-        raise APIError(
-            status_code=400,
-            code=ErrorCode.POLICY_INVALID,
-            message=f"Invalid conditions: {e.error_count()} validation error(s)",
-            validation_errors=_validation_errors_from_pydantic(e),
-        )
-
-
-def _parse_cache_side_effects(values: list[str] | None) -> list[SideEffect] | None:
-    """Parse string side effect values to SideEffect enum.
-
-    Args:
-        values: List of side effect string values, or None.
-
-    Returns:
-        List of SideEffect enum values, or None if input is None/empty.
-
-    Raises:
-        APIError: 400 if any value is not a valid SideEffect.
-    """
-    if values is None or len(values) == 0:
-        return None
-
-    result = []
-    for v in values:
-        try:
-            result.append(SideEffect(v))
-        except ValueError:
-            valid_values = [e.value for e in SideEffect]
-            raise APIError(
-                status_code=400,
-                code=ErrorCode.POLICY_INVALID,
-                message=f"Invalid side effect: '{v}'",
-                details={"valid_values": valid_values},
-            )
-    return result
-
-
-def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
-    """Convert PolicyRule to API response format.
-
-    Args:
-        rule: The PolicyRule domain model to convert.
-
-    Returns:
-        PolicyRuleResponse suitable for API serialization.
-    """
-    return PolicyRuleResponse(
-        id=rule.id,
-        effect=rule.effect,
-        conditions=rule.conditions.model_dump(),
-        description=rule.description,
-        cache_side_effects=([e.value for e in rule.cache_side_effects] if rule.cache_side_effects else None),
-    )
-
-
-def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> PolicyConfig:
-    """Rebuild policy with new rules, preserving version and default_action.
-
-    Args:
-        policy: Original policy to copy settings from.
-        new_rules: New list of rules to use.
-
-    Returns:
-        New PolicyConfig with updated rules.
-
-    Raises:
-        APIError: 400 if resulting policy is invalid.
-    """
-    try:
-        return PolicyConfig(
-            version=policy.version,
-            default_action=policy.default_action,
-            rules=new_rules,
-        )
-    except PydanticValidationError as e:
-        raise APIError(
-            status_code=400,
-            code=ErrorCode.POLICY_INVALID,
-            message=f"Invalid policy: {e.error_count()} validation error(s)",
-            validation_errors=_validation_errors_from_pydantic(e),
-        )
-
-
 # ==========================================================================
 # Policy Endpoints
 # ==========================================================================
@@ -240,7 +97,7 @@ async def get_proxy_policy(proxy_id: str, request: Request) -> PolicyResponse:
         PolicyResponse with rules and metadata.
     """
     proxy_name, _, policy_path = get_proxy_paths(proxy_id)
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Get policy_version from running proxy if available
     reg: ProxyRegistry = request.app.state.registry
@@ -280,8 +137,8 @@ async def update_proxy_policy(
     # Build new rules
     new_rules: list[PolicyRule] = []
     for rule_data in policy_data.rules:
-        conditions = _validate_conditions(rule_data.conditions)
-        cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
+        conditions = validate_conditions(rule_data.conditions)
+        cache_effects = parse_cache_side_effects(rule_data.cache_side_effects)
         new_rules.append(
             PolicyRule(
                 id=rule_data.id,
@@ -304,7 +161,7 @@ async def update_proxy_policy(
             status_code=400,
             code=ErrorCode.POLICY_INVALID,
             message=f"Invalid policy: {e.error_count()} validation error(s)",
-            validation_errors=_validation_errors_from_pydantic(e),
+            validation_errors=validation_errors_from_pydantic(e),
         )
 
     # Save to disk
@@ -334,8 +191,8 @@ async def update_proxy_policy(
 async def get_proxy_policy_rules(proxy_id: str) -> list[PolicyRuleResponse]:
     """Get policy rules for a specific proxy (simplified view)."""
     _, _, policy_path = get_proxy_paths(proxy_id)
-    policy = _load_policy_or_raise(policy_path)
-    return [_rule_to_response(rule) for rule in policy.rules]
+    policy = load_policy_or_raise(policy_path)
+    return [rule_to_response(rule) for rule in policy.rules]
 
 
 @router.post("/{proxy_id}/policy/rules", status_code=201, response_model=PolicyRuleMutationResponse)
@@ -349,7 +206,7 @@ async def add_proxy_policy_rule(
     Saves to disk and triggers hot-reload if proxy is running.
     """
     proxy_name, _, policy_path = get_proxy_paths(proxy_id)
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Check for duplicate ID
     if rule_data.id:
@@ -363,8 +220,8 @@ async def add_proxy_policy_rule(
                 )
 
     # Validate and create rule
-    conditions = _validate_conditions(rule_data.conditions)
-    cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
+    conditions = validate_conditions(rule_data.conditions)
+    cache_effects = parse_cache_side_effects(rule_data.cache_side_effects)
 
     new_rule = PolicyRule(
         id=rule_data.id,
@@ -376,7 +233,7 @@ async def add_proxy_policy_rule(
 
     # Rebuild policy
     new_rules = list(policy.rules) + [new_rule]
-    updated_policy = _rebuild_policy(policy, new_rules)
+    updated_policy = rebuild_policy(policy, new_rules)
     final_rule = updated_policy.rules[-1]
 
     # Save to disk
@@ -393,7 +250,7 @@ async def add_proxy_policy_rule(
             policy_version = await _fetch_policy_version(socket_path)
 
     return PolicyRuleMutationResponse(
-        rule=_rule_to_response(final_rule),
+        rule=rule_to_response(final_rule),
         policy_version=policy_version,
         rules_count=len(updated_policy.rules),
     )
@@ -411,11 +268,11 @@ async def update_proxy_policy_rule(
     Saves to disk and triggers hot-reload if proxy is running.
     """
     proxy_name, _, policy_path = get_proxy_paths(proxy_id)
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Validate and find rule
-    conditions = _validate_conditions(rule_data.conditions)
-    cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
+    conditions = validate_conditions(rule_data.conditions)
+    cache_effects = parse_cache_side_effects(rule_data.cache_side_effects)
 
     new_rules = []
     found = False
@@ -443,7 +300,7 @@ async def update_proxy_policy_rule(
         )
 
     # Rebuild and save
-    updated_policy = _rebuild_policy(policy, new_rules)
+    updated_policy = rebuild_policy(policy, new_rules)
     updated_rule = next(r for r in updated_policy.rules if r.id == rule_id)
     save_policy(updated_policy, policy_path)
 
@@ -458,7 +315,7 @@ async def update_proxy_policy_rule(
             policy_version = await _fetch_policy_version(socket_path)
 
     return PolicyRuleMutationResponse(
-        rule=_rule_to_response(updated_rule),
+        rule=rule_to_response(updated_rule),
         policy_version=policy_version,
         rules_count=len(updated_policy.rules),
     )
@@ -475,7 +332,7 @@ async def delete_proxy_policy_rule(
     Saves to disk and triggers hot-reload if proxy is running.
     """
     proxy_name, _, policy_path = get_proxy_paths(proxy_id)
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Remove rule
     new_rules = [r for r in policy.rules if r.id != rule_id]
@@ -489,7 +346,7 @@ async def delete_proxy_policy_rule(
         )
 
     # Rebuild and save
-    updated_policy = _rebuild_policy(policy, new_rules)
+    updated_policy = rebuild_policy(policy, new_rules)
     save_policy(updated_policy, policy_path)
 
     # Trigger reload if proxy is running

@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from mcp_acp.api.deps import ConfigDep
 from mcp_acp.api.errors import APIError, ErrorCode
+from mcp_acp.utils.policy.route_helpers import validation_errors_from_pydantic
 from mcp_acp.api.schemas import (
     AuthConfigResponse,
     BackendConfigResponse,
@@ -297,15 +298,11 @@ async def update_config(config: ConfigDep, updates: ConfigUpdateRequest) -> Conf
     try:
         new_config = AppConfig.model_validate(update_dict)
     except ValidationError as e:
-        validation_errors = [
-            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
-            for err in e.errors()
-        ]
         raise APIError(
             status_code=400,
             code=ErrorCode.CONFIG_INVALID,
             message=f"Invalid configuration: {e.error_count()} validation error(s)",
-            validation_errors=validation_errors,
+            validation_errors=validation_errors_from_pydantic(e),
         )
 
     # Save back as PerProxyConfig (preserve proxy_id and created_at)

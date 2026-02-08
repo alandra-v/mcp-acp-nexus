@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter
-from pydantic import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 
 from mcp_acp.api.deps import PolicyPathDep, PolicyReloaderDep
 from mcp_acp.api.errors import APIError, ErrorCode
@@ -33,96 +33,18 @@ from mcp_acp.api.schemas import (
     PolicyRuleResponse,
     PolicySchemaResponse,
 )
-from mcp_acp.context.resource import SideEffect
-from mcp_acp.pdp.policy import VALID_OPERATIONS, PolicyConfig, PolicyRule, RuleConditions
+from mcp_acp.pdp.policy import VALID_OPERATIONS, PolicyConfig, PolicyRule
 from mcp_acp.pep.reloader import PolicyReloader
-from mcp_acp.utils.policy import load_policy
+from mcp_acp.utils.policy.route_helpers import (
+    load_policy_or_raise,
+    parse_cache_side_effects,
+    rebuild_policy,
+    rule_to_response,
+    validate_conditions,
+    validation_errors_from_pydantic,
+)
 
 router = APIRouter()
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def _load_policy_or_raise(policy_path: Path) -> PolicyConfig:
-    """Load policy from disk, raising APIError on error.
-
-    Args:
-        policy_path: Path to the policy file.
-
-    Returns:
-        PolicyConfig loaded from disk.
-
-    Raises:
-        APIError: 404 if file not found, 500 if invalid.
-    """
-    try:
-        return load_policy(policy_path)
-    except FileNotFoundError:
-        raise APIError(
-            status_code=404,
-            code=ErrorCode.POLICY_NOT_FOUND,
-            message="Policy file not found",
-            details={"path": str(policy_path)},
-        )
-    except ValueError as e:
-        raise APIError(
-            status_code=500,
-            code=ErrorCode.POLICY_INVALID,
-            message=f"Invalid policy: {e}",
-        )
-
-
-def _validate_conditions(conditions: dict) -> RuleConditions:
-    """Validate and parse rule conditions, raising APIError on error."""
-    try:
-        return RuleConditions.model_validate(conditions)
-    except ValidationError as e:
-        # Extract validation errors for structured response
-        validation_errors = [
-            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
-            for err in e.errors()
-        ]
-        raise APIError(
-            status_code=400,
-            code=ErrorCode.POLICY_INVALID,
-            message=f"Invalid conditions: {e.error_count()} validation error(s)",
-            validation_errors=validation_errors,
-        )
-
-
-def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> PolicyConfig:
-    """Rebuild policy with new rules, raising APIError on validation error.
-
-    Args:
-        policy: Original policy to copy settings from.
-        new_rules: New list of rules.
-
-    Returns:
-        New PolicyConfig with updated rules.
-
-    Raises:
-        APIError: 400 if resulting policy is invalid.
-    """
-    try:
-        return PolicyConfig(
-            version=policy.version,
-            default_action=policy.default_action,
-            rules=new_rules,
-        )
-    except ValidationError as e:
-        validation_errors = [
-            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
-            for err in e.errors()
-        ]
-        raise APIError(
-            status_code=400,
-            code=ErrorCode.POLICY_INVALID,
-            message=f"Invalid policy: {e.error_count()} validation error(s)",
-            validation_errors=validation_errors,
-        )
 
 
 @router.get("/schema", response_model=PolicySchemaResponse)
@@ -142,7 +64,7 @@ async def get_policy(reloader: PolicyReloaderDep, policy_path: PolicyPathDep) ->
     Returns the active policy with metadata including version info.
     Note: HITL configuration is now in AppConfig (see /api/config endpoint).
     """
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     return PolicyResponse(
         version=policy.version,
@@ -183,8 +105,8 @@ async def update_full_policy(
     # Build new rules from request
     new_rules: list[PolicyRule] = []
     for rule_data in policy_data.rules:
-        conditions = _validate_conditions(rule_data.conditions)
-        cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
+        conditions = validate_conditions(rule_data.conditions)
+        cache_effects = parse_cache_side_effects(rule_data.cache_side_effects)
         new_rules.append(
             PolicyRule(
                 id=rule_data.id,
@@ -202,16 +124,12 @@ async def update_full_policy(
             default_action=policy_data.default_action,
             rules=new_rules,
         )
-    except ValidationError as e:
-        validation_errors = [
-            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
-            for err in e.errors()
-        ]
+    except PydanticValidationError as e:
         raise APIError(
             status_code=400,
             code=ErrorCode.POLICY_INVALID,
             message=f"Invalid policy: {e.error_count()} validation error(s)",
-            validation_errors=validation_errors,
+            validation_errors=validation_errors_from_pydantic(e),
         )
 
     # Save and reload
@@ -230,9 +148,9 @@ async def update_full_policy(
 @router.get("/rules", response_model=list[PolicyRuleResponse])
 async def get_policy_rules(policy_path: PolicyPathDep) -> list[PolicyRuleResponse]:
     """Get just the policy rules (simplified view)."""
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
-    return [_rule_to_response(rule) for rule in policy.rules]
+    return [rule_to_response(rule) for rule in policy.rules]
 
 
 async def _save_and_reload(
@@ -278,47 +196,6 @@ async def _save_and_reload(
     return result.policy_version
 
 
-def _parse_cache_side_effects(values: list[str] | None) -> list[SideEffect] | None:
-    """Parse string side effect values to SideEffect enum.
-
-    Args:
-        values: List of side effect string values, or None.
-
-    Returns:
-        List of SideEffect enum values, or None. Empty lists are normalized to None.
-
-    Raises:
-        APIError: 400 if any value is invalid.
-    """
-    if values is None or len(values) == 0:
-        return None
-
-    result = []
-    for v in values:
-        try:
-            result.append(SideEffect(v))
-        except ValueError:
-            valid_values = [e.value for e in SideEffect]
-            raise APIError(
-                status_code=400,
-                code=ErrorCode.POLICY_INVALID,
-                message=f"Invalid side effect: '{v}'",
-                details={"valid_values": valid_values},
-            )
-    return result
-
-
-def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
-    """Convert PolicyRule to API response."""
-    return PolicyRuleResponse(
-        id=rule.id,
-        effect=rule.effect,
-        conditions=rule.conditions.model_dump(),
-        description=rule.description,
-        cache_side_effects=([e.value for e in rule.cache_side_effects] if rule.cache_side_effects else None),
-    )
-
-
 @router.post("/rules", status_code=201, response_model=PolicyRuleMutationResponse)
 async def add_policy_rule(
     reloader: PolicyReloaderDep,
@@ -330,7 +207,7 @@ async def add_policy_rule(
     The rule is appended to the existing rules and policy is auto-reloaded.
     If id is not provided, one will be auto-generated.
     """
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Check for duplicate ID if provided
     if rule_data.id:
@@ -344,8 +221,8 @@ async def add_policy_rule(
                 )
 
     # Validate conditions and cache_side_effects
-    conditions = _validate_conditions(rule_data.conditions)
-    cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
+    conditions = validate_conditions(rule_data.conditions)
+    cache_effects = parse_cache_side_effects(rule_data.cache_side_effects)
 
     # Create new rule
     new_rule = PolicyRule(
@@ -358,7 +235,7 @@ async def add_policy_rule(
 
     # Append to rules and rebuild policy (will auto-generate ID if not provided)
     new_rules = list(policy.rules) + [new_rule]
-    updated_policy = _rebuild_policy(policy, new_rules)
+    updated_policy = rebuild_policy(policy, new_rules)
 
     # Get the final rule (may have auto-generated ID)
     final_rule = updated_policy.rules[-1]
@@ -367,7 +244,7 @@ async def add_policy_rule(
     policy_version = await _save_and_reload(reloader, updated_policy, policy_path)
 
     return PolicyRuleMutationResponse(
-        rule=_rule_to_response(final_rule),
+        rule=rule_to_response(final_rule),
         policy_version=policy_version,
         rules_count=len(updated_policy.rules),
     )
@@ -384,11 +261,11 @@ async def update_policy_rule(
 
     The rule is replaced and policy is auto-reloaded.
     """
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Validate conditions and cache_side_effects
-    conditions = _validate_conditions(rule_data.conditions)
-    cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
+    conditions = validate_conditions(rule_data.conditions)
+    cache_effects = parse_cache_side_effects(rule_data.cache_side_effects)
 
     # Find and replace rule
     new_rules = []
@@ -418,7 +295,7 @@ async def update_policy_rule(
         )
 
     # Rebuild policy
-    updated_policy = _rebuild_policy(policy, new_rules)
+    updated_policy = rebuild_policy(policy, new_rules)
 
     # Get the updated rule
     updated_rule = next(r for r in updated_policy.rules if r.id == rule_id)
@@ -427,7 +304,7 @@ async def update_policy_rule(
     policy_version = await _save_and_reload(reloader, updated_policy, policy_path)
 
     return PolicyRuleMutationResponse(
-        rule=_rule_to_response(updated_rule),
+        rule=rule_to_response(updated_rule),
         policy_version=policy_version,
         rules_count=len(updated_policy.rules),
     )
@@ -443,7 +320,7 @@ async def delete_policy_rule(
 
     The rule is removed and policy is auto-reloaded.
     """
-    policy = _load_policy_or_raise(policy_path)
+    policy = load_policy_or_raise(policy_path)
 
     # Remove rule
     new_rules = [r for r in policy.rules if r.id != rule_id]
@@ -457,5 +334,5 @@ async def delete_policy_rule(
         )
 
     # Rebuild policy and save
-    updated_policy = _rebuild_policy(policy, new_rules)
+    updated_policy = rebuild_policy(policy, new_rules)
     await _save_and_reload(reloader, updated_policy, policy_path)
