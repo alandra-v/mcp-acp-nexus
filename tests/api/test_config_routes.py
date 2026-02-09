@@ -126,9 +126,15 @@ class TestGetConfig:
     def test_returns_config_with_auth(self, client: TestClient, mock_config: MagicMock) -> None:
         """Given config with auth, returns full config details."""
         # Arrange
-        with patch(
-            "mcp_acp.api.routes.config.get_proxy_config_path",
-            return_value=Path("/config/app.json"),
+        with (
+            patch(
+                "mcp_acp.api.routes.config.get_proxy_config_path",
+                return_value=Path("/config/app.json"),
+            ),
+            patch(
+                "mcp_acp.api.routes.config.get_proxy_log_dir",
+                return_value=Path("/tmp/logs"),
+            ),
         ):
             # Act
             response = client.get("/api/config")
