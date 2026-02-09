@@ -273,10 +273,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
           set({ _isShutdown: false })
         }
 
-        // Increment authVersion only on disconnected→connected transition
-        // This fixes "not logged in until reload" without flooding auth refetches
+        // On disconnected→connected transition, refresh auth and proxy list.
+        // Proxy list refresh catches any proxy_registered events missed while
+        // the SSE connection was being established (or during a reconnection gap).
         if (wasDisconnected) {
-          set((state) => ({ authVersion: state.authVersion + 1 }))
+          set((state) => ({
+            authVersion: state.authVersion + 1,
+            proxyListVersion: state.proxyListVersion + 1,
+          }))
         }
         break
       }

@@ -227,6 +227,47 @@ describe('useManagerProxies', () => {
     })
   })
 
+  describe('abort on SSE refetch', () => {
+    it('aborts in-flight initial fetch when proxyListVersion changes', async () => {
+      // Simulate a slow initial fetch that would return stale "inactive" data
+      const staleProxies: Proxy[] = [{ ...mockProxies[0], status: 'inactive' }]
+      const freshProxies: Proxy[] = [{ ...mockProxies[0], status: 'running' }]
+      let callCount = 0
+
+      vi.mocked(proxiesApi.getManagerProxies).mockImplementation(
+        (options) =>
+          new Promise((resolve, reject) => {
+            callCount++
+            const thisCall = callCount
+            // First call (initial): slow, returns stale data
+            // Second call (SSE-triggered): fast, returns fresh data
+            const delay = thisCall === 1 ? 200 : 10
+            const data = thisCall === 1 ? staleProxies : freshProxies
+            const timeout = setTimeout(() => resolve(data), delay)
+            options?.signal?.addEventListener('abort', () => {
+              clearTimeout(timeout)
+              reject(new DOMException('Aborted', 'AbortError'))
+            })
+          })
+      )
+
+      const { result } = renderHook(() => useManagerProxies())
+
+      // Simulate proxy_registered SSE event while initial fetch is in-flight
+      act(() => {
+        useAppStore.setState((s) => ({ proxyListVersion: s.proxyListVersion + 1 }))
+      })
+
+      // Wait for the SSE-triggered fetch to complete
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
+
+      // Should show the fresh "running" data, not the stale "inactive" data
+      expect(result.current.proxies[0].status).toBe('running')
+    })
+  })
+
   describe('abort on unmount', () => {
     it('aborts fetch on unmount', async () => {
       vi.mocked(proxiesApi.getManagerProxies).mockImplementation(

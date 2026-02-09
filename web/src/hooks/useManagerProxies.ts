@@ -31,6 +31,11 @@ export function useManagerProxies(): UseManagerProxiesResult {
   const proxyListVersion = useAppStore((s) => s.proxyListVersion)
   const storeStats = useAppStore((s) => s.stats)
 
+  // Shared controller ref: any new fetch (initial or SSE-triggered) aborts the
+  // previous in-flight request.  This prevents a slow initial fetch from
+  // overwriting a fresher SSE-triggered refetch with stale data.
+  const controllerRef = useRef<AbortController | null>(null)
+
   // Track mount-time version to skip initial effect run
   const mountVersionRef = useRef(proxyListVersion)
 
@@ -62,10 +67,12 @@ export function useManagerProxies(): UseManagerProxiesResult {
     }
   }, [])
 
-  // Initial fetch with AbortController cleanup
+  // Initial fetch — abort on unmount or when an SSE-triggered fetch supersedes
   useEffect(() => {
     mountedRef.current = true
+    controllerRef.current?.abort()
     const controller = new AbortController()
+    controllerRef.current = controller
     fetchProxies(controller.signal)
     return () => {
       mountedRef.current = false
@@ -74,16 +81,14 @@ export function useManagerProxies(): UseManagerProxiesResult {
   }, [fetchProxies])
 
   // Refetch when proxyListVersion changes (skip mount-time value)
-  const sseControllerRef = useRef<AbortController | null>(null)
-
   useEffect(() => {
     // Skip if this is the mount-time value
     if (proxyListVersion === mountVersionRef.current) return
 
-    // Abort any in-flight SSE-triggered fetch
-    sseControllerRef.current?.abort()
+    // Abort any in-flight fetch (initial or previous SSE-triggered)
+    controllerRef.current?.abort()
     const controller = new AbortController()
-    sseControllerRef.current = controller
+    controllerRef.current = controller
     fetchProxies(controller.signal)
 
     return () => {
