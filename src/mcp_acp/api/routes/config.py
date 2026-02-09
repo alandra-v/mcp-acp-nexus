@@ -43,7 +43,7 @@ from mcp_acp.config import (
     load_proxy_config,
     save_proxy_config,
 )
-from mcp_acp.manager.config import get_proxy_config_path
+from mcp_acp.manager.config import get_proxy_config_path, get_proxy_log_dir
 
 router = APIRouter()
 
@@ -198,7 +198,7 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
     return ConfigResponse(
         backend=backend_response,
         logging=LoggingConfigResponse(
-            log_dir=config.logging.log_dir,
+            log_dir=str(get_proxy_log_dir(config.proxy.name)),
             log_level=config.logging.log_level,
             include_payloads=config.logging.include_payloads,
         ),
